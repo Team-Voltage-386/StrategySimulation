@@ -1,0 +1,47 @@
+{
+  "name": "cycle_coral",
+  "rules": [
+    {
+      "name": "score_coral",
+      "trigger": {
+        "type": "AtCapacity",
+        "for_duration": null,
+        "piece_type": "coral"
+      },
+      "tactic": {
+        "type": "Score",
+        "region": null,
+        "action": "l4"
+      },
+      "priority": 10,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    },
+    {
+      "name": "collect_coral",
+      "trigger": {
+        "type": "PiecesHeld",
+        "for_duration": null,
+        "piece_type": "coral",
+        "min_count": null,
+        "max_count": 0
+      },
+      "tactic": {
+        "type": "Collect",
+        "piece_type": "coral",
+        "mode": "nearest",
+        "cluster_radius": 24.0,
+        "prefer_station": true,
+        "max_range": null
+      },
+      "priority": 5,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    }
+  ],
+  "fallback": {
+    "type": "Idle"
+  }
+}

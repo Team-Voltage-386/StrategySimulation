@@ -1,0 +1,7 @@
+pygame
+pymunk
+pyqtgraph
+PyQt5
+numpy
+pandas
+pytest

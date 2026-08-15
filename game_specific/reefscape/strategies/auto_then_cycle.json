@@ -1,0 +1,88 @@
+{
+  "name": "auto_then_cycle",
+  "rules": [
+    {
+      "name": "auto",
+      "trigger": {
+        "type": "MatchTime",
+        "for_duration": null,
+        "after": null,
+        "before": null,
+        "phase": "auto",
+        "remaining_under": null
+      },
+      "tactic": {
+        "type": "RunScript",
+        "children": [
+          {
+            "type": "RunIntake",
+            "timeout": 2.0
+          },
+          {
+            "type": "DriveToPose",
+            "target": [
+              150.0,
+              158.5,
+              0.0
+            ],
+            "position_tolerance": 2.0,
+            "heading_tolerance": 0.05,
+            "speed_gain": 3.0,
+            "heading_gain": 4.0
+          },
+          {
+            "type": "RunManipulator",
+            "action": "l4",
+            "timeout": 2.0
+          }
+        ]
+      },
+      "priority": 100,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": true
+    },
+    {
+      "name": "score_coral",
+      "trigger": {
+        "type": "AtCapacity",
+        "for_duration": null,
+        "piece_type": "coral"
+      },
+      "tactic": {
+        "type": "Score",
+        "region": null,
+        "action": "l4"
+      },
+      "priority": 10,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    },
+    {
+      "name": "collect_coral",
+      "trigger": {
+        "type": "PiecesHeld",
+        "for_duration": null,
+        "piece_type": "coral",
+        "min_count": null,
+        "max_count": 0
+      },
+      "tactic": {
+        "type": "Collect",
+        "piece_type": "coral",
+        "mode": "nearest",
+        "cluster_radius": 24.0,
+        "prefer_station": true,
+        "max_range": null
+      },
+      "priority": 5,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    }
+  ],
+  "fallback": {
+    "type": "Idle"
+  }
+}

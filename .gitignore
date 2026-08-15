@@ -1,0 +1,4 @@
+references/*
+Prompts.md
+**/__pycache__/
+*.pyc
