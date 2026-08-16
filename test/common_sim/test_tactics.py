@@ -451,3 +451,101 @@ def test_shared_pool_capacity_still_fills_on_any_type():
 
     assert robot.is_full_for(WIDGET)
     assert robot.is_full_for()
+
+
+# Two feeders, each 36x36 -- barely bigger than the 28x28 robot, so
+# region_robot_capacity is 1 apiece. This is the REEFSCAPE CORAL STATION
+# geometry in miniature: the corner fits exactly one robot.
+NEAR_FEEDER = IntakeLocation(
+    name="near_feeder", vertices=((42, 82), (78, 82), (78, 118), (42, 118)),
+    piece_type=WIDGET, dispense_time=0.1, starting_pieces=5,
+)
+FAR_FEEDER = IntakeLocation(
+    name="far_feeder", vertices=((42, 22), (78, 22), (78, 58), (42, 58)),
+    piece_type=WIDGET, dispense_time=0.1, starting_pieces=5,
+)
+
+
+def _collect_tactic_at_stations(match, robot, feeders=(NEAR_FEEDER, FAR_FEEDER)):
+    tactic = tactics.Collect(piece_type=WIDGET, prefer_station=True)
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    return tactic
+
+
+def test_collect_picks_another_station_when_the_nearest_is_taken():
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(20, 130, 0))
+    partner.controller = _FakeController(target_region="near_feeder")
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "far_feeder"
+
+
+def test_collect_takes_the_nearest_station_when_nobody_is_on_it():
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+
+def test_collect_waits_clear_of_a_station_it_cannot_share():
+    # Only one feeder, and it's taken: keep it as the target (it will
+    # free up) but hold a full footprint back rather than driving into
+    # the robot being served.
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+    partner.controller = _FakeController(target_region="near_feeder")
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    waiting = tactic._provide_target(ctx)
+    assert waiting.distance_to(partner.pose) >= 28.0
+
+    # ...and closes in once the partner is done with it.
+    partner.controller = _FakeController(target_region=None)
+    match.robots.remove(partner)
+    serving = tactic._provide_target(ctx)
+    assert serving.distance_to(Pose2d(60, 100, 0)) < waiting.distance_to(Pose2d(60, 100, 0))
+
+
+def test_collect_does_not_yield_a_station_it_is_already_being_served_by():
+    # The robot queueing outside claims the station too, so the incumbent
+    # reads it as crowded. If it deferred to that, the two would swap
+    # places forever and neither would ever collect.
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    # Drive it onto the feeder, then have a partner queue up behind it.
+    robot.chassis.body.position = (60, 100)
+    queuer = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    queuer.controller = _FakeController(target_region="near_feeder")
+
+    assert not tactic._better_station_exists(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+
+
+def test_collect_leaves_a_blocked_station_for_a_free_one():
+    # Committed to a station an opponent then parks in: waiting is
+    # pointless while the other feeder is open.
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    blocker = match.add_robot(make_characteristics(), Pose2d(60, 100, 0), alliance="red")
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._better_station_exists(ctx)
+
+    tactic.tick(ctx)
+    assert tactic._target_station.name == "far_feeder"

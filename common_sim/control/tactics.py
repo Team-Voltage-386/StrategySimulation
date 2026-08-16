@@ -16,7 +16,7 @@ from common_sim.control.behavior import Behavior, BehaviorContext, Status
 from common_sim.control.navigation import NavigateTo, clear_standoff
 from common_sim.control.param import Param
 from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
-from common_sim.field.field_config import polygon_centroid
+from common_sim.field.field_config import point_in_polygon, polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
 from common_sim.robot.characteristics import SIDE_OUTWARD
 
@@ -107,7 +107,7 @@ class Collect(Tactic):
         robot = ctx.robot
         characteristics = robot.characteristics
         if self._target_station is not None:
-            cx, cy = polygon_centroid(self._target_station.vertices)
+            cx, cy = self._station_aim(ctx)
             piece_type = self._target_station.piece_type
         else:
             assert self._target_piece is not None
@@ -148,6 +148,64 @@ class Collect(Tactic):
         )
         return Pose2d(x, y, heading)
 
+    def _station_aim(self, ctx: BehaviorContext) -> tuple[float, float]:
+        """Normally the station's centroid -- but held one footprint back
+        from it while someone else is already working the station, so a
+        robot that arrives second queues up outside instead of driving
+        into the occupant and shoving it off the feed before it has its
+        piece. Re-evaluated every replan, so the wait ends by itself the
+        moment the station frees up.
+
+        The robot already on the feed is exempt (see `_holds_station`):
+        whoever got there first keeps it."""
+        station = self._target_station
+        robot = ctx.robot
+        aim = polygon_centroid(station.vertices)
+        if world_view.region_has_room(ctx.match, station, robot) or self._holds_station(robot):
+            return aim
+
+        characteristics = robot.characteristics
+        dx, dy = robot.pose.x - aim[0], robot.pose.y - aim[1]
+        distance = math.hypot(dx, dy)
+        if distance < 1e-6:
+            return aim
+        # Backed off along the bearing from the station rather than from
+        # the occupant: the occupant shuffles as it collects, and an aim
+        # point chasing it would have the waiting robot orbiting.
+        back = math.hypot(characteristics.width, characteristics.length)
+        return (aim[0] + dx / distance * back, aim[1] + dy / distance * back)
+
+    def _holds_station(self, robot) -> bool:
+        """Whether `robot` is the one already being served by its target
+        station, rather than a robot on its way to it. Both a robot
+        queueing outside and the robot on the feed publish a claim on the
+        station, so each reads the other as an occupant; without this the
+        incumbent would treat itself as crowded out and leave, and the
+        two would trade places forever without either collecting.
+
+        Engagement (`nearby_station`) is the same test the sim uses to
+        decide whether to dispense, and it is checked before polygon
+        containment because a robot parked at its intake standoff can sit
+        a couple of inches outside a station's zone while being served
+        by it."""
+        station = self._target_station
+        if robot.nearby_station() is station:
+            return True
+        return point_in_polygon((robot.pose.x, robot.pose.y), station.vertices)
+
+    def _better_station_exists(self, ctx: BehaviorContext) -> bool:
+        """Whether the committed station is full and some other one this
+        robot could use isn't."""
+        match, robot = ctx.match, ctx.robot
+        if self._holds_station(robot) or world_view.region_has_room(match, self._target_station, robot):
+            return False
+        return any(
+            station is not self._target_station
+            and (self.piece_type is None or station.piece_type == self.piece_type)
+            and world_view.region_has_room(match, station, robot)
+            for station in world_view.station_options(match, robot)
+        )
+
     def _pick_target(self, ctx: BehaviorContext) -> bool:
         match, robot = ctx.match, ctx.robot
         origin = robot.pose.translation
@@ -157,8 +215,18 @@ class Collect(Tactic):
             if self.piece_type is not None:
                 stations = [s for s in stations if s.piece_type == self.piece_type]
             if stations:
+                # Same rule Score._pick_option applies to scoring regions:
+                # take one nobody is working before contesting one. Two
+                # robots both picking "nearest" otherwise converge on the
+                # same corner, and a REEFSCAPE CORAL STATION is 36x36
+                # against a 28x28 robot -- capacity 1, no room to share.
+                # Falling back to the crowded nearest is fine because
+                # _station_aim then queues outside it rather than barging
+                # in; with every station busy, waiting for the nearest is
+                # exactly the right thing to do.
+                roomy = [s for s in stations if world_view.region_has_room(match, s, robot)]
                 self._target_station, self._target_piece = min(
-                    stations, key=lambda s: origin.get_distance(polygon_centroid(s.vertices))
+                    roomy or stations, key=lambda s: origin.get_distance(polygon_centroid(s.vertices))
                 ), None
                 return True
 
@@ -215,6 +283,13 @@ class Collect(Tactic):
         target_lost = self._target_piece is not None and (
             self._target_piece.held_by is not None or self._target_piece.scored
         )
+        # A station is committed to once and then queued for, so nothing
+        # would ever pull a robot off one an opponent has parked in --
+        # except a free station elsewhere, which is strictly better than
+        # waiting. Guarded on another station actually having room so
+        # this can't cycle between two equally crowded ones.
+        if self._target_station is not None and self._better_station_exists(ctx):
+            target_lost = True
         need_target = self._target_piece is None and self._target_station is None
         if need_target or target_lost:
             if not self._pick_target(ctx):
