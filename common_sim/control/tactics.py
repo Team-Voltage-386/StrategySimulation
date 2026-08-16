@@ -13,12 +13,102 @@ from typing import Literal
 
 from common_sim.control import world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
-from common_sim.control.navigation import NavigateTo, clear_standoff
+from common_sim.control.navigation import NavigateTo, clear_standoff, estimate_travel_time
 from common_sim.control.param import Param
 from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
-from common_sim.field.field_config import point_in_polygon, polygon_centroid
+from common_sim.field.field_config import IntakeLocation, point_in_polygon, polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
 from common_sim.robot.characteristics import SIDE_OUTWARD
+
+
+def _intercept_time(origin: tuple[float, float], position: tuple[float, float], velocity, speed: float) -> float:
+    """Time for something moving at `speed` from `origin` to reach a
+    target now at `position` and moving at constant `velocity` --
+    i.e. treats a rolling piece as continuing in a straight line rather
+    than freezing it where it is right now. Solves the standard pursuit
+    quadratic |position + velocity*t - origin| = speed*t for its
+    smallest positive root; falls back to plain distance/speed when the
+    target isn't moving (the overwhelmingly common case), and returns
+    infinity when the target is outrunning us and is never caught."""
+    dx, dy = position[0] - origin[0], position[1] - origin[1]
+    vx, vy = velocity[0], velocity[1]
+    if vx == 0.0 and vy == 0.0:
+        return math.hypot(dx, dy) / speed
+
+    a = vx * vx + vy * vy - speed * speed
+    b = 2.0 * (dx * vx + dy * vy)
+    c = dx * dx + dy * dy
+
+    if abs(a) < 1e-9:
+        if abs(b) < 1e-9:
+            return math.inf
+        t = -c / b
+        return t if t > 1e-9 else math.inf
+
+    disc = b * b - 4.0 * a * c
+    if disc < 0:
+        return math.inf
+    sqrt_disc = math.sqrt(disc)
+    roots = [(-b - sqrt_disc) / (2.0 * a), (-b + sqrt_disc) / (2.0 * a)]
+    positive = [t for t in roots if t > 1e-9]
+    return min(positive) if positive else math.inf
+
+
+def _predicted_piece_position(origin: tuple[float, float], piece, speed: float) -> tuple[float, float]:
+    """Where a rolling piece will plausibly be by the time it's caught,
+    for handing to the real (obstacle-aware) path planner as its goal.
+    `plan_path` has no notion of a moving goal, so this does a one-shot
+    estimate via the empty-field intercept time and projects the piece
+    that far along its current velocity -- good enough since a piece
+    decelerates under friction and is usually caught well short of
+    that point anyway, and any error left over just becomes noise the
+    next replan corrects."""
+    naive = _intercept_time(origin, (piece.position.x, piece.position.y), piece.velocity, speed)
+    if naive == math.inf or naive <= 0.0:
+        return (piece.position.x, piece.position.y)
+    horizon = min(naive, 1.0)
+    return (piece.position.x + piece.velocity.x * horizon, piece.position.y + piece.velocity.y * horizon)
+
+
+# Margin required for a freshly re-evaluated target to displace one
+# already committed to -- whichever is larger of a flat floor or a
+# fraction of the current ETA. Without this, two options that come out
+# within noise of each other tick to tick (a piece rolling slightly, a
+# rival's published intent shifting) would have a robot swapping
+# targets every replan instead of ever actually driving to one.
+_RETARGET_MARGIN_MIN = 0.3
+_RETARGET_MARGIN_RATIO = 0.15
+
+
+def _robot_engaged_with_station(robot, station) -> bool:
+    """Whether `robot` is physically working `station` right now --
+    parked on the feed, or close enough that the sim counts it as
+    engaged -- as opposed to just declaring it as a target. Engagement
+    (`nearby_station`) is the same test the sim uses to decide whether
+    to dispense, and it is checked before polygon containment because a
+    robot parked at its intake standoff can sit a couple of inches
+    outside a station's zone while still being served by it."""
+    if robot.nearby_station() is station:
+        return True
+    return point_in_polygon((robot.pose.x, robot.pose.y), station.vertices)
+
+
+def _tiebreak_bias(match, robot) -> float:
+    """A deterministic, vanishingly small (~1us) per-robot offset used
+    only to break an exact ETA tie between two robots. Obstacle-routed
+    ETA often lands on the *same* value for two robots racing for the
+    same thing -- two teammates that are mirror images of each other on
+    a symmetric field take mirror-image routes of identical length, and
+    a robot compared against itself is always exactly tied -- and
+    without a tiebreaker each side of a `<=` comparison reads itself as
+    at least as fast as the other, so both claim the same target (or,
+    for a capacity-1 station, both defer to the other's claim) forever.
+    `match.robots` is stable for the life of a match, so this is
+    consistent no matter which robot's perspective is asking."""
+    try:
+        return match.robots.index(robot) * 1e-6
+    except ValueError:
+        return 0.0
 
 
 class Tactic(Behavior):
@@ -72,7 +162,6 @@ class Collect(Tactic):
         Param("piece_type", kind="piece_type", default=None, optional=True),
         Param("mode", kind="choice", choices=("nearest", "densest"), default="nearest"),
         Param("cluster_radius", kind="float", default=24.0, min=0, suffix=" in"),
-        Param("prefer_station", kind="bool", default=False),
         Param("max_range", kind="float", default=None, optional=True, min=0, suffix=" in"),
     )
 
@@ -81,26 +170,26 @@ class Collect(Tactic):
         piece_type: str | None = None,
         mode: Literal["nearest", "densest"] = "nearest",
         cluster_radius: float = 24.0,
-        prefer_station: bool = False,
         max_range: float | None = None,
         replan_period: float = 0.1,
     ):
         self.piece_type = piece_type
         self.mode = mode
         self.cluster_radius = cluster_radius
-        self.prefer_station = prefer_station
         self.max_range = max_range
         self.replan_period = replan_period
 
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
+        self._reconsider_timer = 0.0
         self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
     def reset(self) -> None:
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
+        self._reconsider_timer = 0.0
         self._nav.reset()
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
@@ -161,7 +250,7 @@ class Collect(Tactic):
         station = self._target_station
         robot = ctx.robot
         aim = polygon_centroid(station.vertices)
-        if world_view.region_has_room(ctx.match, station, robot) or self._holds_station(robot):
+        if self._station_has_room_for(ctx, station):
             return aim
 
         characteristics = robot.characteristics
@@ -181,88 +270,245 @@ class Collect(Tactic):
         queueing outside and the robot on the feed publish a claim on the
         station, so each reads the other as an occupant; without this the
         incumbent would treat itself as crowded out and leave, and the
-        two would trade places forever without either collecting.
-
-        Engagement (`nearby_station`) is the same test the sim uses to
-        decide whether to dispense, and it is checked before polygon
-        containment because a robot parked at its intake standoff can sit
-        a couple of inches outside a station's zone while being served
-        by it."""
-        station = self._target_station
-        if robot.nearby_station() is station:
-            return True
-        return point_in_polygon((robot.pose.x, robot.pose.y), station.vertices)
+        two would trade places forever without either collecting."""
+        return _robot_engaged_with_station(robot, self._target_station)
 
     def _better_station_exists(self, ctx: BehaviorContext) -> bool:
         """Whether the committed station is full and some other one this
         robot could use isn't."""
         match, robot = ctx.match, ctx.robot
-        if self._holds_station(robot) or world_view.region_has_room(match, self._target_station, robot):
+        if self._station_has_room_for(ctx, self._target_station):
             return False
         return any(
             station is not self._target_station
             and (self.piece_type is None or station.piece_type == self.piece_type)
-            and world_view.region_has_room(match, station, robot)
+            and self._station_has_room_for(ctx, station)
             for station in world_view.station_options(match, robot)
         )
 
-    def _pick_target(self, ctx: BehaviorContext) -> bool:
+    def _station_has_room_for(self, ctx: BehaviorContext, station: IntakeLocation) -> bool:
+        """Whether `robot` should treat `station` as having a free slot
+        right now. Physically-engaged robots (parked on the feed) always
+        take up real capacity; whatever's left goes to whichever
+        *intent-only* claimants -- robots declaring the station as their
+        target but not physically there yet -- would actually arrive
+        soonest.
+
+        Racing the intent-only claimants matters because without it, two
+        robots that both declare the same capacity-1 station at the same
+        moment each read the *other's* mere intent as filling the one
+        slot and both back off to queue outside -- and since neither is
+        ever physically there to break the tie (`_holds_station` only
+        protects an incumbent once it has arrived), they defer to each
+        other forever instead of the faster one actually going in."""
+        match, robot = ctx.match, ctx.robot
+        if _robot_engaged_with_station(robot, station):
+            return True
+
+        capacity = world_view.region_robot_capacity(station, robot)
+        engaged = [r for r in match.robots if r is not robot and _robot_engaged_with_station(r, station)]
+        remaining = capacity - len(engaged)
+        if remaining <= 0:
+            return False
+
+        claimants = [
+            r for r in match.robots
+            if r is not robot and r not in engaged
+            and getattr(getattr(r, "intent", None), "target_region", None) == station.name
+        ]
+        if not claimants:
+            return True
+
+        centroid = polygon_centroid(station.vertices)
+        our_eta = estimate_travel_time(match.field, (robot.pose.x, robot.pose.y), centroid, robot.characteristics)
+        our_eta += _tiebreak_bias(match, robot)
+        faster = sum(
+            1 for r in claimants
+            if estimate_travel_time(match.field, (r.pose.x, r.pose.y), centroid, r.characteristics)
+            + _tiebreak_bias(match, r) < our_eta
+        )
+        return faster < remaining
+
+    def _best_station(self, ctx: BehaviorContext) -> tuple[IntakeLocation | None, float]:
         match, robot = ctx.match, ctx.robot
         origin = robot.pose.translation
+        characteristics = robot.characteristics
+        stations = world_view.station_options(match, robot)
+        if self.piece_type is not None:
+            stations = [s for s in stations if s.piece_type == self.piece_type]
+        if not stations:
+            return None, math.inf
 
-        if self.prefer_station:
-            stations = world_view.station_options(match, robot)
-            if self.piece_type is not None:
-                stations = [s for s in stations if s.piece_type == self.piece_type]
-            if stations:
-                # Same rule Score._pick_option applies to scoring regions:
-                # take one nobody is working before contesting one. Two
-                # robots both picking "nearest" otherwise converge on the
-                # same corner, and a REEFSCAPE CORAL STATION is 36x36
-                # against a 28x28 robot -- capacity 1, no room to share.
-                # Falling back to the crowded nearest is fine because
-                # _station_aim then queues outside it rather than barging
-                # in; with every station busy, waiting for the nearest is
-                # exactly the right thing to do.
-                roomy = [s for s in stations if world_view.region_has_room(match, s, robot)]
-                self._target_station, self._target_piece = min(
-                    roomy or stations, key=lambda s: origin.get_distance(polygon_centroid(s.vertices))
-                ), None
-                return True
+        # Same rule Score._pick_option applies to scoring regions: take
+        # one nobody is working before contesting one. Two robots both
+        # picking "nearest" otherwise converge on the same corner, and a
+        # REEFSCAPE CORAL STATION is 36x36 against a 28x28 robot --
+        # capacity 1, no room to share. Falling back to the crowded
+        # nearest is fine because _station_aim then queues outside it
+        # rather than barging in; with every station busy, waiting for
+        # the nearest is exactly the right thing to do.
+        roomy = [s for s in stations if world_view.region_has_room(match, s, robot)]
+        candidates = roomy or stations
 
+        # Obstacle-routed travel time, not straight-line distance -- a
+        # station is stationary, but the *path* to it (around the REEF,
+        # around a charge station) is not, and the same time unit as
+        # _best_piece's ETA is what lets _pick_target compare the two
+        # directly.
+        def eta(s):
+            return estimate_travel_time(match.field, (origin.x, origin.y), polygon_centroid(s.vertices), characteristics)
+
+        best = min(candidates, key=eta)
+        return best, eta(best)
+
+    def _piece_contenders(self, ctx: BehaviorContext) -> dict[object, float]:
+        """Map of {piece: fastest rival ETA} from every other robot on the
+        field -- teammate or opponent -- currently declaring that piece as
+        its intent. Obstacle-routed, like our own ETA, so a rival on the
+        far side of the REEF from a piece isn't mistaken for the faster
+        claimant just because it looks closer as the crow flies."""
+        match, robot = ctx.match, ctx.robot
+        contenders: dict[object, float] = {}
+        for other in match.robots:
+            if other is robot:
+                continue
+            intent = other.intent
+            target = getattr(intent, "target_piece", None) if intent is not None else None
+            if target is None:
+                continue
+            characteristics = other.characteristics
+            speed = max(characteristics.max_speed, 1e-6)
+            origin = other.pose.translation
+            predicted = _predicted_piece_position((origin.x, origin.y), target, speed)
+            eta = estimate_travel_time(match.field, (origin.x, origin.y), predicted, characteristics) + _tiebreak_bias(match, other)
+            if target not in contenders or eta < contenders[target]:
+                contenders[target] = eta
+        return contenders
+
+    def _piece_eta(self, ctx: BehaviorContext, origin, piece, characteristics) -> float:
+        """Obstacle-routed time to reach a piece that may still be
+        rolling: `_predicted_piece_position` locates roughly where it'll
+        be by the time it's caught, and the real path planner is asked
+        for the route there rather than assuming a straight line -- a
+        piece sitting just past the REEF from us is not actually
+        "nearest" just because it's close by air distance."""
+        speed = max(characteristics.max_speed, 1e-6)
+        predicted = _predicted_piece_position((origin.x, origin.y), piece, speed)
+        return estimate_travel_time(ctx.match.field, (origin.x, origin.y), predicted, characteristics)
+
+    def _best_piece(self, ctx: BehaviorContext) -> tuple[object | None, float]:
+        match, robot = ctx.match, ctx.robot
+        origin = robot.pose.translation
+        characteristics = robot.characteristics
         pieces = world_view.collectable_pieces(match, piece_type=self.piece_type, robot=robot)
         if self.max_range is not None:
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.max_range]
         if not pieces:
-            self._target_piece = None
-            self._target_station = None
-            return False
+            return None, math.inf
 
-        # Prefer a piece no teammate is already heading for -- two robots
-        # independently picking "nearest" converge on the same piece when
-        # it's the obvious choice for both, driving them nose-to-nose at
-        # its position instead of splitting up. Only when every remaining
-        # piece is already claimed do we fall back to contesting one
-        # (better to double up than to sit idle).
-        claimed = {
-            partner.intent.target_piece
-            for partner in world_view.partners(match, robot.alliance)
-            if partner is not robot and partner.intent is not None
-        }
-        unclaimed = [p for p in pieces if p not in claimed]
-        if unclaimed:
-            pieces = unclaimed
+        # "Nearest" means quickest to actually reach, not closest right
+        # now -- a piece rolling away, or one tucked past an obstacle,
+        # can take longer to reach than one that's farther off by air
+        # distance but has a clear, direct route.
+        def eta(p):
+            return self._piece_eta(ctx, origin, p, characteristics)
+
+        # Skip a piece anyone else -- teammate or opponent -- would reach
+        # first. Two robots both picking "nearest" otherwise converge on
+        # the identical piece and idle nose-to-nose at it instead of
+        # splitting up; an opponent's claim isn't automatically off
+        # limits the same way a crowded station is, though -- if we'd
+        # actually win the race there's no reason to give it up. Falling
+        # back to every piece (including losing races) when nothing is
+        # winnable is the same "contest rather than sit idle" rule
+        # stations use once every station is crowded.
+        contenders = self._piece_contenders(ctx)
+        our_bias = _tiebreak_bias(match, robot)
+        winnable = [p for p in pieces if contenders.get(p) is None or eta(p) + our_bias <= contenders[p]]
+        candidates = winnable or pieces
 
         if self.mode == "densest":
-            clusters = world_view.piece_clusters(match, pieces, self.cluster_radius)
+            clusters = world_view.piece_clusters(match, candidates, self.cluster_radius)
             best = max(clusters, key=lambda c: c.count)
-            target = min(best.pieces, key=lambda p: origin.get_distance(p.position))
+            target = min(best.pieces, key=eta)
         else:
-            target = min(pieces, key=lambda p: origin.get_distance(p.position))
+            target = min(candidates, key=eta)
 
-        self._target_piece = target
-        self._target_station = None
+        return target, eta(target)
+
+    def _losing_piece_race(self, ctx: BehaviorContext) -> bool:
+        """Whether some other robot would now reach the committed piece
+        first. Re-checked periodically (see `_reconsider_now`), not just
+        at pick time, because intents change after commitment: a piece
+        that was uncontested when picked can still get out-run by
+        whoever declares it next."""
+        robot = ctx.robot
+        piece = self._target_piece
+        if piece is None:
+            return False
+        our_eta = self._piece_eta(ctx, robot.pose.translation, piece, robot.characteristics) + _tiebreak_bias(ctx.match, robot)
+        rival_eta = self._piece_contenders(ctx).get(piece)
+        return rival_eta is not None and rival_eta < our_eta
+
+    def _better_piece_exists(self, ctx: BehaviorContext) -> bool:
+        """Whether, now that real obstacle-routed travel time is known
+        rather than assumed at pick time, something else -- another
+        piece, or the station -- is meaningfully quicker to reach than
+        the piece committed to. Catches both a piece that turns out to
+        need a long detour around field structure once actually pathed,
+        and a piece that's since spawned closer on our own side -- without
+        this a robot that picked a piece across the field early stays
+        committed to it, chasing a slow option for the rest of the match,
+        even once plenty of quicker ones exist. `_RETARGET_MARGIN_*` keeps
+        two closely-matched options from swapping back and forth every
+        reconsideration instead of ever actually being driven to."""
+        piece = self._target_piece
+        if piece is None:
+            return False
+        robot = ctx.robot
+        current_eta = self._piece_eta(ctx, robot.pose.translation, piece, robot.characteristics)
+        if current_eta == math.inf:
+            return True
+        _, station_eta = self._best_station(ctx)
+        _, piece_eta = self._best_piece(ctx)
+        best_eta = min(station_eta, piece_eta)
+        if best_eta == math.inf:
+            return False
+        margin = max(_RETARGET_MARGIN_MIN, current_eta * _RETARGET_MARGIN_RATIO)
+        return best_eta + margin < current_eta
+
+    def _reconsider_now(self, ctx: BehaviorContext) -> bool:
+        """Throttle for the expensive re-evaluation checks (obstacle-
+        routed ETAs, one per candidate) to `replan_period`, same as
+        `_nav`'s own replanning cadence -- the cheap held/scored checks
+        in `tick` still run every physics tick regardless."""
+        self._reconsider_timer += ctx.dt
+        if self._reconsider_timer < self.replan_period:
+            return False
+        self._reconsider_timer = 0.0
         return True
+
+    def _pick_target(self, ctx: BehaviorContext) -> bool:
+        # Field and station are both just supply the robot's intakes can
+        # use (world_view already filters each to what the configured
+        # sides accept) -- so "nearest" means quickest to reach of
+        # either, not station-always-first. Compared in ETA, not raw
+        # distance, so a piece rolling away doesn't out-ruler a station
+        # that's slightly farther off but standing still. Ties go to the
+        # station since it never runs out mid-cycle.
+        station, station_eta = self._best_station(ctx)
+        piece, piece_eta = self._best_piece(ctx)
+
+        if station is not None and station_eta <= piece_eta:
+            self._target_station, self._target_piece = station, None
+            return True
+        if piece is not None:
+            self._target_piece, self._target_station = piece, None
+            return True
+
+        self._target_piece = None
+        self._target_station = None
+        return False
 
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
@@ -280,15 +526,21 @@ class Collect(Tactic):
             robot.set_intake_active(False)
             return Status.SUCCESS
 
+        # The expensive re-evaluation checks below (obstacle-routed ETAs)
+        # only actually run once per replan_period; `reconsider` is False
+        # on every other tick in between.
+        reconsider = self._reconsider_now(ctx)
         target_lost = self._target_piece is not None and (
-            self._target_piece.held_by is not None or self._target_piece.scored
+            self._target_piece.held_by is not None
+            or self._target_piece.scored
+            or (reconsider and (self._losing_piece_race(ctx) or self._better_piece_exists(ctx)))
         )
         # A station is committed to once and then queued for, so nothing
         # would ever pull a robot off one an opponent has parked in --
         # except a free station elsewhere, which is strictly better than
         # waiting. Guarded on another station actually having room so
         # this can't cycle between two equally crowded ones.
-        if self._target_station is not None and self._better_station_exists(ctx):
+        if self._target_station is not None and reconsider and self._better_station_exists(ctx):
             target_lost = True
         need_target = self._target_piece is None and self._target_station is None
         if need_target or target_lost:

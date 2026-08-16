@@ -83,6 +83,17 @@ class FieldCanvas(QtWidgets.QWidget):
         # match.active_pieces (see Match.step), so it can only be redrawn
         # from its own recorded telemetry, not from a live GamePiece.
         self.playback_pieces: list | None = None
+        # Set alongside playback_pieces while scrubbed into playback, to a
+        # dict of robot_name -> RobotSnapshot.target_name (see
+        # common_sim/match/telemetry.py) -- None means "draw live from
+        # robot.intent" (the normal case). robot.intent isn't rewound on
+        # scrub (it's ephemeral controller state, not physics), so without
+        # this the dashed pairing line would stay frozen at whatever it was
+        # when the match was paused instead of tracking the scrubbed time.
+        self.playback_targets: dict[str, str | None] | None = None
+        # Paired with playback_targets: robot_name -> RobotSnapshot.tactic_name,
+        # for the tactic-name label drawn above each robot's pairing line.
+        self.playback_tactics: dict[str, str | None] | None = None
         self.show_intent = True
         self.setMinimumSize(400, 300)
         self.setStyleSheet(f"background-color: {theme.BG_DEEP};")
@@ -380,6 +391,12 @@ class FieldCanvas(QtWidgets.QWidget):
         active tactic. Toggle via `show_intent`."""
         if not self.show_intent:
             return
+        if self.playback_targets is not None:
+            for robot in self.match.robots:
+                target_name = self.playback_targets.get(robot.characteristics.name)
+                tactic_name = self.playback_tactics.get(robot.characteristics.name) if self.playback_tactics else None
+                self._draw_one_robot_intent_playback(painter, robot, target_name, tactic_name, scale)
+            return
         for robot in self.match.robots:
             intent = robot.intent
             if intent is None:
@@ -387,21 +404,57 @@ class FieldCanvas(QtWidgets.QWidget):
             self._draw_one_robot_intent(painter, robot, intent, scale)
 
     def _draw_one_robot_intent(self, painter, robot, intent, scale: float) -> None:
-        color = ALLIANCE_COLORS.get(robot.alliance, QtGui.QColor(theme.ACCENT_CYAN))
-        rx, ry = self._to_widget(robot.pose.x, robot.pose.y, scale)
-
-        target_point = None
+        target_point, zone = None, None
         piece = intent.target_piece
         if piece is not None and piece.held_by is None and not piece.scored:
             target_point = self._to_widget(piece.position.x, piece.position.y, scale)
         elif intent.target_region is not None:
             zone = self._zone_by_name(intent.target_region)
             if zone is not None:
-                painter.setPen(QtGui.QPen(color, 3, Qt.DashLine))
-                painter.setBrush(Qt.NoBrush)
-                painter.drawPolygon(self._polygon(zone.vertices, scale))
                 cx, cy = polygon_centroid(zone.vertices)
                 target_point = self._to_widget(cx, cy, scale)
+
+        self._draw_intent_pairing(painter, robot, zone, target_point, intent.tactic_name, scale)
+
+    def _draw_one_robot_intent_playback(self, painter, robot, target_name, tactic_name, scale: float) -> None:
+        """Same visual as _draw_one_robot_intent, but resolves the target
+        from telemetry's recorded RobotSnapshot.target_name string instead
+        of the live Intent object -- see TelemetryRecorder._target_name_for.
+        A region name is looked up live (zones don't move/despawn); a
+        targeted piece is recorded as a synthetic 'piece:type@x,y' label and
+        drawn at that literal recorded point, since the live GamePiece may
+        since have scored/despawned and no longer exist to read a position
+        from."""
+        if target_name is None:
+            if tactic_name is None:
+                return
+            self._draw_intent_pairing(painter, robot, None, None, tactic_name, scale)
+            return
+
+        target_point, zone = None, None
+        if target_name.startswith("piece:"):
+            try:
+                coords = target_name.rsplit("@", 1)[1]
+                px, py = (float(v) for v in coords.split(","))
+                target_point = self._to_widget(px, py, scale)
+            except (IndexError, ValueError):
+                target_point = None
+        else:
+            zone = self._zone_by_name(target_name)
+            if zone is not None:
+                cx, cy = polygon_centroid(zone.vertices)
+                target_point = self._to_widget(cx, cy, scale)
+
+        self._draw_intent_pairing(painter, robot, zone, target_point, tactic_name, scale)
+
+    def _draw_intent_pairing(self, painter, robot, zone, target_point, tactic_name, scale: float) -> None:
+        color = ALLIANCE_COLORS.get(robot.alliance, QtGui.QColor(theme.ACCENT_CYAN))
+        rx, ry = self._to_widget(robot.pose.x, robot.pose.y, scale)
+
+        if zone is not None:
+            painter.setPen(QtGui.QPen(color, 3, Qt.DashLine))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPolygon(self._polygon(zone.vertices, scale))
 
         if target_point is not None:
             painter.setPen(QtGui.QPen(color, 1.5, Qt.DashLine))
@@ -415,7 +468,7 @@ class FieldCanvas(QtWidgets.QWidget):
         text_bottom = bar_y - 13 - 4
         painter.setPen(color)
         painter.setFont(theme.technical_font(8, bold=True))
-        painter.drawText(QtCore.QRectF(rx - 55, text_bottom - 14, 110, 14), Qt.AlignCenter, intent.tactic_name.upper())
+        painter.drawText(QtCore.QRectF(rx - 55, text_bottom - 14, 110, 14), Qt.AlignCenter, tactic_name.upper())
 
     def _zone_by_name(self, name: str):
         for region in self.match.field.scoring_regions:

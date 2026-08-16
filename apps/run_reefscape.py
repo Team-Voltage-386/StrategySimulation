@@ -331,6 +331,8 @@ class MatchView(QtWidgets.QWidget):
         self._live_match_snapshot = None
         self._live_piece_positions = None
         self.canvas.playback_pieces = None
+        self.canvas.playback_targets = None
+        self.canvas.playback_tactics = None
         self.transport_bar.slider.setEnabled(False)
         self._update_piece_counts()
         self.canvas.setFocus()
@@ -473,6 +475,8 @@ class MatchView(QtWidgets.QWidget):
         station-remaining badges (which read those dicts directly, not
         telemetry) show the scrubbed-to moment instead of staying pinned
         at wherever the live/paused match actually left them."""
+        playback_targets: dict[str, str | None] = {}
+        playback_tactics: dict[str, str | None] = {}
         for robot in self.match.robots:
             snapshot = self.telemetry.get_robot_state_at_time(target_time, robot.characteristics.name)
             if snapshot is None:
@@ -481,8 +485,12 @@ class MatchView(QtWidgets.QWidget):
             robot.chassis.body.angle = math.radians(snapshot.orientation_deg)
             robot.chassis.body.velocity = (snapshot.velocity_x, snapshot.velocity_y)
             robot.sync_held_piece_positions()
+            playback_targets[robot.characteristics.name] = snapshot.target_name
+            playback_tactics[robot.characteristics.name] = snapshot.tactic_name
 
         self.canvas.playback_pieces = self.telemetry.get_piece_states_at_time(target_time)
+        self.canvas.playback_targets = playback_targets
+        self.canvas.playback_tactics = playback_tactics
 
         match_snapshot = self.telemetry.get_match_state_at_time(target_time)
         if match_snapshot is not None:
@@ -513,6 +521,8 @@ class MatchView(QtWidgets.QWidget):
             for piece, position in self._live_piece_positions.items():
                 piece.body.position = position
         self.canvas.playback_pieces = None
+        self.canvas.playback_targets = None
+        self.canvas.playback_tactics = None
         self.playback_time = None
         self._live_snapshot = None
         self._live_match_snapshot = None
@@ -566,6 +576,13 @@ class MatchView(QtWidgets.QWidget):
                 self.match.step(dt)
                 self._drain_new_events()
                 self.telemetry.tick()
+            # The match just ran out the clock -- drop into the same
+            # paused state a manual pause would, so the transport bar's
+            # play/pause button and scrub slider immediately reflect it
+            # instead of sitting on "playing" over a sim that's actually
+            # stopped advancing.
+            if self.match.ended:
+                self.paused = True
 
         # sync_slider=False while scrubbing: the slider already reflects
         # where the user dragged it (see _enter_playback_at_fraction),
@@ -687,6 +704,8 @@ class MatchView(QtWidgets.QWidget):
         self._live_match_snapshot = None
         self._live_piece_positions = None
         self.canvas.playback_pieces = None
+        self.canvas.playback_targets = None
+        self.canvas.playback_tactics = None
         self.transport_bar.slider.setEnabled(bool(telemetry.match_frames))
         self._update_piece_counts()
         self.canvas.update()

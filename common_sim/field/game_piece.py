@@ -80,6 +80,10 @@ class GamePiece:
     def position(self) -> pymunk.Vec2d:
         return self.body.position
 
+    @property
+    def velocity(self) -> pymunk.Vec2d:
+        return self.body.velocity
+
     def remove_from_space(self) -> None:
         if self.shape in self._space.shapes:
             self._space.remove(self.shape)

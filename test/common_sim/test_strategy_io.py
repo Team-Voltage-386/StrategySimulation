@@ -25,7 +25,7 @@ def make_strategy() -> Strategy:
             Rule(
                 name="collect",
                 trigger=PiecesHeld(piece_type="coral", max_count=0),
-                tactic=Collect(piece_type="coral", mode="densest", cluster_radius=30.0, prefer_station=True),
+                tactic=Collect(piece_type="coral", mode="densest", cluster_radius=30.0),
                 priority=5,
             ),
         ],

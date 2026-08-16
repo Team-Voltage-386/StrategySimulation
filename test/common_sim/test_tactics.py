@@ -3,6 +3,7 @@ import math
 from common_sim.control import tactics
 from common_sim.control.behavior import BehaviorContext, Sequence, Status, Wait
 from common_sim.control.navigation import convex_overlap, footprint_polygon
+from common_sim.control.strategy import Strategy, StrategyController
 from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
@@ -73,7 +74,7 @@ def test_collect_fails_when_nothing_collectable():
     assert status == Status.FAILURE
 
 
-def test_collect_prefers_station_when_configured():
+def test_collect_uses_station_when_it_is_the_only_option():
     # Station centered well away from the robot's start pose -- a robot
     # spawned already overlapping a sensor zone never gets a collision
     # "begin" event (nothing transitioned into contact), so the test
@@ -86,10 +87,143 @@ def test_collect_prefers_station_when_configured():
     match = make_match(field, auto_duration=1000, teleop_duration=1000)
     robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
 
-    tactic = tactics.Collect(piece_type=WIDGET, prefer_station=True)
+    tactic = tactics.Collect(piece_type=WIDGET)
     status = run(match, tactic, robot)
     assert status == Status.SUCCESS
     assert len(robot.held_pieces) == 1
+
+
+def test_collect_picks_whichever_of_field_or_station_is_closer():
+    # Station and loose piece both collectable -- "nearest" should mean
+    # nearest of either, not station-always-first (that was the bug:
+    # a robot would drive past a closer field piece to reach a station).
+    near_station = IntakeLocation(
+        name="near_feeder", vertices=((30, 90), (50, 90), (50, 110), (30, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    far_station = IntakeLocation(
+        name="far_feeder", vertices=((260, 90), (280, 90), (280, 110), (260, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+
+    field = make_field(intake_locations=(near_station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    match.spawn_piece(WIDGET, (270, 100))  # much farther than the station
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_station is not None and tactic._target_station.name == "near_feeder"
+
+    field = make_field(intake_locations=(far_station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    match.spawn_piece(WIDGET, (40, 100))  # much closer than the station
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is not None
+    assert tactic._target_piece.position.x == 40
+
+
+def test_collect_avoids_piece_a_closer_teammate_is_already_heading_for():
+    # Two pieces, one right next to a teammate that's already declared it
+    # as its intent -- going for that one too just means two robots idle
+    # nose-to-nose on the same spot, so the far piece (which nothing else
+    # wants) should win even though it's farther from us.
+    field = make_field()
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(38, 100, 0))
+    contested = match.spawn_piece(WIDGET, (40, 100))  # very close to us and to partner
+    alternative = match.spawn_piece(WIDGET, (120, 100))  # far from everyone
+    partner.controller = _FakeController(target_piece=contested)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is alternative
+
+
+def test_collect_contests_a_claimed_piece_when_it_is_the_only_option():
+    # Same setup, but with no alternative piece on the field -- standing
+    # idle scores zero for certain, so contesting the one piece that
+    # exists beats refusing to move.
+    field = make_field()
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(38, 100, 0))
+    contested = match.spawn_piece(WIDGET, (40, 100))
+    partner.controller = _FakeController(target_piece=contested)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is contested
+
+
+def test_collect_still_targets_a_piece_it_would_reach_first():
+    # An opponent's claim on a piece isn't automatically off limits the
+    # way a teammate's is -- if we're closer, there's no reason to give
+    # up a piece we'd win the race for.
+    field = make_field()
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(250, 100, 0), alliance="red")
+    piece = match.spawn_piece(WIDGET, (40, 100))  # much closer to us than to the opponent
+    opponent.controller = _FakeController(target_piece=piece)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is piece
+
+
+def test_collect_prefers_station_over_a_piece_rolling_away():
+    # The piece is closer right now, but it's rolling away fast enough
+    # that the station -- farther off but standing still -- is actually
+    # quicker to reach.
+    station = IntakeLocation(
+        name="feeder", vertices=((150, 90), (170, 90), (170, 110), (150, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (60, 100))
+    piece.body.velocity = (140.0, 0.0)  # rolling away, almost as fast as the robot can chase
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_station is not None and tactic._target_station.name == "feeder"
+
+
+def test_collect_abandons_a_far_piece_needing_a_detour_once_a_near_one_appears():
+    # Only one piece exists at pick time, so it's targeted even though a
+    # wall sits directly between the robot and it -- but once a second,
+    # unobstructed piece spawns much closer, the real (obstacle-routed)
+    # travel time to the far one should lose out on the next
+    # reconsideration instead of the robot staying committed to it for
+    # the rest of the match.
+    wall = Obstacle(name="wall", vertices=((90, 60), (150, 60), (150, 140), (90, 140)))
+    field = make_field(obstacles=(wall,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    far_piece = match.spawn_piece(WIDGET, (200, 100))
+
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert tactic._target_piece is far_piece
+
+    near_piece = match.spawn_piece(WIDGET, (40, 100))
+
+    # The re-evaluation is throttled to replan_period (see
+    # _reconsider_now), not run every tick.
+    tactic.tick(BehaviorContext(robot=robot, dt=tactic.replan_period, match=match))
+    assert tactic._target_piece is near_piece
 
 
 def test_score_deposits_held_piece():
@@ -335,13 +469,14 @@ def test_run_script_wraps_sequence_and_completes():
 
 
 class _FakeIntent:
-    def __init__(self, target_region):
+    def __init__(self, target_region=None, target_piece=None):
         self.target_region = target_region
+        self.target_piece = target_piece
 
 
 class _FakeController:
-    def __init__(self, target_region):
-        self.intent = _FakeIntent(target_region)
+    def __init__(self, target_region=None, target_piece=None):
+        self.intent = _FakeIntent(target_region, target_piece)
 
     def tick(self, ctx):
         pass
@@ -467,7 +602,7 @@ FAR_FEEDER = IntakeLocation(
 
 
 def _collect_tactic_at_stations(match, robot, feeders=(NEAR_FEEDER, FAR_FEEDER)):
-    tactic = tactics.Collect(piece_type=WIDGET, prefer_station=True)
+    tactic = tactics.Collect(piece_type=WIDGET)
     tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
     return tactic
 
@@ -534,6 +669,42 @@ def test_collect_does_not_yield_a_station_it_is_already_being_served_by():
     assert not tactic._better_station_exists(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
 
 
+def test_collect_teammates_do_not_deadlock_on_a_single_remaining_station():
+    # Two teammates approach a capacity-1 station at the same time -- the
+    # only piece source left. Before racing intent-only claimants by ETA,
+    # each robot read the *other's* mere intent as filling the one slot
+    # and both backed off to queue outside forever, since neither was
+    # ever physically at the station to break the tie: nobody collected.
+    # The faster of the two should win the race and go in, the other
+    # should queue and then get its turn once the first is done.
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot_a = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    robot_b = match.add_robot(make_characteristics(), Pose2d(20, 60, 0))
+
+    strategy_a = Strategy(name="collect_only", fallback=tactics.Collect(piece_type=WIDGET))
+    strategy_b = Strategy(name="collect_only", fallback=tactics.Collect(piece_type=WIDGET))
+    robot_a.controller = StrategyController(strategy_a, robot_a)
+    robot_b.controller = StrategyController(strategy_b, robot_b)
+
+    dt = 1.0 / 60.0
+    ctx_a = BehaviorContext(robot=robot_a, dt=dt, match=match)
+    ctx_b = BehaviorContext(robot=robot_b, dt=dt, match=match)
+    for _ in range(1800):  # 30s
+        robot_a.controller.tick(ctx_a)
+        robot_b.controller.tick(ctx_b)
+        match.step(dt)
+        ctx_a.elapsed += dt
+        ctx_b.elapsed += dt
+
+    assert len(robot_a.held_pieces) >= 1
+    assert len(robot_b.held_pieces) >= 1
+
+
 def test_collect_leaves_a_blocked_station_for_a_free_one():
     # Committed to a station an opponent then parks in: waiting is
     # pointless while the other feeder is open.
@@ -547,5 +718,8 @@ def test_collect_leaves_a_blocked_station_for_a_free_one():
     ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
     assert tactic._better_station_exists(ctx)
 
-    tactic.tick(ctx)
+    # The re-evaluation that acts on `_better_station_exists` is throttled
+    # to `replan_period` (see `_reconsider_now`), not run every tick, so
+    # advance by a full period rather than a single physics tick.
+    tactic.tick(BehaviorContext(robot=robot, dt=tactic.replan_period, match=match))
     assert tactic._target_station.name == "far_feeder"

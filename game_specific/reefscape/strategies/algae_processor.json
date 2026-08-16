@@ -63,7 +63,6 @@
         "piece_type": "algae",
         "mode": "nearest",
         "cluster_radius": 36.0,
-        "prefer_station": false,
         "max_range": null
       },
       "priority": 6,
@@ -83,9 +82,8 @@
       "tactic": {
         "type": "Collect",
         "piece_type": "coral",
-        "mode": "densest",
+        "mode": "nearest",
         "cluster_radius": 24.0,
-        "prefer_station": true,
         "max_range": null
       },
       "priority": 5,

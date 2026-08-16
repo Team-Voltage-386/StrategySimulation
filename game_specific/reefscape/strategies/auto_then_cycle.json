@@ -73,7 +73,6 @@
         "piece_type": "coral",
         "mode": "nearest",
         "cluster_radius": 24.0,
-        "prefer_station": true,
         "max_range": null
       },
       "priority": 5,
