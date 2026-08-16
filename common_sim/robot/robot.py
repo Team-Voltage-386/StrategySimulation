@@ -231,6 +231,37 @@ class Robot:
         held_of_type = sum(1 for p in self.held_pieces if p.piece_type == piece_type)
         return held_of_type < self.characteristics.capacity_for(piece_type)
 
+    def has_capacity_for(self, piece_type: str) -> bool:
+        """Whether one more `piece_type` would fit -- the same rule the
+        intake enforces, exposed so behaviors decide to keep collecting
+        on the same answer the physics will give them."""
+        return self._capacity_available_for(piece_type)
+
+    def is_full_for(self, piece_type: str | None = None) -> bool:
+        """Whether there is any point collecting `piece_type` (None =
+        anything at all).
+
+        Under a per-type capacity, a robot full of one type is not full:
+        a coral cycler that scooped an ALGAE it has no rule to score
+        still has its coral slot free. Counting all held pieces against
+        one shared limit called that robot full, so it stopped
+        collecting, stopped driving, and sat out the rest of the match
+        holding one algae -- while its intake, which has always been
+        per-type, would happily have taken a coral.
+
+        Without `piece_capacity_by_type` the capacity really is a single
+        shared pool, and any piece fills it; that legacy meaning is kept
+        exactly."""
+        characteristics = self.characteristics
+        if not characteristics.piece_capacity_by_type:
+            return len(self.held_pieces) >= characteristics.piece_capacity
+        if piece_type is not None:
+            return not self._capacity_available_for(piece_type)
+        # "Full" with no type named means nothing can be taken at all.
+        return not any(
+            self._capacity_available_for(t) for t in characteristics.piece_capacity_by_type
+        )
+
     def update_intake(self, dt: float) -> GamePiece | None:
         """Advance the intake timer and capture a piece if it completes.
         Returns the captured GamePiece, or None."""

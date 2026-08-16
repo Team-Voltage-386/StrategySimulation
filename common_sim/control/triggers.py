@@ -177,11 +177,11 @@ class AtCapacity(Trigger):
     )
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
-        robot = ctx.robot
-        if self.piece_type is not None:
-            held = sum(1 for p in robot.held_pieces if p.piece_type == self.piece_type)
-            return held >= robot.characteristics.capacity_for(self.piece_type)
-        return len(robot.held_pieces) >= robot.characteristics.piece_capacity
+        # No piece_type means "at capacity for everything it can hold",
+        # not "holding as many pieces as the shared pool allows" -- with
+        # a per-type capacity those differ, and only the former is what
+        # "at capacity" can sensibly mean.
+        return ctx.robot.is_full_for(self.piece_type)
 
     def describe(self) -> str:
         return f"at capacity ({self.piece_type or 'any'})"

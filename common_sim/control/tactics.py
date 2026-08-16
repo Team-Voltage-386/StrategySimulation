@@ -83,7 +83,7 @@ class Collect(Tactic):
         cluster_radius: float = 24.0,
         prefer_station: bool = False,
         max_range: float | None = None,
-        replan_period: float = 0.25,
+        replan_period: float = 0.1,
     ):
         self.piece_type = piece_type
         self.mode = mode
@@ -204,7 +204,11 @@ class Collect(Tactic):
         if len(robot.held_pieces) > self._start_held_count:
             robot.set_intake_active(False)
             return Status.SUCCESS
-        if robot.held_pieces and len(robot.held_pieces) >= robot.characteristics.piece_capacity:
+        # Full for what this node is actually here to collect -- not for
+        # everything it happens to be carrying. `self.piece_type` is the
+        # declared intent, and it is checked before a target is picked,
+        # so it is the only type known at this point.
+        if robot.held_pieces and robot.is_full_for(self.piece_type):
             robot.set_intake_active(False)
             return Status.SUCCESS
 
@@ -235,7 +239,7 @@ class Score(Tactic):
         Param("action", kind="action", default=None, optional=True),
     )
 
-    def __init__(self, planner: ScorePlanner | None = None, region: str | None = None, action: str | None = None, replan_period: float = 0.25):
+    def __init__(self, planner: ScorePlanner | None = None, region: str | None = None, action: str | None = None, replan_period: float = 0.1):
         self.planner = planner or GreedyRatePlanner()
         self.region = region
         self.action = action
@@ -368,7 +372,7 @@ class Defend(Tactic):
         Param("engage_range", kind="float", default=200.0, min=0, suffix=" in"),
     )
 
-    def __init__(self, target: str = "opponent_intent", standoff: float = 24.0, engage_range: float = 200.0, replan_period: float = 0.25):
+    def __init__(self, target: str = "opponent_intent", standoff: float = 24.0, engage_range: float = 200.0, replan_period: float = 0.1):
         self.target = target
         self.standoff = standoff
         self.engage_range = engage_range

@@ -382,3 +382,72 @@ def test_defend_explicit_region_ignores_opponent_intent():
     region_center = (165.0, 100.0)
     dist_to_region_center = defender.pose.distance_to(Pose2d(*region_center, 0))
     assert abs(dist_to_region_center - 24.0) < 5.0
+
+
+GADGET = "gadget"
+
+
+def _hold(match, robot, piece_type):
+    """Put a piece in the robot's hands without making it drive there."""
+    piece = match.spawn_piece(piece_type, (robot.pose.x, robot.pose.y))
+    piece.held_by = robot
+    robot.held_pieces.append(piece)
+    return piece
+
+
+def _two_type_characteristics(**overrides):
+    return make_characteristics(
+        piece_capacity_by_type={WIDGET: 1, GADGET: 1},
+        accepted_piece_types=frozenset({WIDGET, GADGET}),
+        **overrides,
+    )
+
+
+def test_collect_keeps_working_while_holding_a_type_it_cannot_score():
+    """Capacity is per piece type, so a robot full of one type is not
+    full. A coral cycler that scooped an ALGAE it has no rule to score
+    still has its coral slot free -- counting both against one shared
+    limit called it full, so it stopped collecting, stopped driving, and
+    sat out the rest of the match holding one algae."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(_two_type_characteristics(), Pose2d(20, 100, 0))
+    _hold(match, robot, GADGET)
+    match.spawn_piece(WIDGET, (60, 100))
+
+    assert not robot.is_full_for(WIDGET), "gadget in hand should not fill the widget slot"
+    assert not robot.is_full_for(), "still has room for a widget, so not full of everything"
+
+    assert run(match, tactics.Collect(piece_type=WIDGET), robot) == Status.SUCCESS
+    assert any(p.piece_type == WIDGET for p in robot.held_pieces)
+
+
+def test_collect_stops_when_full_of_the_type_it_wants():
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(_two_type_characteristics(), Pose2d(20, 100, 0))
+    _hold(match, robot, WIDGET)
+    match.spawn_piece(WIDGET, (60, 100))
+
+    assert robot.is_full_for(WIDGET)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactics.Collect(piece_type=WIDGET).tick(ctx) == Status.SUCCESS
+
+
+def test_full_of_every_type_is_full_untyped():
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(_two_type_characteristics(), Pose2d(20, 100, 0))
+    _hold(match, robot, WIDGET)
+    _hold(match, robot, GADGET)
+    assert robot.is_full_for()
+
+
+def test_shared_pool_capacity_still_fills_on_any_type():
+    """Without piece_capacity_by_type the capacity really is one shared
+    pool, and that legacy meaning is unchanged."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    characteristics = make_characteristics(
+        piece_capacity=1, accepted_piece_types=frozenset({WIDGET, GADGET}))
+    robot = match.add_robot(characteristics, Pose2d(20, 100, 0))
+    _hold(match, robot, GADGET)
+
+    assert robot.is_full_for(WIDGET)
+    assert robot.is_full_for()

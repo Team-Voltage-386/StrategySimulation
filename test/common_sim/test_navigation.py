@@ -10,6 +10,7 @@ import math
 from common_sim.control.behavior import BehaviorContext, Status
 from common_sim.control.navigation import (
     NavigateTo,
+    _PREDICTION_MIN_SHIFT,
     _inflate,
     _octagon,
     clear_standoff,
@@ -20,7 +21,7 @@ from common_sim.control.navigation import (
     polygon_distance,
 )
 from common_sim.field.field_config import FieldConfig, Obstacle, point_in_polygon
-from common_sim.geometry import Pose2d
+from common_sim.geometry import Pose2d, Vec2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.scoring import TableScoringRules
 from common_sim.robot.characteristics import RobotCharacteristics
@@ -432,3 +433,55 @@ def _segment_hits_polygon(a, b, poly) -> bool:
         if point_in_polygon((ax + (bx - ax) * t, ay + (by - ay) * t), inner):
             return True
     return False
+
+
+def _empty_match(width=600, height=400):
+    field = FieldConfig(width=width, height=height)
+    return Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+
+
+def test_speed_is_capped_on_remaining_path_not_the_next_waypoint():
+    """Intermediate waypoints are corners to drive through, not stops.
+    Gaining on the distance to the next one made the robot brake to a
+    crawl at every corner -- invisible on a straight run, which has no
+    intermediate waypoints, and crippling on a detour, which is exactly
+    what robot avoidance inserts."""
+    match = _empty_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    nav = NavigateTo(lambda ctx: Pose2d(560, 100, 0))
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    nav.tick(ctx)
+
+    # A nearby waypoint partway along a long, straight route. Braking for
+    # it would command 20 * speed_gain = 60 in/s instead of full speed.
+    nav._path = [Vec2d(20, 100), Vec2d(40, 100), Vec2d(560, 100)]
+    nav._waypoint_index = 1
+    nav._replan_timer = 10.0
+
+    commanded = []
+    robot.drive_field_relative = lambda dt, vx, vy, omega: commanded.append(math.hypot(vx, vy))
+    nav.tick(ctx)
+    assert math.isclose(commanded[-1], robot.characteristics.max_speed, rel_tol=1e-9)
+
+
+def test_moving_robot_also_gets_an_obstacle_where_it_is_heading():
+    """A snapshot obstacle is where someone *was* at plan time. Planning
+    against where they're going too is what commits the detour early,
+    while it is still cheap."""
+    match = _empty_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    other = match.add_robot(make_characteristics(), Pose2d(300, 100, 0))
+    nav = NavigateTo(lambda ctx: Pose2d(560, 100, 0))
+    start, goal = (20.0, 100.0), (560.0, 100.0)
+
+    parked = nav._other_robot_obstacles(robot, 20.0, match, start, goal)
+    other.chassis.body.velocity = (0.0, 100.0)
+    moving = nav._other_robot_obstacles(robot, 20.0, match, start, goal)
+
+    assert len(moving) == len(parked) + 1
+    centers = [(sum(p[1] for p in poly) / len(poly)) for poly in moving]
+    assert max(centers) > 100.0 + _PREDICTION_MIN_SHIFT, "predicted obstacle is not ahead of it"
+    # ...and the robot's actual position is still covered. A couple of
+    # inches of slack: the pass-side bulge pulls an octagon's centroid
+    # slightly off the center it was built around.
+    assert math.isclose(min(centers), 100.0, abs_tol=3.0)

@@ -551,6 +551,39 @@ def _robot_radius(characteristics) -> float:
     return math.hypot(characteristics.length / 2.0, characteristics.width / 2.0)
 
 
+def _robot_velocity(robot) -> tuple[float, float] | None:
+    """Field-frame velocity of a robot, or None for anything that isn't
+    backed by a physics body (test doubles, mostly)."""
+    body = getattr(getattr(robot, "chassis", None), "body", None)
+    velocity = getattr(body, "velocity", None)
+    if velocity is None:
+        return None
+    return (float(velocity[0]), float(velocity[1]))
+
+
+# Dynamic-obstacle prediction, used by `_other_robot_obstacles`.
+#
+# A robot obstacle is a snapshot of where someone *was* when the route
+# was planned. Two robots closing at full speed cover a lot of ground
+# before the next plan, so a route that cleared the snapshot can run
+# straight into where the other robot actually got to -- which is why
+# avoidance still ended in glancing contact even with no deadlock left.
+# Planning against where they're *heading* commits the detour early,
+# while it's still cheap, instead of reacting once they're on top of
+# each other.
+#
+# The horizon caps how far ahead we're willing to believe a constant
+# velocity; past a second a robot has usually turned or arrived, and
+# extrapolating further just invents obstacles in empty space.
+_PREDICTION_HORIZON = 1.0
+# Below this the robot is parked or jittering and its heading means
+# nothing worth planning around.
+_PREDICTION_MIN_SPEED = 12.0
+# A predicted position this close to the current one is already covered
+# by the snapshot obstacle; adding it would only cost planning time.
+_PREDICTION_MIN_SHIFT = 6.0
+
+
 def _trapezoidal_time(distance: float, max_speed: float, max_accel: float) -> float:
     if distance <= 1e-9:
         return 0.0
@@ -576,6 +609,11 @@ class NavigateTo(Behavior):
     many inches, so the robot stops short of the target instead of
     driving to its exact center.
 
+    `position_tolerance` is how close counts as arrived, and applies only
+    to the last waypoint. Intermediate ones use the looser
+    `waypoint_tolerance`: they are hints about which side of an obstacle
+    to pass, not places to be, and hitting one precisely costs a stop.
+
     `avoid_robots` folds every other robot on the field into the same
     replan as a circular dynamic obstacle (see `_replan`), so two
     robots on a collision course route around each other instead of
@@ -589,8 +627,9 @@ class NavigateTo(Behavior):
         *,
         heading_mode: HeadingMode = "face_travel",
         standoff: float = 0.0,
-        replan_period: float = 0.25,
+        replan_period: float = 0.1,
         position_tolerance: float = 2.0,
+        waypoint_tolerance: float = 3.0,
         heading_tolerance: float = 0.05,
         speed_gain: float = 3.0,
         heading_gain: float = 4.0,
@@ -602,6 +641,7 @@ class NavigateTo(Behavior):
         self.standoff = standoff
         self.replan_period = replan_period
         self.position_tolerance = position_tolerance
+        self.waypoint_tolerance = waypoint_tolerance
         self.heading_tolerance = heading_tolerance
         self.speed_gain = speed_gain
         self.heading_gain = heading_gain
@@ -665,12 +705,23 @@ class NavigateTo(Behavior):
         around to a boundary vertex and approaches from there. Same for
         `start`: two robots closing on each other are inside each other's
         circle well before they touch, which is the normal trigger for a
-        detour, not a degenerate input to be shrunk away."""
+        detour, not a degenerate input to be shrunk away.
+
+        A moving robot also gets a second obstacle at where it is
+        predicted to be by the time we reach it -- see the prediction
+        constants above. That one is soft: it is dropped entirely rather
+        than floored at the contact radius when it would swallow the
+        goal, because a prediction is a guess about a robot that may
+        well turn away, and a guess must never be able to make a
+        destination unreachable. The snapshot at the robot's actual
+        position is the hard constraint; this one only buys an earlier,
+        cheaper detour."""
         if not self.avoid_robots or match is None:
             return []
         others = getattr(match, "robots", None)
         if not others:
             return []
+        own_speed = max(1.0, robot.characteristics.max_speed)
         obstacles = []
         for other in others:
             if other is robot:
@@ -680,6 +731,25 @@ class NavigateTo(Behavior):
             clearance_to_goal = math.hypot(other_pos[0] - goal[0], other_pos[1] - goal[1]) - 1.0
             radius = max(contact_radius, min(contact_radius + self.robot_avoid_margin, clearance_to_goal))
             obstacles.append(_octagon(other_pos, radius, observer=start))
+
+            velocity = _robot_velocity(other)
+            if velocity is None or math.hypot(*velocity) < _PREDICTION_MIN_SPEED:
+                continue
+            # How long until we get there, straight-line and optimistic:
+            # overestimating the horizon puts the predicted obstacle
+            # somewhere we'll never meet it.
+            reach_time = min(
+                _PREDICTION_HORIZON,
+                math.hypot(other_pos[0] - start[0], other_pos[1] - start[1]) / own_speed,
+            )
+            shift = (velocity[0] * reach_time, velocity[1] * reach_time)
+            if math.hypot(*shift) < _PREDICTION_MIN_SHIFT:
+                continue
+            predicted = (other_pos[0] + shift[0], other_pos[1] + shift[1])
+            clearance = math.hypot(predicted[0] - goal[0], predicted[1] - goal[1]) - 1.0
+            predicted_radius = min(contact_radius + self.robot_avoid_margin, clearance)
+            if predicted_radius > contact_radius:
+                obstacles.append(_octagon(predicted, predicted_radius, observer=start))
         return obstacles
 
     # How far a target has to drift before it's worth rebuilding the
@@ -721,7 +791,7 @@ class NavigateTo(Behavior):
         # happens to change. That's what parked robots a few inches shy
         # of an inflated REEF corner for seconds at a time.
         while self._waypoint_index < len(self._path) - 1:
-            if (self._path[self._waypoint_index] - pose.translation).length > self.position_tolerance:
+            if (self._path[self._waypoint_index] - pose.translation).length > self.waypoint_tolerance:
                 break
             self._waypoint_index += 1
 
@@ -729,6 +799,19 @@ class NavigateTo(Behavior):
         delta = waypoint - pose.translation
         distance = delta.length
         is_final = self._waypoint_index == len(self._path) - 1
+
+        # Distance left to drive, not distance to the next corner. The
+        # speed command below is proportional to this, so measuring it to
+        # the next waypoint made the robot brake for every intermediate
+        # one as though it were the destination -- invisible on a
+        # straight run, which has none, and crippling the moment
+        # avoidance inserted a detour corner. It braked to a crawl to
+        # round each robot it passed, which is the "slows down to get
+        # by" everyone was watching. Braking belongs to the end of the
+        # path; corners are driven through.
+        remaining = distance
+        for i in range(self._waypoint_index, len(self._path) - 1):
+            remaining += self._path[i].get_distance(self._path[i + 1])
 
         desired_heading = self._desired_heading(pose, waypoint, target, delta)
         heading_error = wrap_angle(desired_heading - pose.heading)
@@ -740,7 +823,7 @@ class NavigateTo(Behavior):
         vx, vy = 0.0, 0.0
         if distance > 1e-6:
             direction = delta / distance
-            speed = min(robot.characteristics.max_speed, distance * self.speed_gain)
+            speed = min(robot.characteristics.max_speed, remaining * self.speed_gain)
             vx, vy = direction.x * speed, direction.y * speed
         max_omega = robot.characteristics.max_angular_speed
         omega = max(-max_omega, min(max_omega, heading_error * self.heading_gain))
