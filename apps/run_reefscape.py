@@ -18,7 +18,8 @@ levels, as a keyboard-only fallback), F hold to deposit at the selected
 level. Holding ALGAE, the deposit target auto-switches to PROCESSOR/NET
 whenever the robot is sitting in one of those zones, no manual selection
 needed. Xbox controller (if connected): left stick drives, right stick X
-rotates, A intakes, B deposits, X cycles CORAL level, Start pauses/resumes.
+rotates, A intakes, RIGHT TRIGGER deposits, X cycles CORAL level, Start
+pauses/resumes.
 """
 from __future__ import annotations
 
@@ -83,7 +84,7 @@ TOGGLE_REEF_LEVEL_KEY = Qt.Key_X
 
 GAMEPAD_BINDINGS = [
     ("Left Stick", "Drive"), ("Right Stick X", "Rotate"),
-    ("A", "Intake"), ("B", "Deposit"), ("X", "Cycle CORAL level"), ("Start", "Pause / Resume"),
+    ("A", "Intake"), ("RT", "Deposit"), ("X", "Cycle CORAL level"), ("Start", "Pause / Resume"),
 ]
 KEYBOARD_BINDINGS = [
     ("W A S D", "Drive"), ("Left / Right", "Rotate"),
@@ -305,7 +306,6 @@ class MatchView(QtWidgets.QWidget):
     def _reset_match(self) -> None:
         alliance = self.primary_config_tab.settings_panel.alliance()
         self.match = build_demo_match(
-            alliance,
             self.match_settings_panel.disable_friendly_collisions(),
             self.match_settings_panel.emit_coral_to_field(),
         )

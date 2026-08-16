@@ -27,7 +27,7 @@ def _job(seed=0, variability=None, robots=None, strategy="cycle_coral", teleop_d
         robots = [RobotSpec(label="PRIMARY", alliance="blue", roster_index=-1, characteristics=char_spec, strategy=strategy)]
     return TrialJob(
         index=0, seed=seed, params={}, robots=tuple(robots),
-        match=MatchSpec(auto_duration=1.0, teleop_duration=teleop_duration, scatter_alliance="blue"),
+        match=MatchSpec(auto_duration=1.0, teleop_duration=teleop_duration),
         variability=variability or VariabilityModel(), strategies_dir=str(STRATEGIES_DIR), dt=SWEEP_DT,
     )
 

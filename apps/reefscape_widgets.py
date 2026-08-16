@@ -13,7 +13,6 @@ names so existing references there still resolve.
 from __future__ import annotations
 
 import math
-import random
 from pathlib import Path
 
 from pyqtgraph.Qt import QtCore, QtWidgets
@@ -21,7 +20,7 @@ from pyqtgraph.Qt import QtCore, QtWidgets
 from common_sim.analysis.sweep_spec import RobotSpec, characteristics_to_spec
 from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import INTAKE_SOURCES, RobotCharacteristics, SideManipulators, SIDES
-from game_specific.reefscape.field import build_field, reef_center
+from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 from gui_utils import theme
@@ -89,6 +88,9 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
         max_speed=150.0, max_accel=400.0, max_angular_speed=6.0, max_angular_accel=20.0,
         width=28.0, length=28.0,
         piece_capacity_by_type=dict(DEFAULT_PIECE_CAPACITY),
+        # Game Manual (V13) 6.3.4.1.B: up to 1 CORAL may be preloaded in
+        # each ROBOT by its DRIVE TEAM.
+        starting_piece_count=1, preload_piece_type=CORAL_TYPE,
         intake_time_by_type=dict(DEFAULT_INTAKE_TIMES), station_intake_time=0.6, intake_range=6.0,
         deposit_time=0.5,
         deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
@@ -99,9 +101,7 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
     return RobotCharacteristics(**defaults)
 
 
-def build_demo_match(
-    alliance: str = "blue", disable_friendly_collisions: bool = False, emit_coral_to_field: bool = False,
-) -> Match:
+def build_demo_match(disable_friendly_collisions: bool = False, emit_coral_to_field: bool = False) -> Match:
     field = build_field()
     match = Match(
         field,
@@ -112,16 +112,13 @@ def build_demo_match(
         ),
     )
 
-    rng = random.Random(0)
-    center = reef_center(alliance)
-    # Scatter pieces between this alliance's REEF and its own ALLIANCE
-    # WALL (same side the robot starts on) -- toward -x for blue (wall
-    # at x=0), toward +x for red (wall at x=FIELD_LENGTH).
-    toward_wall = -1.0 if alliance == "blue" else 1.0
-    for _ in range(6):
-        spawn_coral(match, (center[0] + toward_wall * 60, center[1] + rng.uniform(-30, 30)))
-    for i in range(3):
-        spawn_algae(match, (center[0] + toward_wall * 40, center[1] - 60 + 40 * i))
+    # Game Manual (V13) 6.3.4: 1 CORAL staged on each of 3 CORAL MARKs
+    # per alliance, with 1 ALGAE placed on top of each -- staged for both
+    # alliances, not just whichever one the primary robot belongs to.
+    for side in ("blue", "red"):
+        for x, y in coral_mark_positions(side):
+            spawn_coral(match, (x, y))
+            spawn_algae(match, (x, y + CORAL_MARK_ALGAE_OFFSET))
 
     return match
 

@@ -236,6 +236,23 @@ class FieldCanvas(QtWidgets.QWidget):
                 return status
         return None
 
+    def _robot_station_ready(self, robot) -> bool:
+        """Whether `robot` is currently positioned to trigger an intake
+        location's station-dispense timer -- the collect-side mirror of
+        _robot_scoring_status. Checks the same three things Match.step
+        gates dispensing on (a side touching it and configured for its
+        piece type, capacity left for that type, supply left at the
+        station) without needing intake to actually be commanded, since
+        this is a "you're in position" readiness marker, not an
+        in-progress one."""
+        location = robot.nearby_station()
+        if location is None:
+            return False
+        if not robot.has_capacity_for(location.piece_type):
+            return False
+        remaining = self.match.station_supply.get(location)
+        return remaining is None or remaining > 0
+
     def _draw_intake_locations(self, painter, scale: float) -> None:
         for location in self.match.field.intake_locations:
             alliance = self._intake_occupant_alliance(location)
@@ -552,12 +569,22 @@ class FieldCanvas(QtWidgets.QWidget):
         # only) in green/red rather than nothing, since the robot's own
         # sprite usually covers the zone highlight it would otherwise show.
         status = self._robot_scoring_status(robot)
-        if status is None:
+        if status is not None:
+            outline = VALID_OUTLINE if status == "valid" else QtGui.QColor(theme.ACCENT_RED)
+            painter.setPen(QtGui.QPen(outline, 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(QtCore.QRectF(bar_x, bar_y, bar_w, bar_h))
             return
-        outline = VALID_OUTLINE if status == "valid" else QtGui.QColor(theme.ACCENT_RED)
-        painter.setPen(QtGui.QPen(outline, 2))
-        painter.setBrush(Qt.NoBrush)
-        painter.drawRect(QtCore.QRectF(bar_x, bar_y, bar_w, bar_h))
+
+        # Same idea for a station-style intake location (e.g. a 1-capacity
+        # staged REEF ALGAE zone): once the robot is actually positioned
+        # over it, its own sprite covers the station highlight entirely,
+        # so an empty cyan-outline bar is the only way to see "ready to
+        # collect" before RunIntake starts filling it in.
+        if self._robot_station_ready(robot):
+            painter.setPen(QtGui.QPen(QtGui.QColor(theme.ACCENT_CYAN), 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(QtCore.QRectF(bar_x, bar_y, bar_w, bar_h))
 
     def _draw_hud(self, painter) -> None:
         painter.setFont(theme.technical_font(11, bold=True))

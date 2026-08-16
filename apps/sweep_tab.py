@@ -189,7 +189,6 @@ class SweepTab(QtWidgets.QWidget):
         match = MatchSpec(
             auto_duration=self.auto_duration_spin.value(), teleop_duration=self.teleop_duration_spin.value(),
             disable_friendly_collisions=self.match_settings_panel.disable_friendly_collisions(),
-            scatter_alliance=robots[0].alliance if robots else "blue",
         )
         variables = self.variable_table.variables()
         variability = self.control_panel.variability_model()

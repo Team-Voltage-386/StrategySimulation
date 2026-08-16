@@ -135,6 +135,14 @@ class Robot:
         self._commanded_intake = False
         self._commanded_deposit = False
         self._deposit_action: str | None = None
+        # Whether the deposit attempt currently in progress is spending
+        # the real deposit timer vs. dropping instantly -- latched once
+        # per commanded-deposit press (see update_manipulator) rather
+        # than re-read every tick, so a sub-inch chassis nudge mid-drop
+        # (e.g. recoil from the previous piece's eject) can't flip an
+        # already-timing deposit into an instant one partway through.
+        self._deposit_was_active = False
+        self._deposit_ready_latched = True
 
         # side -> (pose_key, points) memo for side_reach_points -- deposit
         # region checks call it repeatedly (once per candidate scoring
@@ -404,7 +412,9 @@ class Robot:
             piece_type = self.held_pieces[0].piece_type
         return self.characteristics.score_side_for(piece_type)
 
-    def update_manipulator(self, dt: float, target: GamePiece | None = None) -> GamePiece | None:
+    def update_manipulator(
+        self, dt: float, target: GamePiece | None = None, scoring_ready: bool = True,
+    ) -> GamePiece | None:
         """Advance the deposit timer and, once it completes, release
         `target` (or, if not given, the FIFO-first held piece -- correct
         only while a robot holds a single type at once). `target` lets a
@@ -412,17 +422,33 @@ class Robot:
         one the current commanded action actually applies to, since the
         action string alone doesn't say (see Match.deposit_piece_for).
         No-ops (timer does not run) if no target action has ever been
-        selected via set_deposit_active(..., action=...). Deliberately NOT
-        gated on being positioned inside a valid scoring region -- a robot
-        can drop a held piece anywhere on the field; Match only decides
-        afterward, from the release position, whether it actually scored
-        (see Match._try_score / _check_region_scoring)."""
+        selected via set_deposit_active(..., action=...). NOT gated on
+        being positioned inside a valid scoring region -- a robot can drop
+        a held piece anywhere on the field; Match only decides afterward,
+        from the release position, whether it actually scored (see
+        Match._try_score / _check_region_scoring). `scoring_ready` (Match
+        passes whether deposit_region_for currently resolves) only affects
+        *how long that takes*: a real scoring deposit spends the
+        action's deposit_duration, but a drop with nothing to score
+        against happens on the very next tick -- there's no manipulator
+        motion to model when it's just discarding the piece onto the
+        field, and waiting out the same timer made an obviously-missed
+        drop look like it was still trying to score. Only sampled on the
+        rising edge of the commanded press (see _deposit_ready_latched)
+        -- re-reading it every tick would let a mid-drop chassis wobble
+        that's already timing toward a real score flip it to instant
+        partway through."""
         if target is None and self.held_pieces:
             target = self.held_pieces[0]
         has_piece = target is not None
         action = self._deposit_action
         active = self._commanded_deposit and action is not None
-        duration = self.characteristics.deposit_duration(action) if action is not None else 0.0
+        if active and not self._deposit_was_active:
+            self._deposit_ready_latched = scoring_ready
+        self._deposit_was_active = active
+        duration = (
+            self.characteristics.deposit_duration(action) if (action is not None and self._deposit_ready_latched) else 0.0
+        )
         completed = self.manipulator.update(dt, active, has_piece, duration)
         if completed:
             piece = target

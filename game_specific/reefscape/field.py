@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from common_sim.field.field_config import EmitterRegion, FieldConfig, IntakeLocation, Obstacle, ScoringRegion
-from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
+from game_specific.reefscape.game_pieces import ALGAE_RADIUS, ALGAE_TYPE, CORAL_TYPE
 
 # Game Manual (V13) doesn't cap CORAL station supply -- 30 is a
 # dry-run placeholder (a generous multiple of what one match could plausibly
@@ -59,6 +59,23 @@ CORAL_STATION_CORNER_MARGIN = 10.0
 PROCESSOR_WIDTH = 3 * 12 + 7 + 3 / 8      # 3 ft 7-3/8 in
 PROCESSOR_DEPTH = 1 * 12 + 6              # 1 ft 6 in
 
+# 6.3.4 SCORING ELEMENTS: FIELD STAFF pre-stage 1 CORAL (with 1 ALGAE on
+# top of it) on each of 3 CORAL MARKs per alliance, within that
+# alliance's ALLIANCE AREA -- see coral_mark_positions. Figure 6-2 shows
+# exact placement as a diagram only (no tabulated coordinates), so these
+# are a dry-run approximation: evenly spread across the field width at a
+# fixed distance from the ALLIANCE WALL, comfortably inside the
+# ALLIANCE AREA (which runs the full 13 ft 8-3/8 in depth of the CORAL
+# STATIONs).
+CORAL_MARK_COUNT = 3
+CORAL_MARK_WALL_OFFSET = 60.0
+# Lateral offset between a CORAL MARK's staged CORAL and its ALGAE --
+# the manual stages the ALGAE resting on top of the CORAL, which this
+# 2D top-down sim has no "on top of" for; offsetting them sideways
+# instead keeps both pieces distinct on spawn rather than overlapping
+# and immediately shoving each other via physics.
+CORAL_MARK_ALGAE_OFFSET = 12.0
+
 # -- REEF scoring-face geometry -----------------------------------------
 
 REEF_LEVELS = frozenset({"l1", "l2", "l3", "l4"})
@@ -93,6 +110,18 @@ REEF_LEVEL_CAPACITY = {
     "l3": REEF_BRANCHES_PER_LEVEL * REEF_BRANCH_CAPACITY,
     "l4": REEF_BRANCHES_PER_LEVEL * REEF_BRANCH_CAPACITY,
 }
+
+# 6.3.4.2.A: 1 ALGAE is staged lightly on the REEF at each of its 6
+# faces before the MATCH (12 total field-wide, alternating L2/L3 branch
+# height per Figure 6-3 -- a height distinction this sim doesn't model,
+# since REEF face scoring is already flattened to one zone per face, see
+# _reef_scoring_regions). Modeled as a per-face collection region (an
+# IntakeLocation with starting_pieces=1) rather than a physical loose
+# piece resting against the hex obstacle, matching how a CORAL STATION
+# is modeled -- a robot dwells in the zone to pick the ALGAE up. The
+# staging point sits just outside the REEF's solid hex face so it
+# doesn't spawn/collide inside the obstacle.
+REEF_ALGAE_STAGING_CLEARANCE = ALGAE_RADIUS + 4.0
 
 
 def _hex_vertices(center: tuple[float, float], apothem: float) -> tuple[tuple[float, float], ...]:
@@ -160,6 +189,28 @@ def coral_station_positions(alliance: str) -> tuple[tuple[float, float], tuple[f
     them."""
     x = CORAL_STATION_CORNER_MARGIN if alliance == "blue" else FIELD_LENGTH - CORAL_STATION_CORNER_MARGIN
     return ((x, CORAL_STATION_CORNER_MARGIN), (x, FIELD_WIDTH - CORAL_STATION_CORNER_MARGIN))
+
+
+def coral_mark_positions(alliance: str) -> tuple[tuple[float, float], ...]:
+    """This alliance's 3 pre-match CORAL MARK positions (see
+    CORAL_MARK_COUNT), evenly spread across the field width at a fixed
+    distance from the ALLIANCE WALL."""
+    x = CORAL_MARK_WALL_OFFSET if alliance == "blue" else FIELD_LENGTH - CORAL_MARK_WALL_OFFSET
+    return tuple(
+        (x, FIELD_WIDTH * (i + 1) / (CORAL_MARK_COUNT + 1))
+        for i in range(CORAL_MARK_COUNT)
+    )
+
+
+def reef_algae_staging_positions(alliance: str) -> tuple[tuple[float, float], ...]:
+    """This alliance's 6 pre-match REEF ALGAE staging points, one per
+    REEF face, just outside the hex structure (see
+    REEF_ALGAE_STAGING_CLEARANCE)."""
+    center = reef_center(alliance)
+    return tuple(
+        (mid[0] + normal[0] * REEF_ALGAE_STAGING_CLEARANCE, mid[1] + normal[1] * REEF_ALGAE_STAGING_CLEARANCE)
+        for mid, normal in _hex_face_centers_and_normals(center, REEF_HEX_APOTHEM)
+    )
 
 
 def alliance_zone_center(alliance: str) -> tuple[float, float]:
@@ -237,6 +288,17 @@ def build_field() -> FieldConfig:
         )
         for alliance in ("blue", "red")
         for i, pos in enumerate(coral_station_positions(alliance))
+    ) + tuple(
+        IntakeLocation(
+            name=f"{alliance}_reef_algae_{i}",
+            vertices=_rect(pos, 20.0, 20.0),
+            piece_type=ALGAE_TYPE,
+            starting_pieces=1,
+            piece_color="green",  # matches spawn_algae's field-pile color
+            alliance=alliance,
+        )
+        for alliance in ("blue", "red")
+        for i, pos in enumerate(reef_algae_staging_positions(alliance))
     )
 
     # One CORAL emitter per alliance, sharing its pool with that alliance's

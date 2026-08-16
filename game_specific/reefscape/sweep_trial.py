@@ -41,7 +41,7 @@ from common_sim.control.strategy import StrategyController
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.telemetry import TelemetryRecorder
-from game_specific.reefscape.field import build_field, coral_station_positions, reef_center
+from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions, coral_station_positions
 from game_specific.reefscape.game_pieces import spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 
@@ -80,23 +80,18 @@ def _resolve_strategy(strategy, strategies_dir):
     return strategy_io.load_strategy(Path(strategies_dir) / f"{strategy}.json")
 
 
-def _scatter_pieces(match: Match, alliance: str, seed: int, model) -> None:
-    """Same 6-coral/3-algae scatter apps/run_reefscape.py's
-    build_demo_match does, with its `random.Random(0)` jitter folded
-    into substream(seed, "pieces") so the default (variability-disabled)
-    layout is preserved, plus an optional per-piece variability.
-    scatter_offset on top."""
+def _stage_coral_marks(match: Match, seed: int, model) -> None:
+    """Same manual-accurate CORAL MARK staging apps/reefscape_widgets.py's
+    build_demo_match does (1 CORAL + 1 ALGAE per mark, both alliances),
+    folded into substream(seed, "pieces") plus an optional per-piece
+    variability.scatter_offset jitter on top."""
     rng = substream(seed, "pieces")
-    center = reef_center(alliance)
-    toward_wall = -1.0 if alliance == "blue" else 1.0
-    for _ in range(6):
-        x, y = center[0] + toward_wall * 60, center[1] + rng.uniform(-30, 30)
-        dx, dy = scatter_offset(model, rng)
-        spawn_coral(match, (x + dx, y + dy))
-    for i in range(3):
-        x, y = center[0] + toward_wall * 40, center[1] - 60 + 40 * i
-        dx, dy = scatter_offset(model, rng)
-        spawn_algae(match, (x + dx, y + dy))
+    for side in ("blue", "red"):
+        for x, y in coral_mark_positions(side):
+            dx, dy = scatter_offset(model, rng)
+            spawn_coral(match, (x + dx, y + dy))
+            dx, dy = scatter_offset(model, rng)
+            spawn_algae(match, (x + dx, y + CORAL_MARK_ALGAE_OFFSET + dy))
 
 
 def build_match_for_job(job: TrialJob, recorder_cls=None):
@@ -113,7 +108,7 @@ def build_match_for_job(job: TrialJob, recorder_cls=None):
         disable_friendly_collisions=job.match.disable_friendly_collisions,
     )
     match = Match(field, REEFSCAPE_SCORING_RULES, match_config, rng=substream(job.seed, "scoring"))
-    _scatter_pieces(match, job.match.scatter_alliance, job.seed, job.variability)
+    _stage_coral_marks(match, job.seed, job.variability)
 
     robots_by_label = {}
     for robot_spec in job.robots:

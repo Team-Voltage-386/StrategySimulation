@@ -153,11 +153,26 @@ def test_gamepad_input_x_button_cycle_level_is_edge_triggered():
     assert operator.cycle_level is True
 
 
-def test_gamepad_input_buttons_map_to_operator_commands():
-    joystick = FakeJoystick(axes=[0, 0, 0, 0], buttons=[1, 1])
+def test_gamepad_input_a_button_maps_to_intake():
+    joystick = FakeJoystick(axes=[0, 0, 0, 0], buttons=[1, 0])
     src = GamepadInput(joystick=joystick, deposit_action="l2")
     _, operator = src.poll()
     assert operator.intake_active is True
+    assert operator.deposit_active is False
+    assert operator.deposit_action == "l2"
+
+
+def test_gamepad_input_right_trigger_maps_to_deposit():
+    # Axis 5 (RT), 0.0 released to 1.0 fully pressed -- below the
+    # half-press threshold should not register as deposit.
+    joystick = FakeJoystick(axes=[0, 0, 0, 0, 0, 0.3], buttons=[0, 0])
+    src = GamepadInput(joystick=joystick, deposit_action="l2")
+    _, operator = src.poll()
+    assert operator.deposit_active is False
+
+    joystick = FakeJoystick(axes=[0, 0, 0, 0, 0, 0.8], buttons=[0, 0])
+    src = GamepadInput(joystick=joystick, deposit_action="l2")
+    _, operator = src.poll()
     assert operator.deposit_active is True
     assert operator.deposit_action == "l2"
 

@@ -83,10 +83,23 @@ def test_full_pickup_and_score_pipeline():
     match.step(1.0 / 60.0)
     assert math.isclose(piece.position.x, robot.chassis.body.position.x, abs_tol=1e-6)
 
-    # Drive into the scoring zone and deposit.
-    robot.set_deposit_active(True, action="score_widget")
+    # Drive into the scoring zone first -- a deposit only spends its
+    # timer once the robot is already positioned to score (see
+    # Robot.update_manipulator's scoring_ready gate); commanding it
+    # before arriving now just drops the piece instantly instead of
+    # scoring it, so the action is set (for deposit_region_for to check
+    # against) without yet activating the deposit.
+    robot.set_deposit_active(False, action="score_widget")
     for _ in range(600):
         robot.drive_field_relative(1.0 / 60.0, 120.0, 0.0, 0.0)
+        match.step(1.0 / 60.0)
+        if match.deposit_region_for(robot) is not None:
+            break
+    assert match.deposit_region_for(robot) is not None, "robot never reached the scoring zone"
+
+    robot.drive_field_relative(1.0 / 60.0, 0.0, 0.0, 0.0)
+    robot.set_deposit_active(True)
+    for _ in range(600):
         match.step(1.0 / 60.0)
         if piece.scored:
             break

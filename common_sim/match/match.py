@@ -258,8 +258,9 @@ class Match:
         )
         if controller is not None:
             robot.controller = controller
+        preload_type = characteristics.preload_piece_type or _default_piece_type(characteristics)
         for _ in range(characteristics.starting_piece_count):
-            piece = self.spawn_piece(_default_piece_type(characteristics), start_pose.as_tuple()[:2], source="preload")
+            piece = self.spawn_piece(preload_type, start_pose.as_tuple()[:2], source="preload")
             piece.held_by = robot
             piece.shape.sensor = True
             piece.last_holder_alliance = alliance
@@ -528,7 +529,7 @@ class Match:
 
             target_piece = self.deposit_piece_for(robot)
             ready_region = self.deposit_region_for(robot, target_piece)
-            released = robot.update_manipulator(dt, target_piece)
+            released = robot.update_manipulator(dt, target_piece, scoring_ready=ready_region is not None)
             if released is not None:
                 self.events.log(self.elapsed, "deposit", {"alliance": robot.alliance, "piece_type": released.piece_type})
                 if ready_region is not None:

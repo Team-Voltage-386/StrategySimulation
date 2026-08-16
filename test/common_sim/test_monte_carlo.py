@@ -43,7 +43,15 @@ def build_trial_match(params: dict) -> Match:
         deposit_time=params["deposit_time"],
         accepted_piece_types=frozenset({WIDGET}),
     )
-    robot = match.add_robot(characteristics, Pose2d(150, 100, 0))
+    # Off-center on purpose (not at the region's exact centroid): a
+    # deposit's timer now only runs while the robot is genuinely
+    # positioned to score (see Robot.update_manipulator's scoring_ready),
+    # and the region-centroid-to-robot direction is what that check reads
+    # -- sitting exactly on the centroid made that direction degenerate
+    # (a fraction-of-an-inch physics nudge from the *previous* deposit's
+    # eject recoil was enough to flip it), while a robot planted well in
+    # front of it stays robustly "facing" the goal.
+    robot = match.add_robot(characteristics, Pose2d(50, 100, 0))
 
     dt = 1.0 / 60.0
     routine = Repeat(RunManipulator("score", timeout=params["deposit_time"] + 1.0))

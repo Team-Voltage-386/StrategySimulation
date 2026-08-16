@@ -128,7 +128,9 @@ class GamepadInput(InputSource):
     headless (no pygame display window needed -- see ARCHITECTURE.md's
     tech-stack rationale). Standard Xbox axis/button layout as SDL2
     reports it: left stick = axes 0/1 (strafe/forward), right stick X =
-    axis 3 (rotate), A = button 0 (intake), B = button 1 (deposit).
+    axis 3 (rotate), A = button 0 (intake), right trigger (RT) = axis 5
+    (deposit) -- a trigger rather than a button since it's a more natural
+    hold-to-score analog to the keyboard's held-F binding.
 
     A `joystick` object can be injected directly (anything satisfying
     get_axis/get_button/get_numaxes) -- this is what makes the class
@@ -147,6 +149,11 @@ class GamepadInput(InputSource):
     ROTATE_AXIS = 2
     START_BUTTON = 7
     X_BUTTON = 2
+    # SDL2/XInput reports the right trigger as its own axis (not a
+    # button), 0.0 released to 1.0 fully pressed -- 0.5 reads as a
+    # deliberate half-press rather than requiring the trigger bottomed out.
+    RIGHT_TRIGGER_AXIS = 5
+    RIGHT_TRIGGER_THRESHOLD = 0.5
 
     def __init__(
         self,
@@ -185,7 +192,10 @@ class GamepadInput(InputSource):
         drive = DriveCommand(vx=vx, vy=vy, omega=omega)
 
         intake = j.get_numbuttons() > 0 and bool(j.get_button(0))
-        deposit = j.get_numbuttons() > 1 and bool(j.get_button(1))
+        deposit = (
+            j.get_numaxes() > self.RIGHT_TRIGGER_AXIS
+            and j.get_axis(self.RIGHT_TRIGGER_AXIS) > self.RIGHT_TRIGGER_THRESHOLD
+        )
 
         start_pressed = j.get_numbuttons() > self.START_BUTTON and bool(j.get_button(self.START_BUTTON))
         pause_toggle = start_pressed and not self._prev_start_pressed

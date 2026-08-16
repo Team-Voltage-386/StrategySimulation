@@ -64,6 +64,12 @@ class RobotCharacteristics:
     # across all types, matching the legacy single-pool behavior.
     piece_capacity_by_type: dict[str, int] = field(default_factory=dict)
     starting_piece_count: int = 0
+    # Which piece type Match.add_robot preloads starting_piece_count of,
+    # e.g. "coral" for a robot that always starts holding CORAL regardless
+    # of which types accepted_piece_types happens to iterate first (a
+    # frozenset's iteration order isn't a type ordering). None (default)
+    # falls back to that legacy first-accepted-type behavior.
+    preload_piece_type: str | None = None
     intake_time: float = 0.5          # seconds to capture a field piece, for a type with no override below
     # Per-piece-type intake time override, e.g. {"coral": 0.4, "algae": 0.6} --
     # different piece types can plausibly take a mechanism different time to

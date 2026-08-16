@@ -226,7 +226,6 @@ class MatchSpec:
     auto_duration: float
     teleop_duration: float
     disable_friendly_collisions: bool = False
-    scatter_alliance: str = "blue"
 
 
 @dataclass(frozen=True)

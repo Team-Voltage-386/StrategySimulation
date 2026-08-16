@@ -40,13 +40,21 @@ def test_field_has_two_reef_obstacles_and_coral_stations():
     field = build_field()
     obstacle_names = {o.name for o in field.obstacles}
     assert obstacle_names == {"blue_reef", "red_reef"}
-    station_names = {r.name for r in field.intake_locations}
-    assert station_names == {
-        "blue_coral_station_0", "blue_coral_station_1",
-        "red_coral_station_0", "red_coral_station_1",
+    station_names = {"blue_coral_station_0", "blue_coral_station_1", "red_coral_station_0", "red_coral_station_1"}
+    assert station_names <= {r.name for r in field.intake_locations}
+    coral_stations = [r for r in field.intake_locations if r.name in station_names]
+    assert all(r.piece_type == CORAL_TYPE for r in coral_stations)
+    assert all(r.starting_pieces == 30 for r in coral_stations)
+
+
+def test_field_has_pre_staged_algae_on_each_reef_face():
+    field = build_field()
+    algae_locations = [r for r in field.intake_locations if r.piece_type == ALGAE_TYPE]
+    assert len(algae_locations) == 12  # 6 REEF faces per alliance x 2 alliances
+    assert all(r.starting_pieces == 1 for r in algae_locations)
+    assert {r.name for r in algae_locations if r.alliance == "blue"} == {
+        f"blue_reef_algae_{i}" for i in range(6)
     }
-    assert all(r.piece_type == CORAL_TYPE for r in field.intake_locations)
-    assert all(r.starting_pieces == 30 for r in field.intake_locations)
 
 
 def test_reef_offers_six_faces_with_all_four_levels():
