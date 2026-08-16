@@ -20,13 +20,7 @@ import math
 from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
 
-# CORAL STATIONs are a continuously-replenished human-player feed, not a
-# finite pile -- Game Manual (V13) doesn't give a numeric feed rate, so
-# this is a dry-run placeholder tuned to feel like a brief driver-station
-# handoff rather than an instant refill.
-CORAL_STATION_DISPENSE_TIME = 2.0
-
-# Game Manual (V13) doesn't cap CORAL station supply either -- 30 is a
+# Game Manual (V13) doesn't cap CORAL station supply -- 30 is a
 # dry-run placeholder (a generous multiple of what one match could plausibly
 # consume) so the GUI's remaining-count label has a finite number to show
 # and count down, rather than every station reading unlimited forever.
@@ -213,7 +207,6 @@ def build_field() -> FieldConfig:
             name=f"{alliance}_coral_station_{i}",
             vertices=_rect(pos, 36.0, 36.0),
             piece_type=CORAL_TYPE,
-            dispense_time=CORAL_STATION_DISPENSE_TIME,
             starting_pieces=CORAL_STATION_STARTING_PIECES,
             piece_color="white",  # matches spawn_coral's field-pile color
             alliance=alliance,

@@ -70,10 +70,13 @@ class IntakeLocation:
     piece type -- e.g. a human-player feeder/loading station. Unlike a
     PieceSpawnRegion, no physical GamePiece needs to exist in the zone
     beforehand: a robot that sits in the zone with intake commanded
-    active for `dispense_time` seconds gets a new piece handed directly
-    into its held pieces (see Match._register_collision_handlers /
-    Robot.update_station_intake), the same way a real feeder keeps
-    handing off pieces as fast as a robot can take them.
+    active for its own RobotCharacteristics.station_intake_time seconds
+    gets a new piece handed directly into its held pieces (see
+    Match._register_collision_handlers / Robot.update_station_intake),
+    the same way a real feeder keeps handing off pieces as fast as a
+    robot can take them. The dispense timing is per-robot, not per-
+    location, so two robots with different station_intake_time values
+    cycle the same station at different rates.
 
     `starting_pieces`, if set, caps the total number of pieces this
     location can ever dispense over a match (Match tracks the remaining
@@ -87,7 +90,6 @@ class IntakeLocation:
     name: str
     vertices: tuple[tuple[float, float], ...]
     piece_type: str
-    dispense_time: float
     starting_pieces: int | None = None
     piece_color: str | None = None
     # Which alliance this station belongs to ("red"/"blue"), None if

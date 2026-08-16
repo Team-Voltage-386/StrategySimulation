@@ -24,7 +24,7 @@ def make_field() -> FieldConfig:
     )
     station = IntakeLocation(
         name="feeder", vertices=((0, -20), (20, -20), (20, 20), (0, 20)),
-        piece_type=WIDGET, dispense_time=0.5, starting_pieces=2,
+        piece_type=WIDGET, starting_pieces=2,
     )
     return FieldConfig(width=300, height=200, scoring_regions=(region,), intake_locations=(station,))
 

@@ -39,6 +39,10 @@ class MatchSnapshot:
     alliance_scores: dict[str, float]
     region_scores: dict[str, dict[str, int]]
     active_piece_count: int
+    # IntakeLocation.name -> pieces remaining, mirroring Match.station_supply's
+    # own convention: a location with unlimited supply (starting_pieces=None)
+    # never appears here, so a .get(name) miss always means "unlimited".
+    station_supply: dict[str, int]
 
 
 class TelemetryRecorder:
@@ -115,6 +119,9 @@ class TelemetryRecorder:
                 region: dict(actions) for region, actions in self.match.region_scores.items()
             },
             active_piece_count=len(self.match.active_pieces),
+            station_supply={
+                location.name: remaining for location, remaining in self.match.station_supply.items()
+            },
         )
         self.match_frames.append(snapshot)
 
@@ -148,6 +155,7 @@ class TelemetryRecorder:
                 "alliance_scores": s.alliance_scores,
                 "region_scores": s.region_scores,
                 "active_piece_count": s.active_piece_count,
+                "station_supply": s.station_supply,
             }
             for s in self.match_frames
         ])

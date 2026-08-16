@@ -61,12 +61,15 @@ class Intake:
 
 
 class StationIntake:
-    """Dispenses a new piece after `location.dispense_time` seconds of
-    continuous, commanded-active operation while a robot sits in an
-    IntakeLocation's zone. Mirrors Intake's timer/state-machine shape,
-    but there's no physical piece to track -- the location itself is
-    the "target", and the caller (Robot/Match) is responsible for
-    actually materializing a piece once dispensed."""
+    """Dispenses a new piece after `duration` seconds of continuous,
+    commanded-active operation while a robot sits in an IntakeLocation's
+    zone -- `duration` is the collecting robot's own
+    RobotCharacteristics.station_intake_time, passed in by the caller
+    each tick so this class stays free of any Robot/RobotCharacteristics
+    dependency. Mirrors Intake's timer/state-machine shape, but there's
+    no physical piece to track -- the location itself is the "target",
+    and the caller (Robot/Match) is responsible for actually
+    materializing a piece once dispensed."""
 
     def __init__(self):
         self._timer = 0.0
@@ -78,6 +81,7 @@ class StationIntake:
         commanded_active: bool,
         location: Optional["IntakeLocation"],
         capacity_available: bool,
+        duration: float,
     ) -> Optional["IntakeLocation"]:
         if not commanded_active or not capacity_available or location is None:
             self._reset()
@@ -88,7 +92,7 @@ class StationIntake:
             self._timer = 0.0
 
         self._timer += dt
-        if self._timer >= location.dispense_time:
+        if self._timer >= duration:
             dispensed = self._location
             self._reset()
             return dispensed

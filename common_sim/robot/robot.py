@@ -301,7 +301,9 @@ class Robot:
         capacity_available = station_has_supply and (
             location is None or self._capacity_available_for(location.piece_type)
         )
-        return self.station_intake.update(dt, self._commanded_intake, location, capacity_available)
+        return self.station_intake.update(
+            dt, self._commanded_intake, location, capacity_available, self.characteristics.station_intake_time,
+        )
 
     def side_bumper_point(self, side: str) -> tuple[float, float]:
         """World-frame location of `side`'s bumper-edge center, given the
@@ -446,7 +448,7 @@ class Robot:
 
         location = self.station_intake.target
         if location is not None and self.station_intake.progress > 0.0:
-            duration = location.dispense_time
+            duration = self.characteristics.station_intake_time
             return min(1.0, self.station_intake.progress / duration) if duration > 0 else None
 
         return None

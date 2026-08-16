@@ -4,4 +4,5 @@ pyqtgraph
 PyQt5
 numpy
 pandas
+matplotlib
 pytest

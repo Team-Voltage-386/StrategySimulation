@@ -15,11 +15,11 @@ the same constraint Python's multiprocessing always has.
 from __future__ import annotations
 
 import itertools
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 from common_sim.analysis.metrics import MatchMetrics, extract_metrics
+from common_sim.analysis.runner import run_all
 from common_sim.match.match import Match
 
 
@@ -61,6 +61,13 @@ def _run_one(trial_fn: Callable[[dict], Match], params: dict) -> TrialResult:
     return TrialResult(params=params, metrics=extract_metrics(match))
 
 
+def _run_one_pair(pair: tuple) -> TrialResult:
+    """Module-level (not a closure) so it stays picklable for
+    run_all's parallel=True / multiprocessing path."""
+    trial_fn, params = pair
+    return _run_one(trial_fn, params)
+
+
 def run_monte_carlo(
     trial_fn: Callable[[dict], Match],
     sweep: ParameterSweep,
@@ -72,12 +79,10 @@ def run_monte_carlo(
     TrialResult per run. Repeating each config multiple times is what
     makes Monte Carlo actually Monte Carlo when trial_fn has any
     randomness in it (e.g. a vision noise model, a randomized behavior);
-    for a fully deterministic trial_fn, repetitions>1 just wastes time."""
+    for a fully deterministic trial_fn, repetitions>1 just wastes time.
+
+    Expressed on top of common_sim/analysis/runner.run_all -- the same
+    bounded-submission, cancellable executor the SWEEP tab uses."""
     configs = [cfg for cfg in sweep.configs() for _ in range(repetitions)]
-
-    if parallel:
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_run_one, trial_fn, cfg) for cfg in configs]
-            return [f.result() for f in futures]
-
-    return [_run_one(trial_fn, cfg) for cfg in configs]
+    items = [(trial_fn, cfg) for cfg in configs]
+    return run_all(_run_one_pair, items, parallel=parallel, max_workers=max_workers)

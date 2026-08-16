@@ -80,7 +80,7 @@ def test_collect_prefers_station_when_configured():
     # needs Collect to actually drive it there.
     station = IntakeLocation(
         name="feeder", vertices=((60, 90), (80, 90), (80, 110), (60, 110)),
-        piece_type=WIDGET, dispense_time=0.1, starting_pieces=5,
+        piece_type=WIDGET, starting_pieces=5,
     )
     field = make_field(intake_locations=(station,))
     match = make_match(field, auto_duration=1000, teleop_duration=1000)
@@ -458,11 +458,11 @@ def test_shared_pool_capacity_still_fills_on_any_type():
 # geometry in miniature: the corner fits exactly one robot.
 NEAR_FEEDER = IntakeLocation(
     name="near_feeder", vertices=((42, 82), (78, 82), (78, 118), (42, 118)),
-    piece_type=WIDGET, dispense_time=0.1, starting_pieces=5,
+    piece_type=WIDGET, starting_pieces=5,
 )
 FAR_FEEDER = IntakeLocation(
     name="far_feeder", vertices=((42, 22), (78, 22), (78, 58), (42, 58)),
-    piece_type=WIDGET, dispense_time=0.1, starting_pieces=5,
+    piece_type=WIDGET, starting_pieces=5,
 )
 
 

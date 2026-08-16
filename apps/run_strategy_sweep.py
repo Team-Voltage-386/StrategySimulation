@@ -1,42 +1,33 @@
 """
-Headless strategy-comparison sweep -- demonstrates that "strategy" is
-just another swept parameter to common_sim/analysis/monte_carlo.py:
-ParameterSweep already takes arbitrary named params, and
-analysis/results.to_dataframe already carries every param (including
-"strategy") through into the results DataFrame, so no changes to
-monte_carlo.py itself were needed to add this.
-
-trial_fn is module-level (not a closure) because run_monte_carlo's
-parallel=True path sends it to worker processes via multiprocessing,
-which requires it to be picklable.
+Headless strategy-comparison sweep -- a scriptable proof that the SWEEP
+tab's engine (common_sim/analysis/sweep_spec.py + runner.py +
+game_specific/reefscape/sweep_trial.py) works with no Qt anywhere in the
+import graph. Demonstrates that "strategy" is just another sweepable
+field: SweepVariable doesn't care whether its path names a numeric
+RobotCharacteristics field or "strategy" -- expand_jobs treats both the
+same way, and results.to_dataframe carries every swept column (strategy
+included) straight through into the DataFrame.
 
 Run: `python -m apps.run_strategy_sweep`
 """
 from __future__ import annotations
 
-from pathlib import Path
-
-from common_sim.analysis.monte_carlo import ParameterSweep, run_match_to_completion, run_monte_carlo
 from common_sim.analysis.results import summarize, to_dataframe
-from common_sim.control import strategy_io
-from common_sim.control.strategy import StrategyController
-from common_sim.geometry import Pose2d
-from common_sim.match.match import Match, MatchConfig
-from game_specific.reefscape.field import build_field, coral_station_positions, reef_center
-from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
-from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
+from common_sim.analysis.runner import run_all
+from common_sim.analysis.sweep_spec import MatchSpec, RobotSpec, SweepVariable, characteristics_to_spec, expand_jobs
+from common_sim.analysis.variability import VariabilityModel
 from common_sim.robot.characteristics import RobotCharacteristics
-
-STRATEGIES_DIR = Path(__file__).resolve().parent.parent / "game_specific" / "reefscape" / "strategies"
+from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
+from game_specific.reefscape.sweep_trial import STRATEGIES_DIR, SWEEP_DT, run_trial
 
 DEFAULT_PIECE_CAPACITY = {CORAL_TYPE: 1, ALGAE_TYPE: 1}
 DEFAULT_INTAKE_TIMES = {CORAL_TYPE: 0.4, ALGAE_TYPE: 0.4}
 DEFAULT_DEPOSIT_TIMES = {"l1": 0.3, "l2": 0.6, "l3": 1.0, "l4": 1.8, "processor": 0.4, "net": 1.2}
 
 
-def build_characteristics(max_speed: float) -> RobotCharacteristics:
+def build_characteristics() -> RobotCharacteristics:
     return RobotCharacteristics(
-        name="sweep-bot", max_speed=max_speed, max_accel=400.0, max_angular_speed=6.0, max_angular_accel=20.0,
+        name="sweep-bot", max_speed=150.0, max_accel=400.0, max_angular_speed=6.0, max_angular_accel=20.0,
         width=28.0, length=28.0,
         piece_capacity_by_type=dict(DEFAULT_PIECE_CAPACITY),
         intake_time_by_type=dict(DEFAULT_INTAKE_TIMES), station_intake_time=0.6, intake_range=6.0,
@@ -45,49 +36,31 @@ def build_characteristics(max_speed: float) -> RobotCharacteristics:
     )
 
 
-def build_match(alliance: str) -> Match:
-    """Same demo field-scatter apps/run_reefscape.py's build_demo_match
-    uses -- kept as its own small copy here rather than imported, so
-    this headless script doesn't pull in run_reefscape's Qt/GUI imports
-    just to build a match."""
-    field = build_field()
-    match = Match(field, REEFSCAPE_SCORING_RULES, MatchConfig(auto_duration=15, teleop_duration=135))
-    center = reef_center(alliance)
-    toward_wall = -1.0 if alliance == "blue" else 1.0
-    for i in range(6):
-        spawn_coral(match, (center[0] + toward_wall * 60, center[1] + (i - 2.5) * 12))
-    for i in range(3):
-        spawn_algae(match, (center[0] + toward_wall * 40, center[1] - 60 + 40 * i))
-    return match
-
-
-def trial_fn(params: dict) -> Match:
-    alliance = params.get("alliance", "blue")
-    match = build_match(alliance)
-
-    station = coral_station_positions(alliance)[0]
-    facing = 0.0 if alliance == "blue" else 3.14159265
-    start_pose = Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1], facing)
-    characteristics = build_characteristics(max_speed=params.get("max_speed", 150.0))
-    robot = match.add_robot(characteristics, start_pose, alliance=alliance)
-
-    strategy = strategy_io.load_strategy(STRATEGIES_DIR / f"{params['strategy']}.json")
-    robot.controller = StrategyController(strategy, robot)
-
-    return run_match_to_completion(match)
-
-
 def main() -> None:
-    sweep = ParameterSweep({
-        "strategy": ["cycle_coral", "algae_processor", "endgame_defense", "auto_then_cycle"],
-        "max_speed": [130.0, 150.0, 170.0],
-    })
-    results = run_monte_carlo(trial_fn, sweep, repetitions=3)
-    df = to_dataframe(results)
+    char_spec = characteristics_to_spec(build_characteristics())
+    robot = RobotSpec(label="PRIMARY", alliance="blue", roster_index=-1, characteristics=char_spec, strategy="cycle_coral")
+    match = MatchSpec(auto_duration=15.0, teleop_duration=135.0)
 
+    variables = [
+        SweepVariable(
+            target="PRIMARY", path="strategy",
+            values=("cycle_coral", "algae_processor", "endgame_defense", "auto_then_cycle"),
+        ),
+        SweepVariable(target="PRIMARY", path="max_speed", values=(130.0, 150.0, 170.0)),
+    ]
+
+    jobs = expand_jobs([robot], match, VariabilityModel(), variables, repetitions=3, strategies_dir=STRATEGIES_DIR, dt=SWEEP_DT)
+    outcomes = run_all(run_trial, jobs, parallel=True)
+
+    errors = [o for o in outcomes if o.error is not None]
+    if errors:
+        print(f"{len(errors)} trial(s) failed, e.g.:\n{errors[0].error}")
+    outcomes = [o for o in outcomes if o.error is None]
+
+    df = to_dataframe(outcomes)
     print(df.to_string(index=False))
     print()
-    print(summarize(df, ["strategy"], metric="total_score"))
+    print(summarize(df, ["PRIMARY.strategy"], metric="total_score"))
 
 
 if __name__ == "__main__":

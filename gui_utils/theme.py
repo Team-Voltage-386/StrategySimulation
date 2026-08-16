@@ -11,6 +11,8 @@ vehicle markers, the OverlayPanel's own rgba() QSS strings) pick up this
 same palette directly -- see map_panel.py's canvas setup and
 overlay_panel.py's *_STYLE constants.
 """
+import base64
+
 from pyqtgraph.Qt import QtGui, QtWidgets
 
 # -- palette: cyan/electric-blue "starship bridge" HUD -----------------
@@ -59,6 +61,20 @@ def technical_font(point_size=None, bold=False):
         font.setPointSize(point_size)
     font.setBold(bold)
     return font
+
+
+def _triangle_data_uri(points: str, fill: str) -> str:
+    """QSS's default QStyleSheetStyle draws NO arrow glyph at all for a
+    QSpinBox/QComboBox once its up/down-button geometry is customized via
+    QSS (the native style's built-in arrow primitive only fires when the
+    subcontrol is left untouched) -- so the up/down-arrow subcontrols need
+    an explicit image, not just a width/height, to render anything."""
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><polygon points="{points}" fill="{fill}"/></svg>'
+    return "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+
+
+_UP_ARROW_URI = _triangle_data_uri("0,6 5,0 10,6", TEXT_PRIMARY)
+_DOWN_ARROW_URI = _triangle_data_uri("0,0 10,0 5,6", TEXT_PRIMARY)
 
 
 SCI_FI_QSS = f"""
@@ -164,6 +180,39 @@ QComboBox:hover, QSpinBox:hover, QLineEdit:hover {{
 }}
 QComboBox::drop-down {{
     border: none;
+    width: 20px;
+}}
+QSpinBox::up-button, QDoubleSpinBox::up-button {{
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 20px;
+    height: 11px;
+    border-left: 1px solid {BORDER};
+    border-bottom: 1px solid {BORDER};
+    background-color: {BG_HOVER};
+}}
+QSpinBox::down-button, QDoubleSpinBox::down-button {{
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 20px;
+    height: 11px;
+    border-left: 1px solid {BORDER};
+    border-top: 1px solid {BORDER};
+    background-color: {BG_HOVER};
+}}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+    background-color: {ACCENT_CYAN_DIM};
+}}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+    image: url({_UP_ARROW_URI});
+    width: 10px;
+    height: 6px;
+}}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+    image: url({_DOWN_ARROW_URI});
+    width: 10px;
+    height: 6px;
 }}
 QComboBox QAbstractItemView {{
     background-color: {BG_RAISED};

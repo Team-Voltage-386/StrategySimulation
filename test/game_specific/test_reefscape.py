@@ -45,7 +45,7 @@ def test_field_has_two_reef_obstacles_and_coral_stations():
         "blue_coral_station_0", "blue_coral_station_1",
         "red_coral_station_0", "red_coral_station_1",
     }
-    assert all(r.piece_type == CORAL_TYPE and r.dispense_time == 2.0 for r in field.intake_locations)
+    assert all(r.piece_type == CORAL_TYPE for r in field.intake_locations)
     assert all(r.starting_pieces == 30 for r in field.intake_locations)
 
 

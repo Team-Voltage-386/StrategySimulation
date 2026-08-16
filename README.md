@@ -38,7 +38,7 @@ the current directory, so `common_sim`/`game_specific`/`gui_utils`
 fail to import). If you want to run it another way, `python -m
 apps.run_reefscape` from the repo root works too.
 
-Two tabs:
+Three tabs:
 
 - **MATCH** — roster/config panel on the left (add extra AI-driven
   robots per alliance, tune a robot's speed/capacity/intake timing),
@@ -56,6 +56,19 @@ Two tabs:
   priority, dwell/cooldown) and fallback tactic, with a live
   state-machine graph showing the arbiter's actual transitions as the
   match runs. Changes apply on the next RESET.
+- **SWEEP** — configure a roster the same way MATCH does (its own,
+  independent roster — editing MATCH mid-sweep can't change it), then
+  tick which `RobotCharacteristics` fields (or `strategy`) to vary and
+  how to sample them: a MIN/MAX/POINTS range, an explicit comma-
+  separated list, or a checkable list of choices for `strategy`. The
+  TOTAL RUNS readout updates live as you add variables/repetitions;
+  hit EXECUTE to run the grid across worker processes, watch the
+  progress bar (ABORT stops it within about one in-flight match per
+  worker), and read the RESULTS table or the PLOTS tab (auto-picks a
+  line/heatmap/faceted-heatmap depending on how many variables you
+  swept). Double-click any results row — or right-click → "REPLAY IN
+  MATCH TAB" — to re-run that exact trial and watch/scrub it on the
+  MATCH tab.
 
 ### `run_match.py` — minimal placeholder viewer
 

@@ -31,7 +31,7 @@ subclass instead.
 | Physics | **pymunk** | Matches the reference spikes; a 2D rigid-body + sensor-shape engine is the right fidelity level for this tool. |
 | GUI shell | **PyQt** via `pyqtgraph.Qt` | Reuses `gui_utils/theme.py` (sci-fi QSS) and `overlay_panel.py` as-is from your other projects. Streamlit is dropped entirely — its rerun-the-whole-page-per-interaction model fights a stateful physics/game loop and made the `streamlit_demo.py` spike need a `time.sleep`+`st.rerun()` polling hack just to animate. |
 | Field rendering | **Custom `QWidget`/QPainter canvas**, not an embedded pygame window | Embedding an SDL surface inside a Qt widget (via `winId()`) is fragile across Windows/Mac and buys nothing pygame's debug-draw gave the spikes — a QPainter canvas composes cleanly with `theme.py`'s QSS and `OverlayPanel`'s floating controls, and can be styled to match the sci-fi theme directly. |
-| Charts | **pyqtgraph** for live in-match plots (already a `gui_utils` dependency); **matplotlib** acceptable for static post-hoc Monte Carlo report plots/exports | — |
+| Charts | **pyqtgraph** for live in-match plots (already a `gui_utils` dependency); **matplotlib**, embedded in Qt via `FigureCanvasQTAgg`, for the SWEEP tab's line/heatmap plots | — |
 | Keyboard/mouse input | Native Qt key/mouse events on the field canvas | — |
 | Xbox controller input | **`pygame.joystick`, initialized headless** (`pygame.init()` without opening a display) | Full pygame is kept *only* for its joystick subsystem, not rendering — sidesteps ever needing a second window. |
 | Monte Carlo batch runner | Plain Python + `multiprocessing.Pool` + `pandas` | No GUI import anywhere on this path, so it can run headless on a CI box. |
@@ -61,30 +61,62 @@ common_sim/
     input_sources.py      InputSource ABC; KeyboardInput, GamepadInput -> normalized DriveCommand
     behavior.py             Behavior-tree-lite: Sequence/Parallel/DriveToPose/RunIntake/Wait/Branch nodes
     vision.py                 Simulated AprilTag pose estimation + piece detection, tunable noise/FOV/dropout
+    param.py                 Param dataclass: shared PARAM_SCHEMA element for Trigger/Tactic GUI forms
+    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents
+    navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
+    planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
+    triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, AllOf/AnyOf/Not, ...)
+    tactics.py                   Collect/Score/Defend/RunScript/Idle -- Behaviors that replan their own target
+    strategy.py                   Rule/Strategy/StrategyController: priority arbiter over Trigger->Tactic rules
+    strategy_io.py                 Strategy <-> JSON (REGISTRY-driven, round-trips through the GUI editor)
   match/
     match.py                Match orchestrator: clock, phase (auto/teleop/endgame), collision routing
     scoring.py                ScoringRules ABC: point table keyed by (action, phase)
     events.py                  Timestamped match event log, feeds telemetry + metrics
   analysis/
-    monte_carlo.py          Batch trial runner: DOE sweep over RobotCharacteristics, multiprocessing
+    monte_carlo.py          Batch trial runner: DOE sweep over RobotCharacteristics, expressed on top of runner.run_all
     metrics.py                 Per-match metric extraction (score, cycles, utilization, ...)
     results.py                   Aggregation into pandas DataFrame, summary stats
+    runner.py                     Qt-free CancelToken + bounded-submission iter_results/run_all over a ProcessPoolExecutor
+    sweep_spec.py                  Picklable FieldDescriptor/SweepVariable/RobotSpec/TrialJob/TrialOutcome + expand_jobs
+    variability.py                   Seeded config-perturbation model (VariabilityModel) -- the sweep's only randomness
 
 gui_utils/               (existing — extended, not replaced)
   theme.py, overlay_panel.py, telemetry_store.py, ...   reused as-is
-  field_canvas.py         NEW: QPainter canvas rendering FieldConfig + live Robot/GamePiece state
-  analysis_panels.py       NEW: Monte Carlo result dashboards (pyqtgraph/matplotlib)
+  field_canvas.py         QPainter canvas rendering FieldConfig + live Robot/GamePiece state, plus an
+                            optional per-robot AI-intent overlay (target region/piece, active tactic label)
+  strategy_editor.py       Schema-driven STRATEGY tab: rule list + trigger/tactic property inspector,
+                              built entirely from PARAM_SCHEMA -- adding a Trigger/Tactic to common_sim
+                              needs zero edits here. One in-memory Strategy per robot; Load/Save/Apply.
+  strategy_graph.py         QGraphicsView state-machine diagram of a Strategy: priority-banded nodes,
+                               live-highlighted active rule + flashing transition edges + history strip.
+  sweep_panel.py             Game-agnostic SWEEP-tab widgets (VariableTable, SweepControlPanel,
+                                 SweepResultsModel/Table, SweepPlotPanel) + the QThread/ProcessPoolExecutor
+                                 plumbing (SweepWorker, SweepRunController) -- built from FieldDescriptors
+                                 handed in, never imports game_specific.
+  sweep_plots.py              matplotlib rendering onto a caller-supplied Figure (line/heatmap/faceted
+                                 heatmaps), testable headless under Agg with no Qt or widget involved.
 
 game_specific/
-  reefscape/                (existing stub, or whatever game is current)
-    field.py                 concrete FieldConfig instance
-    game_pieces.py             concrete GamePiece subclasses
+  reefscape/                concrete REEFSCAPE field/pieces/scoring (the one game currently plugged in)
+    field.py                 concrete FieldConfig instance (alliance-owned scoring regions/stations)
+    game_pieces.py             concrete GamePiece subclasses (CORAL, ALGAE)
     scoring.py                    concrete ScoringRules
-    behaviors.py                    example autonomous / scripted-opponent routines
+    strategies/                     example Strategy JSON files (also strategy_io round-trip fixtures):
+                                       cycle_coral, algae_processor, endgame_defense, auto_then_cycle
+    sweep_trial.py                    Qt-free worker entry point (run_trial/replay_trial) + build_match_for_job,
+                                         the match builder MATCH-tab replay shares with the SWEEP tab
 
 apps/
-  run_match.py            Interactive single/multi-robot viewer (keyboard+gamepad, scripted alliance/opponents)
-  run_monte_carlo.py       Headless batch CLI -> results file, optional dashboard launch
+  run_reefscape.py        Interactive REEFSCAPE viewer: MATCH tab (keyboard+gamepad+AI roster) +
+                             STRATEGY tab (strategy_editor.py + strategy_graph.py side by side) +
+                             SWEEP tab (sweep_panel.py + sweep_tab.py)
+  reefscape_widgets.py      Shared robot-config Qt widgets (RobotConfigTab, RosterPanel,
+                               RobotRosterConfigPanel, ...) extracted from run_reefscape.py so MATCH and
+                               SWEEP reuse the same classes and RobotRosterConfigPanel.robot_specs()
+  sweep_tab.py               SWEEP tab wiring: owns its own roster (independent of MATCH), builds
+                                TrialJobs, drives SweepRunController, wires replay back into MATCH
+  run_strategy_sweep.py    Headless Monte Carlo sweep with "strategy" as just another swept param
 
 test/                     (existing) unit tests per package
 ```
@@ -115,6 +147,26 @@ system — it's the same `Behavior` tree attached to a different `Robot`
 instance. This also gives a natural slot for "replay recorded human
 input" later without a new abstraction.
 
+**Strategy is data (`Rule[]`), not hand-assembled code.** A `Tactic`
+(`Collect`/`Score`/`Defend`/`RunScript`/`Idle`) *is* a `Behavior`
+subclass that decides its own target each tick via `world_view`/
+`planning`, so it composes with `Sequence`/`Parallel`/`Repeat`
+unchanged. A `Strategy` is a list of `Rule(trigger, tactic, priority,
+min_duration, cooldown, once)`; `StrategyController` evaluates every
+rule's `Trigger` each tick, arbitrates by priority (ties broken by list
+order), and ticks the winner — switches get logged to `match.events` as
+`"behavior_change"`, which is what drives `strategy_graph.py`'s live
+highlighting for free. **`Match.step` ticks each robot's
+`robot.controller` (if any) before mechanism updates and physics** —
+the loop owner is `Match`, not the app — so a strategy runs identically
+whether it's driven by the interactive GUI, a headless
+`run_match_to_completion` call, or a Monte Carlo trial; human-driven
+robots simply pass `controller=None`. `strategy_io.py` serializes the
+whole tree to/from JSON (`REGISTRY`-driven, so adding a Trigger/Tactic
+needs no serialization code), which is what makes a strategy a GUI-
+editable, file-saveable, Monte-Carlo-sweepable *thing* rather than a
+one-off Python script.
+
 **Vision is a swappable pose-estimation strategy, not a camera sim.**
 Each `Robot` holds a `PoseEstimator`. Default `PerfectPoseEstimator`
 returns ground truth. `NoisyAprilTagEstimator` adds Gaussian error
@@ -130,6 +182,31 @@ full-factorial grid over 2–3 parameters; random/Latin-hypercube
 sampling is a drop-in extension of the same trial-generator interface,
 not a rewrite.
 
+**A sweep trial is a picklable spec, not a live object.** Windows uses
+the `spawn` multiprocessing start method, so a worker process re-imports
+whatever module `trial_fn` lives in from scratch — it never inherits
+live Python state from the parent. `common_sim/analysis/sweep_spec.py`
+therefore describes a trial entirely as frozen dataclasses of
+primitives (`TrialJob` -> `RobotSpec`s -> a plain `dict` copy of
+`RobotCharacteristics`, never the dataclass or a `Strategy` object), and
+the actual worker entry point (`game_specific/reefscape/sweep_trial.
+run_trial`) lives in `game_specific`, imports **no Qt**, and is enforced
+Qt-free by a subprocess `sys.modules` check in
+`test/game_specific/test_reefscape_sweep.py`. `expand_jobs`'s
+full-factorial grid expansion reuses `monte_carlo.ParameterSweep`
+keyed by `SweepVariable.column`; swapping in Latin-hypercube (or any
+other `.configs()`-shaped sampler) later is a one-call change inside
+`expand_jobs`, not a rewrite of the sweep engine.
+
+**Determinism contract:** `run_trial(TrialJob)` is exact for a fixed
+`(TrialJob, seed)` — every draw of randomness (config perturbation via
+`variability.py`, piece scatter) comes from a named `random.Random`
+substream seeded off `job.seed`, and the timestep is pinned
+(`sweep_trial.SWEEP_DT == 1/60`, matching `TelemetryRecorder`/
+`MatchView`'s tick rate) so `run_trial` and `replay_trial` agree
+bit-for-bit *on one machine* — not guaranteed bit-identical across
+machines/pymunk builds.
+
 ## What ships in `common_sim` vs. what a new game writes
 
 | Reusable now (`common_sim`) | Written per-game (`game_specific/<game>/`) |
@@ -140,6 +217,7 @@ not a rewrite.
 | Vision noise model | Example autonomous routines / opponent scripts |
 | Monte Carlo runner, metrics, DOE | Game-specific metrics, if any beyond score/cycle-time |
 | GUI shell, theme, overlay chrome, field canvas | — |
+| Strategy/tactic/trigger layer, arbiter, JSON I/O, GUI editor+graph | Example `Strategy` JSON files; which region/action/piece-type strings exist |
 
 ## Sequencing (not committing to code yet)
 
