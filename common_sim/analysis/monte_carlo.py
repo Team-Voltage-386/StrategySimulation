@@ -23,7 +23,7 @@ from common_sim.analysis.metrics import MatchMetrics, extract_metrics
 from common_sim.match.match import Match
 
 
-def run_match_to_completion(match: Match, dt: float = 1.0 / 60.0, max_ticks: int = 1_000_000) -> Match:
+def run_match_to_completion(match: Match, dt: float = 1.0 / 20.0, max_ticks: int = 1_000_000) -> Match:
     """Step `match` with no throttling until it ends (or `max_ticks` is
     hit, as a runaway-config guard rather than a real limit)."""
     ticks = 0

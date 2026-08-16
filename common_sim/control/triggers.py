@@ -11,9 +11,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from common_sim.control import world_view
+from common_sim.control.param import Param
 
 if TYPE_CHECKING:  # pragma: no cover
     from common_sim.control.behavior import BehaviorContext
@@ -22,6 +23,13 @@ if TYPE_CHECKING:  # pragma: no cover
 @dataclass
 class Trigger(ABC):
     for_duration: float | None = None
+
+    # ClassVar so dataclass doesn't treat this as a field -- it's a
+    # per-class schema declaration, not per-instance state. Every
+    # Trigger also has `for_duration`, which a GUI shows once, outside
+    # this schema, the same way it's declared once here rather than
+    # repeated per subclass.
+    PARAM_SCHEMA: ClassVar[tuple[Param, ...]] = ()
 
     @abstractmethod
     def evaluate(self, ctx: "BehaviorContext") -> bool:
@@ -33,6 +41,8 @@ class Trigger(ABC):
 
 @dataclass
 class Always(Trigger):
+    PARAM_SCHEMA = ()
+
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         return True
 
@@ -46,6 +56,13 @@ class PiecesAvailable(Trigger):
     min_count: int | None = None
     max_count: int | None = None
     within: float | None = None  # inches from the robot; None = anywhere on field
+
+    PARAM_SCHEMA = (
+        Param("piece_type", kind="piece_type", default=None, optional=True),
+        Param("min_count", kind="int", default=None, optional=True, min=0),
+        Param("max_count", kind="int", default=None, optional=True, min=0),
+        Param("within", kind="float", default=None, optional=True, min=0, suffix=" in"),
+    )
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         pieces = world_view.collectable_pieces(ctx.match, piece_type=self.piece_type, robot=ctx.robot)
@@ -76,6 +93,13 @@ class MatchTime(Trigger):
     before: float | None = None
     phase: str | None = None
     remaining_under: float | None = None  # convenience: elapsed >= total_duration - N
+
+    PARAM_SCHEMA = (
+        Param("after", kind="float", default=None, optional=True, min=0, suffix=" s"),
+        Param("before", kind="float", default=None, optional=True, min=0, suffix=" s"),
+        Param("phase", kind="choice", default=None, optional=True, choices=("auto", "teleop")),
+        Param("remaining_under", kind="float", default=None, optional=True, min=0, suffix=" s"),
+    )
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         match = ctx.match
@@ -111,6 +135,12 @@ class PiecesHeld(Trigger):
     min_count: int | None = None
     max_count: int | None = None
 
+    PARAM_SCHEMA = (
+        Param("piece_type", kind="piece_type", default=None, optional=True),
+        Param("min_count", kind="int", default=None, optional=True, min=0),
+        Param("max_count", kind="int", default=None, optional=True, min=0),
+    )
+
     def _held(self, ctx: "BehaviorContext") -> int:
         held = ctx.robot.held_pieces
         if self.piece_type is not None:
@@ -142,6 +172,10 @@ class AtCapacity(Trigger):
     hardcoding a number that would silently drift out of sync."""
     piece_type: str | None = None
 
+    PARAM_SCHEMA = (
+        Param("piece_type", kind="piece_type", default=None, optional=True),
+    )
+
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         robot = ctx.robot
         if self.piece_type is not None:
@@ -157,6 +191,11 @@ class AtCapacity(Trigger):
 class ScoringAvailable(Trigger):
     min_value: float | None = None
     region: str | None = None
+
+    PARAM_SCHEMA = (
+        Param("min_value", kind="float", default=None, optional=True, min=0, suffix=" pts"),
+        Param("region", kind="region_name", default=None, optional=True),
+    )
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         options = world_view.scoring_options(ctx.match, ctx.robot)
@@ -186,6 +225,11 @@ class OpponentNear(Trigger):
     region: str | None = None
     within: float = 60.0
 
+    PARAM_SCHEMA = (
+        Param("region", kind="region_name", default=None, optional=True),
+        Param("within", kind="float", default=60.0, min=0, suffix=" in"),
+    )
+
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         match = ctx.match
         robot = ctx.robot
@@ -212,6 +256,10 @@ class OpponentNear(Trigger):
 class AllOf(Trigger):
     triggers: tuple[Trigger, ...] = field(default_factory=tuple)
 
+    PARAM_SCHEMA = (
+        Param("triggers", kind="trigger_list", default=()),
+    )
+
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         return all(t.evaluate(ctx) for t in self.triggers)
 
@@ -223,6 +271,10 @@ class AllOf(Trigger):
 class AnyOf(Trigger):
     triggers: tuple[Trigger, ...] = field(default_factory=tuple)
 
+    PARAM_SCHEMA = (
+        Param("triggers", kind="trigger_list", default=()),
+    )
+
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         return any(t.evaluate(ctx) for t in self.triggers)
 
@@ -233,6 +285,10 @@ class AnyOf(Trigger):
 @dataclass
 class Not(Trigger):
     trigger: Trigger | None = None
+
+    PARAM_SCHEMA = (
+        Param("trigger", kind="trigger", default=None, optional=True),
+    )
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         assert self.trigger is not None

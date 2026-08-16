@@ -48,6 +48,7 @@ class SwerveChassis:
         mass: float = 15.0,
         start_pose: Pose2d = Pose2d(0.0, 0.0, 0.0),
         collision_type: int = 0,
+        shape_filter: pymunk.ShapeFilter | None = None,
     ):
         self.limits = limits
         self.width = width
@@ -66,6 +67,8 @@ class SwerveChassis:
         self.bumper_shape.elasticity = 0.2
         self.bumper_shape.friction = 0.6
         self.bumper_shape.collision_type = collision_type
+        if shape_filter is not None:
+            self.bumper_shape.filter = shape_filter
 
         space.add(self.body, self.bumper_shape)
 

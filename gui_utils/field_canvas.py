@@ -53,6 +53,11 @@ REEF_GRID_SLOTS_PER_LEVEL = 2
 # on the same edge as the existing heading line (drawn to (+half_l, 0)).
 SIDE_NORMAL_LOCAL = {"front": (1.0, 0.0), "back": (-1.0, 0.0), "left": (0.0, -1.0), "right": (0.0, 1.0)}
 
+# Height of the collect/score progress bar drawn above each robot by
+# _draw_action_progress -- shared with _draw_one_robot_intent so the intent
+# label can be positioned above the bar stack without overlapping it.
+_BAR_H = 5
+
 
 def _types_label(piece_types: frozenset[str]) -> str:
     return ",".join(t[:1].upper() for t in sorted(piece_types))
@@ -64,6 +69,7 @@ class FieldCanvas(QtWidgets.QWidget):
     def __init__(self, match: Match, parent=None):
         super().__init__(parent)
         self.match = match
+        self.show_intent = True
         self.setMinimumSize(400, 300)
         self.setStyleSheet(f"background-color: {theme.BG_DEEP};")
         self.setFocusPolicy(Qt.StrongFocus)
@@ -117,6 +123,7 @@ class FieldCanvas(QtWidgets.QWidget):
         self._draw_region_piece_counts(painter, scale)
         self._draw_pieces(painter, scale)
         self._draw_robots(painter, scale)
+        self._draw_intent_overlay(painter, scale)
         self._draw_hud(painter)
         painter.end()
 
@@ -329,6 +336,61 @@ class FieldCanvas(QtWidgets.QWidget):
 
         self._draw_action_progress(painter, robot, cx, cy, half_l, half_w)
 
+    def _draw_intent_overlay(self, painter, scale: float) -> None:
+        """Optional debug overlay for AI-driven robots: highlights the
+        controller's current target region (a ScoringRegion or
+        IntakeLocation, looked up by name -- Intent.target_region is a
+        plain string so this stays game-agnostic), draws a dashed line
+        to the target piece/region, and labels the robot with its
+        active tactic. Toggle via `show_intent`."""
+        if not self.show_intent:
+            return
+        for robot in self.match.robots:
+            intent = robot.intent
+            if intent is None:
+                continue
+            self._draw_one_robot_intent(painter, robot, intent, scale)
+
+    def _draw_one_robot_intent(self, painter, robot, intent, scale: float) -> None:
+        color = ALLIANCE_COLORS.get(robot.alliance, QtGui.QColor(theme.ACCENT_CYAN))
+        rx, ry = self._to_widget(robot.pose.x, robot.pose.y, scale)
+
+        target_point = None
+        piece = intent.target_piece
+        if piece is not None and piece.held_by is None and not piece.scored:
+            target_point = self._to_widget(piece.position.x, piece.position.y, scale)
+        elif intent.target_region is not None:
+            zone = self._zone_by_name(intent.target_region)
+            if zone is not None:
+                painter.setPen(QtGui.QPen(color, 3, Qt.DashLine))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPolygon(self._polygon(zone.vertices, scale))
+                cx, cy = polygon_centroid(zone.vertices)
+                target_point = self._to_widget(cx, cy, scale)
+
+        if target_point is not None:
+            painter.setPen(QtGui.QPen(color, 1.5, Qt.DashLine))
+            painter.drawLine(QtCore.QPointF(rx, ry), QtCore.QPointF(*target_point))
+
+        # Position above the action-progress bar stack (bar + optional
+        # deposit-action label drawn by _draw_action_progress) so the two
+        # overlays never overlap, regardless of robot size.
+        half_w = robot.characteristics.width / 2.0 * scale
+        bar_y = ry - half_w - _BAR_H - 6
+        text_bottom = bar_y - 13 - 4
+        painter.setPen(color)
+        painter.setFont(theme.technical_font(8, bold=True))
+        painter.drawText(QtCore.QRectF(rx - 55, text_bottom - 14, 110, 14), Qt.AlignCenter, intent.tactic_name.upper())
+
+    def _zone_by_name(self, name: str):
+        for region in self.match.field.scoring_regions:
+            if region.name == name:
+                return region
+        for location in self.match.field.intake_locations:
+            if location.name == name:
+                return location
+        return None
+
     def _side_manipulator_tags(self, robot) -> list[tuple[str, str, str]]:
         """(side, mode, label) for every intake/score capability this
         robot has -- mode is "in"/"out", label is the piece type(s)'
@@ -369,7 +431,7 @@ class FieldCanvas(QtWidgets.QWidget):
 
     def _draw_action_progress(self, painter, robot, cx: float, cy: float, half_l: float, half_w: float) -> None:
         bar_w = max(2 * half_l, 2 * half_w)
-        bar_h = 5
+        bar_h = _BAR_H
         bar_x = cx - bar_w / 2.0
         bar_y = cy - half_w - bar_h - 6
 

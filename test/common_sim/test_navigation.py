@@ -11,6 +11,7 @@ from common_sim.control.behavior import BehaviorContext, Status
 from common_sim.control.navigation import (
     NavigateTo,
     _inflate,
+    _octagon,
     clear_standoff,
     convex_overlap,
     estimate_travel_time,
@@ -314,3 +315,120 @@ def test_navigate_to_reaches_target_near_another_robot_without_deadlock():
             break
 
     assert status_a == Status.SUCCESS
+
+
+def test_plan_path_routes_out_of_an_obstacle_it_starts_inside():
+    # A robot obstacle is inflated by both robots' radii plus a margin,
+    # so a robot closing on another is inside that circle well before
+    # they touch. Every edge out of `start` then crosses the polygon
+    # `start` is already in, leaving A* with an unreachable goal and
+    # plan_path falling back to the direct line -- avoidance switching
+    # *off* at exactly the moment it was needed. The route must detour.
+    field = FieldConfig(width=300, height=200)
+    blocker = _octagon((100, 100), 45.0)
+    path = plan_path(field, (80, 100), (250, 100), robot_radius=14.0, extra_obstacles=[blocker])
+
+    assert len(path) > 2, "fell back to the straight line instead of routing around"
+    # Only the first leg may be inside the circle -- that's the way out
+    # of where the robot already is. Nothing after it may re-enter.
+    for i in range(1, len(path) - 1):
+        assert not _segment_hits_polygon(path[i], path[i + 1], blocker)
+    # And the way out must be the near boundary, not straight across.
+    assert path[1].x < 100, "escaped through the far side instead of routing around"
+
+
+def test_plan_path_routes_around_an_obstacle_the_goal_is_inside():
+    # Mirror image: a goal sitting inside another robot's circle (a
+    # contested piece, a scoring standoff someone is parked on) must
+    # still be approached around the obstacle, never straight through it.
+    field = FieldConfig(width=300, height=200)
+    blocker = _octagon((150, 100), 45.0)
+    path = plan_path(field, (20, 100), (160, 100), robot_radius=14.0, extra_obstacles=[blocker])
+
+    assert len(path) > 2, "fell back to the straight line instead of routing around"
+    # Only the final leg may enter the circle, and only to reach the goal.
+    for i in range(len(path) - 2):
+        assert not _segment_hits_polygon(path[i], path[i + 1], blocker)
+
+
+def test_plan_path_detour_stays_inside_the_field():
+    # The field perimeter is a wall that never appears in
+    # field.obstacles. A detour around something near the edge used to
+    # be free to round it on the outside, through the wall -- the robot
+    # drove into the wall and sat there pushing.
+    field = FieldConfig(width=300, height=200)
+    blocker = _octagon((150, 30), 45.0)
+    path = plan_path(field, (60, 30), (250, 30), robot_radius=14.0, extra_obstacles=[blocker])
+
+    for point in path[1:-1]:
+        assert 14.0 <= point.x <= 300 - 14.0
+        assert 14.0 <= point.y <= 200 - 14.0
+
+
+def test_other_robot_obstacle_never_shrinks_below_contact():
+    # The obstacle may give back its comfort margin so a goal near
+    # another robot stays directly reachable, but never the radius at
+    # which the two chassis actually touch: shrinking into that let the
+    # planner route a line through a body it was supposed to avoid and
+    # drive into it at full speed.
+    field = FieldConfig(width=300, height=200)
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot_a = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    robot_b = match.add_robot(make_characteristics(), Pose2d(150, 100, math.pi))
+
+    nav = NavigateTo(lambda ctx: Pose2d(155, 100, 0))
+    own_radius = math.hypot(14.0, 14.0)
+    contact = own_radius * 2.0
+    # Goal 5in from robot_b -- the case that used to collapse the
+    # obstacle to a 4in circle sitting inside robot_b's own chassis.
+    obstacles = nav._other_robot_obstacles(robot_a, own_radius, match, (20, 100), (155, 100))
+
+    assert len(obstacles) == 1
+    for x, y in obstacles[0]:
+        assert math.hypot(x - 150, y - 100) >= contact - 1e-6
+
+
+def test_head_on_robots_pass_on_opposite_sides():
+    # Two robots meeting head-on are mirror images, and a symmetric
+    # obstacle hands them mirror-image shortest paths: both dodge the
+    # same way, meet there, and shove -- a livelock replanning can't
+    # break. Each biases the other to its own left, so both keep right.
+    field = FieldConfig(width=600, height=200)
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot_a = match.add_robot(make_characteristics(), Pose2d(100, 100, 0))
+    robot_b = match.add_robot(make_characteristics(), Pose2d(500, 100, math.pi))
+
+    # Each goal is past the other robot but well clear of it, so what's
+    # measured is which way each rounds the other -- not how it copes
+    # with a destination someone is parked on (covered separately above).
+    nav_a = NavigateTo(lambda ctx: Pose2d(580, 100, 0))
+    nav_b = NavigateTo(lambda ctx: Pose2d(20, 100, 0))
+    own_radius = math.hypot(14.0, 14.0)
+    path_a = plan_path(field, (100, 100), (580, 100), own_radius,
+                       extra_obstacles=nav_a._other_robot_obstacles(robot_a, own_radius, match, (100, 100), (580, 100)))
+    path_b = plan_path(field, (500, 100), (20, 100), own_radius,
+                       extra_obstacles=nav_b._other_robot_obstacles(robot_b, own_radius, match, (500, 100), (20, 100)))
+
+    # Each detours off the shared y=100 line, and to opposite sides of it.
+    offset_a = max((p.y - 100 for p in path_a), key=abs)
+    offset_b = max((p.y - 100 for p in path_b), key=abs)
+    assert abs(offset_a) > 1.0 and abs(offset_b) > 1.0
+    assert offset_a * offset_b < 0, "both robots dodged to the same side"
+
+
+def _segment_hits_polygon(a, b, poly) -> bool:
+    """Whether segment a->b passes through `poly`'s interior, sampled
+    along its length. Tested against `poly` shrunk slightly toward its
+    own centroid, so a leg that legitimately rides the boundary (every
+    route around an obstacle hugs it) doesn't read as a hit, while a leg
+    that genuinely cuts through still does."""
+    ax, ay = (a.x, a.y) if hasattr(a, "x") else a
+    bx, by = (b.x, b.y) if hasattr(b, "x") else b
+    cx = sum(p[0] for p in poly) / len(poly)
+    cy = sum(p[1] for p in poly) / len(poly)
+    inner = tuple((cx + (x - cx) * 0.95, cy + (y - cy) * 0.95) for x, y in poly)
+    for i in range(1, 20):
+        t = i / 20.0
+        if point_in_polygon((ax + (bx - ax) * t, ay + (by - ay) * t), inner):
+            return True
+    return False

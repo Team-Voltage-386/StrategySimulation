@@ -68,6 +68,14 @@ class StrategyController:
         self._last_status: Status = Status.RUNNING
         self.intent = Intent(tactic_name=type(strategy.fallback).__name__)
 
+    @property
+    def active_rule_name(self) -> str | None:
+        """Name of the currently active Rule, or None while the fallback
+        tactic is active -- for a GUI (strategy_graph.py) to know which
+        node to highlight without reaching into the private
+        `_active_rule`."""
+        return self._active_rule.name if self._active_rule is not None else None
+
     def _evaluate_all(self, ctx: BehaviorContext) -> dict[str, bool]:
         satisfied: dict[str, bool] = {}
         for rule in self.strategy.rules:
@@ -102,6 +110,17 @@ class StrategyController:
         outgoing = self._active_rule
         if outgoing is not None:
             self._active_tactic.reset()
+            # A preempted tactic (trigger went false, or a higher-priority
+            # rule won) never gets another tick to run its own SUCCESS/
+            # FAILURE cleanup -- e.g. Collect's "just captured" branch is
+            # what turns robot.set_intake_active back off. Without this,
+            # a mid-collect preemption leaves intake commanded on forever,
+            # and the robot keeps scooping up whatever compatible piece it
+            # next drives near. The incoming tactic (ticked immediately
+            # below, same frame) re-asserts whatever it actually wants.
+            if ctx.robot is not None:
+                ctx.robot.set_intake_active(False)
+                ctx.robot.set_deposit_active(False)
             if outgoing.cooldown > 0.0:
                 self._states[outgoing.name].cooldown_remaining = outgoing.cooldown
 

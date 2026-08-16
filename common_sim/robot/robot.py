@@ -82,6 +82,7 @@ class Robot:
         alliance: str = "blue",
         chassis_collision_type: int = 0,
         intake_collision_type: int = 0,
+        chassis_shape_filter: pymunk.ShapeFilter | None = None,
     ):
         self.characteristics = characteristics
         self.alliance = alliance
@@ -100,6 +101,7 @@ class Robot:
             mass=characteristics.mass,
             start_pose=start_pose,
             collision_type=chassis_collision_type,
+            shape_filter=chassis_shape_filter,
         )
 
         # Intake sensors: one wedge per side with intake capability,
@@ -133,6 +135,12 @@ class Robot:
         self._commanded_intake = False
         self._commanded_deposit = False
         self._deposit_action: str | None = None
+
+        # side -> (pose_key, points) memo for side_reach_points -- deposit
+        # region checks call it repeatedly (once per candidate scoring
+        # region) against the same live pose within a tick; keyed on pose
+        # so it's still recomputed the moment the robot actually moves.
+        self._reach_cache: dict[str, tuple[tuple[float, float, float], list[tuple[float, float]]]] = {}
 
         # Set by Match.add_robot when a controller= is passed; Match.step
         # ticks it each frame before mechanism/physics updates. None for
@@ -291,7 +299,17 @@ class Robot:
         Sampled along the centerline rather than swept across the side's
         full width so a robot sitting near the corner between two adjacent
         targets (e.g. two REEF faces meeting at a hex vertex) doesn't
-        register against a neighbor it isn't actually squared up to."""
+        register against a neighbor it isn't actually squared up to.
+
+        Memoized per side against the live pose (position + heading) --
+        callers within the same tick and same pose (e.g.
+        Match.deposit_region_for scanning several candidate regions) reuse
+        the cached points; any pose change invalidates it."""
+        body = self.chassis.body
+        pose_key = (body.position.x, body.position.y, body.angle)
+        cached = self._reach_cache.get(side)
+        if cached is not None and cached[0] == pose_key:
+            return cached[1]
         origin = pymunk.Vec2d(*self.side_bumper_point(side))
         outward = pymunk.Vec2d(*SIDE_OUTWARD[side]).rotated(self.chassis.body.angle)
         near, far = -self.MANIPULATOR_INSET, self.characteristics.intake_range
@@ -301,6 +319,7 @@ class Robot:
             offset = near + (far - near) * i / steps
             p = origin + outward * offset
             points.append((p.x, p.y))
+        self._reach_cache[side] = (pose_key, points)
         return points
 
     def side_engages_polygon(self, side: str, vertices) -> bool:

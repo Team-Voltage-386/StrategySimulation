@@ -5,10 +5,12 @@ FieldCanvas and control.input_sources plumbing as apps/run_match.py's
 placeholder game. Nothing about the GUI or input layer changed to
 support a real game; that's the point of this dry run.
 
-Layout: a scrollable settings + controls-reference column on the left,
-the live field view (with a play/pause/reset transport bar and a
-held-piece count readout) in the center, and a telemetry + manual
-scoring column on the right.
+Layout: a MATCH tab (MatchView) -- a scrollable settings +
+controls-reference column on the left, the live field view (with a
+play/pause/reset transport bar and a held-piece count readout) in the
+center, and a telemetry + manual scoring column on the right -- next to
+a STRATEGY tab (gui_utils/strategy_editor.py) where each robot's Rule
+list and fallback tactic can be edited and staged for the next RESET.
 
 Controls: WASD translate (field-relative), LEFT/RIGHT rotate,
 SPACE hold to intake, 1/2/3/4 select CORAL level L1-L4 (or X to cycle
@@ -34,6 +36,7 @@ from common_sim.control.strategy import StrategyController
 from common_sim.field.field_config import point_in_polygon
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig, Phase
+from common_sim.match.telemetry import TelemetryRecorder
 from game_specific.reefscape.field import (
     build_field,
     coral_station_positions,
@@ -45,6 +48,9 @@ from common_sim.robot.characteristics import INTAKE_SOURCES, RobotCharacteristic
 from gui_utils import theme
 from gui_utils.console_panel import ConsolePanel
 from gui_utils.field_canvas import FieldCanvas
+from gui_utils.scrub_slider import ScrubSlider
+from gui_utils.strategy_editor import StrategyEditor
+from gui_utils.strategy_graph import StrategyGraphPanel
 from gui_utils.telemetry_panel import TelemetryPanel
 
 Qt = QtCore.Qt
@@ -108,9 +114,13 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
     return RobotCharacteristics(**defaults)
 
 
-def build_demo_match(alliance: str = "blue") -> Match:
+def build_demo_match(alliance: str = "blue", disable_friendly_collisions: bool = False) -> Match:
     field = build_field()
-    match = Match(field, REEFSCAPE_SCORING_RULES, MatchConfig(auto_duration=15, teleop_duration=135))
+    match = Match(
+        field,
+        REEFSCAPE_SCORING_RULES,
+        MatchConfig(auto_duration=15, teleop_duration=135, disable_friendly_collisions=disable_friendly_collisions),
+    )
 
     rng = random.Random(0)
     center = reef_center(alliance)
@@ -340,6 +350,30 @@ class ControlsPanel(QtWidgets.QGroupBox):
         self.label.setText(f"{heading}\n" + "\n".join(lines))
 
 
+class MatchSettingsPanel(QtWidgets.QGroupBox):
+    """Match-wide physics toggles that apply to the whole field regardless
+    of roster -- currently just whether same-alliance robots collide with
+    each other."""
+
+    def __init__(self, parent=None):
+        super().__init__("MATCH SETTINGS", parent)
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.disable_friendly_collisions_check = QtWidgets.QCheckBox("Disable friendly collisions")
+        self.disable_friendly_collisions_check.setToolTip(
+            "Robots on the same alliance pass through each other. Collisions with the opposing alliance are unaffected."
+        )
+        layout.addWidget(self.disable_friendly_collisions_check)
+
+        hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
+        hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+    def disable_friendly_collisions(self) -> bool:
+        return self.disable_friendly_collisions_check.isChecked()
+
+
 class RosterEntryRow(QtWidgets.QWidget):
     """One extra AI robot: a strategy-file combo plus a remove button."""
 
@@ -556,48 +590,18 @@ class SideManipulatorPanel(QtWidgets.QGroupBox):
         return result
 
 
-class ScoringControlsPanel(QtWidgets.QGroupBox):
-    """Manual scoring controls that mirror the keyboard/gamepad deposit
-    action: pick a level with the buttons, hold SCORE to deposit -- same
-    semantics as holding F on the keyboard."""
-
-    def __init__(self, parent=None):
-        super().__init__("SCORE CONTROLS", parent)
-        layout = QtWidgets.QVBoxLayout(self)
-
-        self.level_group = QtWidgets.QButtonGroup(self)
-        self.level_group.setExclusive(True)
-        level_row = QtWidgets.QGridLayout()
-        for i, (action, label) in enumerate(DEPOSIT_ACTIONS):
-            btn = QtWidgets.QPushButton(label)
-            btn.setCheckable(True)
-            btn.setProperty("action", action)
-            self.level_group.addButton(btn)
-            level_row.addWidget(btn, i // 2, i % 2)
-        layout.addLayout(level_row)
-        buttons = self.level_group.buttons()
-        buttons[3].setChecked(True)  # default: L4
-
-        self.score_button = QtWidgets.QPushButton("HOLD TO SCORE")
-        self.score_button.setStyleSheet(f"font-weight: bold; color: {theme.ACCENT_AMBER};")
-        self.score_button.setMinimumHeight(40)
-        layout.addWidget(self.score_button)
-
-    def selected_action(self) -> str:
-        checked = self.level_group.checkedButton()
-        return checked.property("action") if checked else "l4"
-
-    def set_selected_action(self, action: str) -> None:
-        for btn in self.level_group.buttons():
-            if btn.property("action") == action:
-                btn.setChecked(True)
-                return
-
-
 class TransportBar(QtWidgets.QWidget):
-    """Playback controls under the field: play/pause toggle, a
-    (non-seekable -- this is a live sim, not a replay) elapsed-time
-    slider, and a reset button that starts a fresh match."""
+    """Playback controls under the field: play/pause toggle, an
+    elapsed-time slider, and a reset button that starts a fresh match.
+
+    The slider tracks live progress (and is disabled) while the sim is
+    running -- scrubbing a live physics sim mid-step doesn't mean
+    anything. Once paused, MatchView enables it for review: dragging it
+    jumps every robot to its recorded telemetry pose at that point in
+    the match (see MatchView._enter_playback_at_fraction), same as
+    scrubbing a video. Values are a 0-1000 fraction of the match's
+    total_duration rather than a frame index, so the slider's meaning
+    doesn't depend on how many telemetry frames happen to exist yet."""
 
     play_pause_clicked = QtCore.Signal()
     reset_clicked = QtCore.Signal()
@@ -611,10 +615,10 @@ class TransportBar(QtWidgets.QWidget):
         self.play_pause_button.clicked.connect(self.play_pause_clicked)
         layout.addWidget(self.play_pause_button)
 
-        self.slider = QtWidgets.QSlider(Qt.Horizontal)
+        self.slider = ScrubSlider(Qt.Horizontal)
         self.slider.setRange(0, 1000)
-        self.slider.setEnabled(False)  # progress display only -- live sim isn't seekable
-        self.slider.setToolTip("Match progress (live simulation -- not seekable)")
+        self.slider.setEnabled(False)  # enabled by MatchView once paused with telemetry recorded
+        self.slider.setToolTip("Match progress -- pause to scrub and review")
         layout.addWidget(self.slider, stretch=1)
 
         self.time_label = QtWidgets.QLabel("0:00 / 0:00")
@@ -626,9 +630,14 @@ class TransportBar(QtWidgets.QWidget):
         self.reset_button.clicked.connect(self.reset_clicked)
         layout.addWidget(self.reset_button)
 
-    def set_progress(self, elapsed: float, total: float, paused: bool) -> None:
+    def set_progress(self, elapsed: float, total: float, paused: bool, *, sync_slider: bool = True) -> None:
+        """`sync_slider=False` updates the time label/button only,
+        leaving the slider's position alone -- used while the user is
+        actively scrubbing it, so this doesn't fight their drag every
+        tick (see MatchView._tick)."""
         frac = 0.0 if total <= 0 else max(0.0, min(1.0, elapsed / total))
-        self.slider.setValue(int(frac * 1000))
+        if sync_slider:
+            self.slider.setValue(int(frac * 1000))
         self.time_label.setText(f"{_fmt_time(elapsed)} / {_fmt_time(total)}")
         self.play_pause_button.setText("▶" if paused else "⏸")
 
@@ -638,16 +647,36 @@ def _fmt_time(seconds: float) -> str:
     return f"{seconds // 60}:{seconds % 60:02d}"
 
 
-class ReefscapeWindow(QtWidgets.QMainWindow):
+class MatchView(QtWidgets.QWidget):
+    """Everything needed to run and watch one live match: roster/config
+    controls, the field canvas, telemetry/scoring/controls, and the
+    transport bar -- exactly what used to be ReefscapeWindow's central
+    widget, extracted so it can sit in a QTabWidget next to STRATEGY
+    (gui_utils/strategy_editor.py) instead of being the whole window.
+
+    `strategy_provider(label) -> Strategy | None`, set by the owning
+    window, lets the STRATEGY tab's edited/applied strategies override
+    a robot's roster-selected strategy file on the next RESET; `label`
+    is the same "PRIMARY" / "BLUE 0" / "RED 0" scheme `robot_labels()`
+    reports, so the two stay in sync without MatchView importing
+    anything from strategy_editor."""
+
     TICK_HZ = 60
 
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("sparky-sim -- REEFSCAPE")
+    roster_changed = QtCore.Signal()
+    match_reset = QtCore.Signal(object)  # Match
+    tick_completed = QtCore.Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.strategy_provider = None
+        self._robots_by_label: dict[str, object] = {}
 
         self.roster_panel = RosterPanel(STRATEGY_NAMES)
         self.roster_panel.robot_added.connect(self._on_robot_added)
+        self.roster_panel.robot_added.connect(lambda *_: self.roster_changed.emit())
         self.roster_panel.robot_removed.connect(self._on_robot_removed)
+        self.roster_panel.robot_removed.connect(lambda *_: self.roster_changed.emit())
         self.roster_panel.fast_forward_check.toggled.connect(self._update_timer_interval)
 
         self.primary_config_tab = RobotConfigTab(show_alliance=True)
@@ -678,36 +707,43 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.piece_count_label.setAlignment(Qt.AlignCenter)
         self.piece_count_label.setFont(theme.technical_font(11, bold=True))
         self.piece_count_label.setStyleSheet(f"color: {theme.ACCENT_CYAN};")
+        self.show_intent_check = QtWidgets.QCheckBox("Show AI Intent")
+        self.show_intent_check.setChecked(True)
+        self.show_intent_check.toggled.connect(self._on_show_intent_toggled)
         self.console = ConsolePanel()
         self.transport_bar = TransportBar()
         self.transport_bar.play_pause_clicked.connect(self._toggle_paused)
         self.transport_bar.reset_clicked.connect(self._reset_match)
+        self.transport_bar.slider.sliderPressed.connect(self._on_scrub_start)
+        self.transport_bar.slider.valueChanged.connect(self._on_scrub_value_changed)
         center_column = QtWidgets.QWidget()
         center_layout = QtWidgets.QVBoxLayout(center_column)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.addWidget(self.canvas, stretch=2)
-        center_layout.addWidget(self.piece_count_label)
+        piece_count_row = QtWidgets.QHBoxLayout()
+        piece_count_row.addStretch(1)
+        piece_count_row.addWidget(self.piece_count_label)
+        piece_count_row.addStretch(1)
+        piece_count_row.addWidget(self.show_intent_check)
+        center_layout.addLayout(piece_count_row)
         center_layout.addWidget(self.console, stretch=1)
         center_layout.addWidget(self.transport_bar)
 
         self.telemetry_panel = TelemetryPanel("TELEMETRY")
-        self.scoring_panel = ScoringControlsPanel()
+        self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
         right_column = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_column)
         right_layout.addWidget(self.telemetry_panel)
-        right_layout.addWidget(self.scoring_panel)
+        right_layout.addWidget(self.match_settings_panel)
         right_layout.addWidget(self.controls_panel)
         right_layout.addStretch(1)
         right_column.setFixedWidth(240)
 
-        central = QtWidgets.QWidget()
-        central_layout = QtWidgets.QHBoxLayout(central)
+        central_layout = QtWidgets.QHBoxLayout(self)
         central_layout.addWidget(left_column)
         central_layout.addWidget(center_column, stretch=1)
         central_layout.addWidget(right_column)
-        self.setCentralWidget(central)
-        self.resize(1500, 760)
 
         self._pressed_keys: set[int] = set()
         self._prev_pressed_keys: set[int] = set()
@@ -717,10 +753,19 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.keyboard = KeyboardInput(pressed_keys=lambda: self._pressed_keys, bindings=KEY_BINDINGS)
         gamepad = GamepadInput()
         self.input_source = gamepad if gamepad.available else self.keyboard
+        self.gamepad_available = gamepad.available
         self.controls_panel.set_available(gamepad.available)
-        self.setWindowTitle(self.windowTitle() + (" [gamepad]" if gamepad.available else " [keyboard]"))
 
         self.paused = False
+        self._selected_deposit_action = "l4"
+        # Playback/scrub state -- see _on_scrub_start/_enter_playback_at_fraction.
+        # playback_time is None while live; _live_snapshot holds each
+        # robot's true physics state from the moment scrubbing started,
+        # so resuming play can restore it exactly rather than continuing
+        # from wherever the scrub display last parked the bodies.
+        self.playback_time: float | None = None
+        self._live_snapshot: dict[object, tuple] | None = None
+        self._updating_slider_programmatically = False
         self._reset_match()
 
         self.timer = QtCore.QTimer(self)
@@ -753,15 +798,16 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
 
     def _reset_match(self) -> None:
         alliance = self.primary_config_tab.settings_panel.alliance()
-        self.match = build_demo_match(alliance)
+        self.match = build_demo_match(alliance, self.match_settings_panel.disable_friendly_collisions())
         station = coral_station_positions(alliance)[0]
         facing = 0.0 if alliance == "blue" else 3.14159265
         start_pose = Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1], facing)
         overrides = self.primary_config_tab.characteristics_overrides()
         characteristics = build_demo_characteristics(**overrides)
         self.robot = self.match.add_robot(characteristics, start_pose, alliance=alliance)
+        self._robots_by_label = {"PRIMARY": self.robot}
         if self.roster_panel.ai_drives_primary():
-            self._attach_strategy(self.robot, self.roster_panel.primary_strategy_name())
+            self._attach_strategy(self.robot, "PRIMARY", self.roster_panel.primary_strategy_name())
 
         for roster_alliance in ("blue", "red"):
             for i, (row, config_tab) in enumerate(self.roster_panel.roster_rows(roster_alliance)):
@@ -771,11 +817,44 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.console.reset()
         self._logged_event_count = 0
         self.paused = True
+        self.telemetry = TelemetryRecorder(self.match)
+        self.playback_time = None
+        self._live_snapshot = None
+        self.transport_bar.slider.setEnabled(False)
         self._update_piece_counts()
         self.canvas.setFocus()
+        self.match_reset.emit(self.match)
 
-    def _attach_strategy(self, robot, strategy_name: str) -> None:
-        strategy = strategy_io.load_strategy(STRATEGY_FILES[strategy_name])
+    def robot_labels(self) -> list[str]:
+        """Stable per-robot keys ("PRIMARY" / "BLUE 0" / "RED 0" / ...)
+        shared with StrategyEditor.set_robots() -- BLUE/RED indices are
+        0-based, matching _spawn_roster_robot's own `index`, not the
+        1-based numbering ROBOT CONFIG's tab labels happen to use."""
+        labels = ["PRIMARY"]
+        for alliance in ("blue", "red"):
+            for i in range(len(self.roster_panel.roster_rows(alliance))):
+                labels.append(f"{alliance.upper()} {i}")
+        return labels
+
+    def robot_for_label(self, label: str):
+        """The live Robot currently spawned under `label`, or None --
+        None either before the first RESET or if `label` names a roster
+        slot that isn't spawned this match (stale STRATEGY tab
+        selection after a roster edit)."""
+        return self._robots_by_label.get(label)
+
+    def _resolve_strategy(self, label: str, strategy_name: str):
+        """A Strategy staged for `label` in the STRATEGY tab (Apply To
+        Robot) takes priority over the roster's file-selected strategy
+        -- that's what makes "edit here, RESET to try it" work."""
+        if self.strategy_provider is not None:
+            override = self.strategy_provider(label)
+            if override is not None:
+                return override
+        return strategy_io.load_strategy(STRATEGY_FILES[strategy_name])
+
+    def _attach_strategy(self, robot, label: str, strategy_name: str) -> None:
+        strategy = self._resolve_strategy(label, strategy_name)
         robot.controller = StrategyController(strategy, robot)
 
     def _spawn_roster_robot(self, alliance: str, index: int, strategy_name: str, config_tab: RobotConfigTab) -> None:
@@ -791,25 +870,110 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         overrides["name"] = f"{alliance}-ai-{index}"
         characteristics = build_demo_characteristics(**overrides)
         robot = self.match.add_robot(characteristics, pose, alliance=alliance)
-        self._attach_strategy(robot, strategy_name)
+        self._robots_by_label[f"{alliance.upper()} {index}"] = robot
+        self._attach_strategy(robot, f"{alliance.upper()} {index}", strategy_name)
 
     def _toggle_paused(self) -> None:
+        if self.paused and self.playback_time is not None:
+            # Resuming from a scrub -- put the true live physics state
+            # back before unpausing, discarding the scrub display's
+            # positions (see _restore_state_at_time), so the sim
+            # continues from where it actually left off rather than
+            # jumping from wherever the user scrubbed to.
+            self._exit_playback()
         self.paused = not self.paused
+
+    def _on_show_intent_toggled(self, checked: bool) -> None:
+        self.canvas.show_intent = checked
+
+    # -- playback/scrub ----------------------------------------------------
+
+    def _on_scrub_start(self) -> None:
+        """User grabbed the slider handle (mouse-down, before any drag).
+        A no-op if the slider is disabled (live/no telemetry yet) --
+        Qt still emits sliderPressed for a disabled widget in some
+        bindings, so this guards explicitly rather than relying on
+        setEnabled(False) alone to block it."""
+        if not self.transport_bar.slider.isEnabled():
+            return
+        if self._live_snapshot is None:
+            self._capture_live_snapshot()
+        self._enter_playback_at_fraction(self.transport_bar.slider.value() / 1000.0)
+
+    def _on_scrub_value_changed(self, value: int) -> None:
+        """Fires on every value change: dragging, a groove click, or
+        arrow keys. Ignored while `_tick` is itself syncing the slider
+        to live progress (see `_updating_slider_programmatically`) so
+        that doesn't get misread as a user scrub."""
+        if self._updating_slider_programmatically:
+            return
+        if not self.transport_bar.slider.isEnabled():
+            return
+        if self._live_snapshot is None:
+            self._capture_live_snapshot()
+        self._enter_playback_at_fraction(value / 1000.0)
+
+    def _capture_live_snapshot(self) -> None:
+        """Record each robot's true physics state before scrubbing
+        overwrites it for display, so resuming play (_toggle_paused)
+        can restore exactly where the live sim actually left off."""
+        self._live_snapshot = {
+            robot: (
+                robot.chassis.body.position, robot.chassis.body.angle,
+                robot.chassis.body.velocity, robot.chassis.body.angular_velocity,
+            )
+            for robot in self.match.robots
+        }
+
+    def _enter_playback_at_fraction(self, fraction: float) -> None:
+        fraction = max(0.0, min(1.0, fraction))
+        target_time = fraction * self.match.config.total_duration
+        self.playback_time = target_time
+        self._restore_state_at_time(target_time)
+        total = self.match.config.total_duration
+        self.transport_bar.time_label.setText(f"{_fmt_time(target_time)} / {_fmt_time(total)}")
+        self.canvas.update()
+
+    def _restore_state_at_time(self, target_time: float) -> None:
+        """Pose/orientation/velocity only -- free (non-held) game pieces
+        aren't part of the recorded telemetry (see
+        common_sim/match/telemetry.py), so they stay wherever physics
+        last left them rather than rewinding too. Held pieces are
+        repositioned via sync_held_piece_positions() so they don't lag
+        behind the chassis jump."""
+        for robot in self.match.robots:
+            snapshot = self.telemetry.get_robot_state_at_time(target_time, robot.characteristics.name)
+            if snapshot is None:
+                continue
+            robot.chassis.body.position = (snapshot.position_x, snapshot.position_y)
+            robot.chassis.body.angle = math.radians(snapshot.orientation_deg)
+            robot.chassis.body.velocity = (snapshot.velocity_x, snapshot.velocity_y)
+            robot.sync_held_piece_positions()
+
+    def _exit_playback(self) -> None:
+        if self._live_snapshot is not None:
+            for robot, (position, angle, velocity, angular_velocity) in self._live_snapshot.items():
+                robot.chassis.body.position = position
+                robot.chassis.body.angle = angle
+                robot.chassis.body.velocity = velocity
+                robot.chassis.body.angular_velocity = angular_velocity
+                robot.sync_held_piece_positions()
+        self.playback_time = None
+        self._live_snapshot = None
 
     # -- input -----------------------------------------------------------
 
     def _key_press(self, event) -> None:
         self._pressed_keys.add(event.key())
         if event.key() in LEVEL_KEYS:
-            self.scoring_panel.set_selected_action(LEVEL_KEYS[event.key()])
+            self._selected_deposit_action = LEVEL_KEYS[event.key()]
 
     def _key_release(self, event) -> None:
         self._pressed_keys.discard(event.key())
 
     def _cycle_reef_level(self) -> None:
-        current = self.scoring_panel.selected_action()
-        start = REEF_LEVELS.index(current) if current in REEF_LEVELS else -1
-        self.scoring_panel.set_selected_action(REEF_LEVELS[(start + 1) % len(REEF_LEVELS)])
+        start = REEF_LEVELS.index(self._selected_deposit_action) if self._selected_deposit_action in REEF_LEVELS else -1
+        self._selected_deposit_action = REEF_LEVELS[(start + 1) % len(REEF_LEVELS)]
 
     def _tick(self) -> None:
         dt = 1.0 / self.TICK_HZ
@@ -835,16 +999,43 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
                 c = self.robot.characteristics
                 self.robot.drive_field_relative(dt, drive.vx * c.max_speed, drive.vy * c.max_speed, drive.omega * c.max_angular_speed)
                 self.robot.set_intake_active(operator.intake_active)
-                deposit_active = operator.deposit_active or self.scoring_panel.score_button.isDown()
                 action = self._effective_deposit_action()
-                self.robot.set_deposit_active(deposit_active, action=action)
-            self.match.step(dt)
-            self._drain_new_events()
+                self.robot.set_deposit_active(operator.deposit_active, action=action)
+            # Once the match has ended, Match.step is a no-op (elapsed
+            # stops advancing) -- skip telemetry.tick() too, or it would
+            # keep appending duplicate same-timestamp frames for as long
+            # as the app sits open and unpaused.
+            if not self.match.ended:
+                self.match.step(dt)
+                self._drain_new_events()
+                self.telemetry.tick()
 
-        self.transport_bar.set_progress(self.match.elapsed, self.match.config.total_duration, self.paused)
+        # sync_slider=False while scrubbing: the slider already reflects
+        # where the user dragged it (see _enter_playback_at_fraction),
+        # and match.elapsed hasn't moved since we're paused -- syncing it
+        # here every tick would just snap the handle back underneath
+        # their drag before it ever completes. The programmatic-update
+        # flag additionally guards _on_scrub_value_changed against
+        # misreading this call's own setValue() as a user scrub.
+        self._updating_slider_programmatically = True
+        self.transport_bar.set_progress(
+            self.match.elapsed, self.match.config.total_duration, self.paused,
+            sync_slider=self.playback_time is None,
+        )
+        self._updating_slider_programmatically = False
+        self._update_scrub_availability()
         self._update_telemetry()
         self._update_piece_counts()
         self.canvas.update()
+        self.tick_completed.emit()
+
+    def _update_scrub_availability(self) -> None:
+        """The slider is only meaningful to drag once there's recorded
+        telemetry to scrub through and the live sim isn't actively
+        stepping (dragging mid-physics-step doesn't mean anything)."""
+        can_scrub = self.paused and bool(self.telemetry.match_frames)
+        if self.transport_bar.slider.isEnabled() != can_scrub:
+            self.transport_bar.slider.setEnabled(can_scrub)
 
     def _update_piece_counts(self) -> None:
         held = self.robot.held_pieces
@@ -863,7 +1054,7 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         requiring an explicit GUI selection just adds friction. REEF
         faces offer 4 actions at once (L1-L4), so they're deliberately
         excluded from this and stay a manual/toggle (X) choice."""
-        manual = self.scoring_panel.selected_action()
+        manual = self._selected_deposit_action
         pose = self.robot.pose
         held_types = {p.piece_type for p in self.robot.held_pieces}
         if not held_types:
@@ -902,6 +1093,76 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
             ("Mean Cycle", cycle),
         ]
         self.telemetry_panel.set_lines(lines)
+
+
+class ReefscapeWindow(QtWidgets.QMainWindow):
+    """Thin shell: a MatchView tab and a STRATEGY tab -- StrategyEditor
+    (gui_utils/strategy_editor.py) beside a live StrategyGraphPanel
+    (gui_utils/strategy_graph.py) -- wired so the editor always knows
+    the live roster, can stage a strategy for the next RESET, and the
+    graph mirrors both in-progress edits and (while the STRATEGY tab's
+    selected robot is actually running) the arbiter's real transitions."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("sparky-sim -- REEFSCAPE")
+        self._graph_event_count = 0
+
+        self.match_view = MatchView()
+        self.strategy_editor = StrategyEditor()
+        self.strategy_graph = StrategyGraphPanel()
+        self.match_view.strategy_provider = self.strategy_editor.strategy_for
+        self.match_view.roster_changed.connect(self._sync_strategy_robots)
+        self.match_view.match_reset.connect(self._on_match_reset)
+        self.match_view.tick_completed.connect(self._on_tick_completed)
+        self.strategy_editor.changed.connect(self._refresh_strategy_graph)
+        self.strategy_editor.robot_combo.currentTextChanged.connect(lambda *_: self._refresh_strategy_graph())
+        self.strategy_graph.node_clicked.connect(self.strategy_editor.select_rule)
+
+        strategy_tab = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        strategy_tab.addWidget(self.strategy_editor)
+        strategy_tab.addWidget(self.strategy_graph)
+        strategy_tab.setSizes([560, 480])
+
+        tabs = QtWidgets.QTabWidget()
+        tabs.addTab(self.match_view, "MATCH")
+        tabs.addTab(strategy_tab, "STRATEGY")
+        self.setCentralWidget(tabs)
+        self.resize(1600, 800)
+
+        self.setWindowTitle(self.windowTitle() + (" [gamepad]" if self.match_view.gamepad_available else " [keyboard]"))
+        self._sync_strategy_robots()
+        self._on_match_reset(self.match_view.match)
+
+    def _sync_strategy_robots(self) -> None:
+        self.strategy_editor.set_robots(self.match_view.robot_labels())
+        self._refresh_strategy_graph()
+
+    def _on_match_reset(self, match) -> None:
+        self.strategy_editor.set_field(match.field)
+        self._graph_event_count = 0
+        self._refresh_strategy_graph()
+
+    def _refresh_strategy_graph(self) -> None:
+        strategy = self.strategy_editor.current_strategy()
+        if strategy is not None:
+            self.strategy_graph.set_strategy(strategy)
+
+    def _on_tick_completed(self) -> None:
+        label = self.strategy_editor.current_label()
+        robot = self.match_view.robot_for_label(label) if label is not None else None
+        controller = robot.controller if robot is not None else None
+        if controller is None:
+            return
+        self.strategy_graph.set_active_rule(controller.active_rule_name)
+
+        all_events = list(self.match_view.match.events)
+        for event in all_events[self._graph_event_count:]:
+            if event.kind == "behavior_change" and event.data.get("robot") is robot:
+                self.strategy_graph.record_transition(
+                    event.timestamp, event.data.get("from"), event.data.get("to"), event.data.get("trigger"),
+                )
+        self._graph_event_count = len(all_events)
 
 
 def main() -> None:

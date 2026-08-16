@@ -29,9 +29,18 @@ class Phase(Enum):
 
 
 class MatchConfig:
-    def __init__(self, auto_duration: float = 15.0, teleop_duration: float = 135.0):
+    def __init__(
+        self,
+        auto_duration: float = 15.0,
+        teleop_duration: float = 135.0,
+        disable_friendly_collisions: bool = False,
+    ):
         self.auto_duration = auto_duration
         self.teleop_duration = teleop_duration
+        # When True, robots on the same alliance pass through each other
+        # (pymunk ShapeFilter group per alliance) while collisions against
+        # opposing-alliance robots are unaffected.
+        self.disable_friendly_collisions = disable_friendly_collisions
 
     @property
     def total_duration(self) -> float:
@@ -46,6 +55,12 @@ _INTAKE_TYPE = 2
 _PIECE_TYPE = 3
 _SCORING_TYPE = 4
 _STATION_TYPE = 5
+
+# pymunk ShapeFilter groups used for MatchConfig.disable_friendly_collisions
+# -- shapes sharing a nonzero group never collide with each other, but a
+# robot's group still differs from the opposing alliance's, so cross-alliance
+# contact is untouched. Extend this if a game ever has more than two alliances.
+_ALLIANCE_COLLISION_GROUPS = {"red": 1, "blue": 2}
 
 
 class Match:
@@ -174,6 +189,11 @@ class Match:
 
         The parameter exists for a controller built some other way that
         doesn't need `robot` up front (e.g. a duck-typed test double)."""
+        chassis_shape_filter = None
+        if self.config.disable_friendly_collisions:
+            group = _ALLIANCE_COLLISION_GROUPS.get(alliance)
+            if group is not None:
+                chassis_shape_filter = pymunk.ShapeFilter(group=group)
         robot = Robot(
             self.engine.space,
             characteristics,
@@ -181,6 +201,7 @@ class Match:
             alliance=alliance,
             chassis_collision_type=_CHASSIS_TYPE,
             intake_collision_type=_INTAKE_TYPE,
+            chassis_shape_filter=chassis_shape_filter,
         )
         if controller is not None:
             robot.controller = controller
@@ -303,7 +324,8 @@ class Match:
         drop counts as a score.
 
         Evaluated fresh each call against the live pose via
-        Robot.side_reach_points, never cached from an earlier moment."""
+        Robot.side_reach_points -- that memoizes per side/pose but never
+        returns a stale value from an earlier pose."""
         if piece is None:
             piece = self.deposit_piece_for(robot)
         if piece is None:

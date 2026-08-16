@@ -161,10 +161,17 @@ def _close(a: Point, b: Point, tol: float = 1e-6) -> bool:
     return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
 
 
+# Fractions along a candidate segment sampled for "is this inside an
+# obstacle". Deliberately not symmetric about 0.5 and never 0 or 1: the
+# endpoints are usually obstacle vertices, where point_in_polygon is a
+# coin flip on floating-point noise.
+_VISIBILITY_SAMPLES = (0.07, 0.23, 0.41, 0.5, 0.59, 0.77, 0.93)
+
+
 def _visible(p1: Point, p2: Point, inflated_obstacles: list[tuple[Point, ...]]) -> bool:
     if _close(p1, p2):
         return True
-    mid = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
+    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
     for poly in inflated_obstacles:
         n = len(poly)
         for i in range(n):
@@ -172,21 +179,64 @@ def _visible(p1: Point, p2: Point, inflated_obstacles: list[tuple[Point, ...]]) 
             if _segments_intersect(p1, p2, a, b):
                 if not (_close(p1, a) or _close(p1, b) or _close(p2, a) or _close(p2, b)):
                     return False
-        if point_in_polygon(mid, poly):
-            return False
+        # The edge-crossing test above only catches a *strict* straddle,
+        # so a segment that enters or leaves exactly through a vertex
+        # slips through it: at a vertex, neither of the two edges meeting
+        # there is straddled. That is not a measure-zero curiosity here.
+        # `_octagon` puts a vertex straight along +x, which is exactly
+        # where a robot approaching along that axis exits; and any
+        # diagonal between two vertices of a convex polygon crosses it
+        # while touching nothing but its own endpoints. One midpoint
+        # sample used to be the backstop, and it misses both whenever the
+        # midpoint happens to land outside. Sampling along the segment
+        # catches them.
+        for t in _VISIBILITY_SAMPLES:
+            if point_in_polygon((p1[0] + dx * t, p1[1] + dy * t), poly):
+                return False
     return True
 
 
-def _octagon(center: Point, radius: float) -> tuple[Point, ...]:
-    """Cheap circle approximation for a moving robot treated as a
-    round dynamic obstacle -- 8 vertices is plenty for the visibility
-    graph planner and avoids favoring any particular pass side the way
-    a 4-gon's flat faces would."""
+# How many of a trapping polygon's nearest vertices an endpoint inside
+# it may escape through -- see `plan_path`'s `escape_nodes`. Three is
+# enough that an octagon always offers a way out to either side, few
+# enough that cutting clear across it is never one of them.
+_ESCAPE_VERTICES = 3
+
+
+# How far a robot obstacle is bulged on the planning robot's left, as a
+# fraction of its radius. Big enough that the two ways around are never
+# a near-tie for the A* heuristic to split on noise, small enough that
+# the detour it picks is still roughly the short way.
+_PASS_SIDE_BIAS = 0.1
+
+
+def _octagon(center: Point, radius: float, observer: Point | None = None) -> tuple[Point, ...]:
+    """Cheap circle approximation for a moving robot treated as a round
+    dynamic obstacle -- 8 vertices is plenty for the visibility graph
+    planner and, unlike a 4-gon's flat faces, doesn't favor a pass side
+    by accident.
+
+    It does favor one on purpose, when `observer` (the planning robot's
+    position) is given: the circle is bulged on the observer's left, so
+    the cheaper way past is on its right. Two robots meeting head-on are
+    mirror images of each other, and a symmetric obstacle hands them
+    mirror-image shortest paths -- both dodge to the same side, meet
+    there, and shove. Replanning can't break that: every replan hands
+    each of them the same tie it just lost, so they grind against each
+    other until something else knocks them loose. Biasing left breaks
+    the tie the way road rules do -- both keep right, which for a
+    head-on means opposite sides of the field -- and does it from each
+    robot's own frame, so neither has to know what the other decided.
+    The bulge only ever *adds* clearance, so the obstacle still covers
+    the whole robot it stands for."""
     cx, cy = center
-    return tuple(
-        (cx + radius * math.cos(a), cy + radius * math.sin(a))
-        for a in (i * math.pi / 4.0 for i in range(8))
-    )
+    left = math.atan2(cy - observer[1], cx - observer[0]) + math.pi / 2.0 if observer is not None else None
+    points = []
+    for i in range(8):
+        angle = i * math.pi / 4.0
+        scale = 1.0 if left is None else 1.0 + _PASS_SIDE_BIAS * max(0.0, math.cos(angle - left))
+        points.append((cx + radius * scale * math.cos(angle), cy + radius * scale * math.sin(angle)))
+    return tuple(points)
 
 
 def plan_path(
@@ -208,7 +258,14 @@ def plan_path(
     `extra_obstacles`, when given, are additional already-inflated
     polygons (e.g. other robots' footprints) folded into the same
     visibility graph -- not re-inflated by `robot_radius`, since the
-    caller already sized them for the pair of bodies involved."""
+    caller already sized them for the pair of bodies involved.
+
+    Either endpoint may lie *inside* an obstacle -- routine for the robot
+    obstacles `NavigateTo` passes, which are sized to overlap long before
+    two chassis do. Such an endpoint is routed out to (or in from) the
+    near boundary rather than straight across; see `_edge_visible`. Route
+    corners are also kept `robot_radius` clear of the field perimeter,
+    which is a wall no FieldConfig lists as an obstacle."""
     inflated = []
     for obstacle in field.obstacles:
         clearance = _clearance_for_goal(obstacle.vertices, robot_radius, goal)
@@ -217,15 +274,48 @@ def plan_path(
     if extra_obstacles:
         inflated.extend(extra_obstacles)
 
-    if _visible(start, goal, inflated):
+    nodes: list[Point] = [start, goal]
+    # Which polygon each node came from (None for start/goal), and which
+    # polygons each endpoint is sitting inside -- see `_edge_visible`.
+    node_poly: list[int | None] = [None, None]
+    trapped = {
+        0: {i for i, poly in enumerate(inflated) if point_in_polygon(start, poly)},
+        1: {i for i, poly in enumerate(inflated) if point_in_polygon(goal, poly)},
+    }
+
+    # An endpoint inside an obstacle is never "directly visible" through
+    # it, whatever the segment does. `_visible` alone can miss that: it
+    # asks whether the segment *crosses* an edge, and a segment leaving a
+    # polygon exactly through one of its vertices straddles neither of
+    # the two edges meeting there, so it reads as clear. A robot obstacle
+    # is an octagon with a vertex straight along +x, which is precisely
+    # where a robot approaching along that axis would exit -- so this is
+    # the aligned head-on case, not a measure-zero curiosity.
+    if not trapped[0] and not trapped[1] and _visible(start, goal, inflated):
         return [Vec2d(*start), Vec2d(*goal)]
 
-    nodes: list[Point] = [start, goal]
+    # The field perimeter is a wall too, and it's the one obstacle that
+    # never appears in `field.obstacles` -- so a route hugging an
+    # obstacle near the edge of the field used to be free to round it on
+    # the outside, through the wall. A robot then drove into the wall and
+    # sat there pushing, having "reached" nothing. Dropping the
+    # out-of-bounds vertices makes A* round it on the inside instead.
+    # `start` and `goal` are exempt: a robot legitimately parks closer to
+    # the wall than its own radius (a CORAL STATION sits in the corner),
+    # and the inset is only about where a *route* may turn.
+    def _in_bounds(p: Point) -> bool:
+        return (robot_radius <= p[0] <= field.width - robot_radius
+                and robot_radius <= p[1] <= field.height - robot_radius)
+
     boundary_edges: set[tuple[int, int]] = set()
-    for poly in inflated:
-        base = len(nodes)
+    for poly_index, poly in enumerate(inflated):
         n = len(poly)
-        nodes.extend(poly)
+        kept: dict[int, int] = {}
+        for k, vertex in enumerate(poly):
+            if _in_bounds(vertex):
+                kept[k] = len(nodes)
+                nodes.append(vertex)
+                node_poly.append(poly_index)
         # A polygon's own consecutive vertices are always mutually
         # visible -- that segment *is* the polygon's boundary. Add them
         # unconditionally rather than through the general _visible()
@@ -234,8 +324,12 @@ def plan_path(
         # on floating-point noise, which would otherwise randomly sever
         # the one connection a path needs to hug the obstacle round
         # (e.g. a robot dead ahead, inflated to a circle-ish polygon).
-        for i in range(n):
-            boundary_edges.add((base + i, base + (i + 1) % n))
+        # Only between two surviving neighbors, though -- bridging across
+        # a dropped one would cut the corner it was there to round.
+        for k in range(n):
+            nxt = (k + 1) % n
+            if k in kept and nxt in kept:
+                boundary_edges.add((kept[k], kept[nxt]))
 
     start_idx, goal_idx = 0, 1
     edges: dict[int, list[tuple[int, float]]] = {i: [] for i in range(len(nodes))}
@@ -245,6 +339,70 @@ def plan_path(
         edges[i].append((j, dist))
         edges[j].append((i, dist))
 
+    escape_obstacles = {
+        endpoint: [poly for i, poly in enumerate(inflated) if i not in inside]
+        for endpoint, inside in trapped.items()
+    }
+    # Which vertices a trapped endpoint may use to get out (or in): the
+    # `_ESCAPE_VERTICES` nearest ones on each polygon trapping it. The
+    # whole polygon would technically do -- an endpoint inside a convex
+    # shape can see all of it -- but "all of it" includes the vertex
+    # straight ahead on the far side, and A* would take it: the escape
+    # then *is* the straight line through the obstacle, which is the
+    # thing being avoided. Leaving by the near boundary and rounding it
+    # is the detour.
+    escape_nodes: dict[int, set[int]] = {}
+    for endpoint, inside in trapped.items():
+        allowed: set[int] = set()
+        for poly_index in inside:
+            members = [n for n in range(2, len(nodes)) if node_poly[n] == poly_index]
+            members.sort(key=lambda n: math.hypot(
+                nodes[n][0] - nodes[endpoint][0], nodes[n][1] - nodes[endpoint][1]))
+            allowed.update(members[:_ESCAPE_VERTICES])
+        escape_nodes[endpoint] = allowed
+
+    def _edge_visible(i: int, j: int) -> bool:
+        """Normal visibility, plus an escape hatch for an endpoint that
+        has ended up *inside* an inflated obstacle.
+
+        For robot obstacles that is the routine case, not a rare one:
+        they're inflated by both bodies' radii plus a margin, so two
+        robots closing on each other are inside each other's inflated
+        polygon well before they touch, and a target next to a robot
+        (a contested piece, an occupied scoring spot) is inside it from
+        the start. Left alone it is also the worst possible case -- every
+        edge out of that endpoint crosses the polygon it's already
+        inside, so the endpoint gets no edges at all, A* reports the goal
+        unreachable, and `plan_path` falls back to the direct
+        start->goal line. Avoidance doesn't degrade there, it switches
+        *off*, at exactly the moment it was needed: robots then drive
+        straight at each other and shove until the match ends.
+
+        So an edge from a trapped endpoint to a vertex of a polygon it is
+        stuck inside is checked only against the polygons it is *not*
+        stuck inside. Those edges are the way out (or the way in), and
+        the endpoint already sits where they run. Every other polygon
+        still blocks them, and -- crucially -- the start->goal edge
+        itself is never exempted, since neither endpoint is a polygon
+        vertex. So A* can't answer with the straight line it just
+        rejected: it has to enter and leave via boundary vertices and
+        route around, which is the detour we wanted."""
+        endpoint, other = (i, j) if i in trapped else (j, i) if j in trapped else (None, None)
+        if other is not None and other in escape_nodes[endpoint]:
+            obstacles = escape_obstacles[endpoint]
+        else:
+            obstacles = inflated
+        # Same vertex-exit blind spot as the direct start->goal check
+        # above, so rule out an endpoint that is inside anything still
+        # being enforced. Only start/goal are asked -- an obstacle vertex
+        # sits *on* its own polygon, where point_in_polygon is a coin
+        # flip, and severing those edges is what `boundary_edges` exists
+        # to prevent.
+        for node in (i, j):
+            if node in trapped and any(point_in_polygon(nodes[node], poly) for poly in obstacles):
+                return False
+        return _visible(nodes[i], nodes[j], obstacles)
+
     for i, j in boundary_edges:
         _add_edge(i, j)
 
@@ -252,7 +410,7 @@ def plan_path(
         for j in range(i + 1, len(nodes)):
             if (i, j) in boundary_edges or (j, i) in boundary_edges:
                 continue
-            if _visible(nodes[i], nodes[j], inflated):
+            if _edge_visible(i, j):
                 _add_edge(i, j)
 
     path_indices = _astar(nodes, edges, start_idx, goal_idx)
@@ -484,28 +642,30 @@ class NavigateTo(Behavior):
     def _other_robot_obstacles(
         self, robot, own_radius: float, match, start: Point, goal: Point
     ) -> list[tuple[Point, ...]]:
-        """Other robots as circular obstacles, shrunk so they never swallow
-        `goal` outright. Without the shrink, a robot standing right on or
-        near where this robot is headed (a shared piece, a contested
-        scoring spot) leaves the visibility graph with no edge reaching
-        goal_idx at all; A* reports unreachable, and `plan_path` falls all
-        the way back to the direct start->goal line -- silently dropping
-        avoidance for the whole route, not just the last few inches, which
-        is exactly the nose-to-nose shoving this is meant to prevent.
-        Shrinking keeps the obstacle's push-back everywhere else on the
-        route while letting the final approach actually reach a point
-        near another robot instead of stalling short of it forever.
+        """Other robots as circular obstacles: `own_radius + their radius`
+        (the separation at which the two chassis can still touch, since
+        both radii circumscribe the chassis) plus `robot_avoid_margin` of
+        breathing room.
 
-        Deliberately *not* shrunk against `start` the same way: as two
-        robots close on each other, `start` (each one's own current
-        position, refreshed every replan) naturally ends up near/inside
-        the other's obstacle well before their bodies actually touch --
-        that's the normal, expected trigger for a detour, not a
-        degenerate input. Excluding this obstacle from blocking `start`'s
-        own edges to suppress that non-issue was tried and made things
-        worse: it also suppressed the direct start->goal edge itself,
-        since that edge shares the now-exempted endpoint, so the two
-        robots stopped detouring at all right as they closed in."""
+        The margin -- and only the margin -- is given back when `goal`
+        sits inside the circle, so a target that merely wants a polite
+        berth from a nearby robot can still be planned straight to. What
+        is never given back is the contact radius itself. Trimming into
+        it used to be allowed, which meant a goal close to another robot
+        (a contested piece, a scoring standoff someone is parked on)
+        shrank that robot's obstacle to *smaller than the robot*, and the
+        planner would route a line through a body it was supposed to
+        avoid and drive into it at full speed. That is one half of a
+        permanent deadlock: the shover pins its victim against the REEF,
+        the victim can't get out from under it, and neither ever
+        re-plans into anything different.
+
+        A goal inside the contact radius is instead left inside the
+        obstacle, where `plan_path`'s trapped-endpoint handling routes
+        around to a boundary vertex and approaches from there. Same for
+        `start`: two robots closing on each other are inside each other's
+        circle well before they touch, which is the normal trigger for a
+        detour, not a degenerate input to be shrunk away."""
         if not self.avoid_robots or match is None:
             return []
         others = getattr(match, "robots", None)
@@ -516,13 +676,10 @@ class NavigateTo(Behavior):
             if other is robot:
                 continue
             other_pos = (other.pose.x, other.pose.y)
-            other_radius = _robot_radius(other.characteristics)
-            radius = own_radius + other_radius + self.robot_avoid_margin
+            contact_radius = own_radius + _robot_radius(other.characteristics)
             clearance_to_goal = math.hypot(other_pos[0] - goal[0], other_pos[1] - goal[1]) - 1.0
-            radius = min(radius, clearance_to_goal)
-            if radius <= 0.0:
-                continue
-            obstacles.append(_octagon(other_pos, radius))
+            radius = max(contact_radius, min(contact_radius + self.robot_avoid_margin, clearance_to_goal))
+            obstacles.append(_octagon(other_pos, radius, observer=start))
         return obstacles
 
     # How far a target has to drift before it's worth rebuilding the

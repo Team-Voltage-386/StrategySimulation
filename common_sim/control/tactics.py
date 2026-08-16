@@ -9,28 +9,16 @@ GUI can build a property inspector for it with zero per-tactic GUI code.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Literal
 
 from common_sim.control import world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
 from common_sim.control.navigation import NavigateTo, clear_standoff
+from common_sim.control.param import Param
 from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
 from common_sim.field.field_config import polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
 from common_sim.robot.characteristics import SIDE_OUTWARD
-
-
-@dataclass(frozen=True)
-class Param:
-    name: str
-    kind: str  # "piece_type" | "region_name" | "action" | "choice" | "float" | "int" | "bool" | "str"
-    default: object = None
-    optional: bool = False
-    choices: tuple = ()
-    min: float | None = None
-    max: float | None = None
-    suffix: str = ""
 
 
 class Tactic(Behavior):
@@ -135,23 +123,22 @@ class Collect(Tactic):
         outward = SIDE_OUTWARD[side]
         side_local_angle = math.atan2(outward[1], outward[0])
 
-        if self._target_station is not None:
-            # An intake station is a floor area, not a structure: driving
-            # into it is the correct thing to do, and standing off it
-            # would leave the side's sensor short of the location.
-            bearing = math.atan2(cy - robot.pose.y, cx - robot.pose.x)
-            return Pose2d(cx, cy, wrap_angle(bearing - side_local_angle))
-
-        # A loose piece, though, is aimed at with the *bumper*, parked so
-        # the piece sits mid-wedge in the intake's reach rather than under
-        # the chassis center. REEFSCAPE spawns ALGAE about 7in off the
-        # REEF wall; a robot putting its center there buries half its
-        # length in the REEF, and the goal being that deep inside the
-        # inflated hex also caps the clearance the planner is allowed to
-        # keep on the way over (see _clearance_for_goal), so it clips the
-        # REEF's corner getting there too. Standing off fixes both: the
-        # chassis stays out, and the goal it plans toward is far enough
-        # from the structure to earn full clearance.
+        # Aimed at with the *bumper*, parked so the target sits mid-wedge
+        # in the intake's reach rather than under the chassis center.
+        # This matters just as much for a station as for a loose piece:
+        # driving the chassis *center* onto a station's centroid parks
+        # the bumper `half_extent` further out along the approach
+        # bearing, and for a corner station (small footprint, tight
+        # against two field walls) that overshoot lands the intake wedge
+        # (bumper -MANIPULATOR_INSET..+intake_range) mostly outside the
+        # station polygon -- the robot settles nearby but never actually
+        # captures a piece. Standing off so the centroid falls mid-wedge
+        # fixes both that and (for a loose piece) REEFSCAPE's ALGAE
+        # spawning ~7in off the REEF wall, where a center-on-centroid
+        # pose buries half the chassis in the REEF and caps the
+        # clearance the planner is allowed to keep on the way over (see
+        # _clearance_for_goal), clipping the REEF's corner getting there
+        # too.
         half_extent = (characteristics.length if side in ("front", "back") else characteristics.width) / 2.0
         x, y, heading = clear_standoff(
             ctx.match.field, (cx, cy), (robot.pose.x, robot.pose.y),
