@@ -35,6 +35,12 @@ ALLIANCE_COLORS = {"red": QtGui.QColor(220, 30, 60), "blue": QtGui.QColor(theme.
 INTAKE_OUTLINE = QtGui.QColor(190, 110, 240)
 INTAKE_FILL = QtGui.QColor(190, 110, 240, 30)
 
+# Emitter regions (spawn pieces onto the field over time) get a third,
+# distinct outline color -- amber (scoring) and purple (intake) are already
+# taken.
+EMITTER_OUTLINE = QtGui.QColor(255, 200, 60)
+EMITTER_FILL = QtGui.QColor(255, 200, 60, 30)
+
 # Reef-face scoring regions offer several stacked levels (l1..l4) at one
 # physical zone -- l2-l4 are drawn as a small grid of per-branch squares
 # rather than a single number, matching how each level has a fixed number
@@ -69,6 +75,14 @@ class FieldCanvas(QtWidgets.QWidget):
     def __init__(self, match: Match, parent=None):
         super().__init__(parent)
         self.match = match
+        # Set by a host app (e.g. apps/run_reefscape.py) while scrubbed
+        # into playback, to a list of telemetry PieceSnapshots (or any
+        # object with position_x/position_y/radius/color) for the scrubbed
+        # time -- None means "draw live from match.active_pieces" (the
+        # normal case). A scored piece is permanently removed from
+        # match.active_pieces (see Match.step), so it can only be redrawn
+        # from its own recorded telemetry, not from a live GamePiece.
+        self.playback_pieces: list | None = None
         self.show_intent = True
         self.setMinimumSize(400, 300)
         self.setStyleSheet(f"background-color: {theme.BG_DEEP};")
@@ -119,6 +133,7 @@ class FieldCanvas(QtWidgets.QWidget):
 
         self._draw_scoring_regions(painter, scale)
         self._draw_intake_locations(painter, scale)
+        self._draw_emitter_regions(painter, scale)
         self._draw_obstacles(painter, scale)
         self._draw_region_piece_counts(painter, scale)
         self._draw_pieces(painter, scale)
@@ -237,6 +252,19 @@ class FieldCanvas(QtWidgets.QWidget):
                 return robot.alliance
         return None
 
+    def _draw_emitter_regions(self, painter, scale: float) -> None:
+        for emitter in self.match.field.emitter_regions:
+            outline = ALLIANCE_COLORS.get(emitter.alliance, EMITTER_OUTLINE) if emitter.alliance else EMITTER_OUTLINE
+            painter.setPen(QtGui.QPen(outline, 2, Qt.DashLine))
+            painter.setBrush(EMITTER_FILL)
+            painter.drawPolygon(self._polygon(emitter.vertices, scale))
+
+            cx, cy = polygon_centroid(emitter.vertices)
+            wx, wy = self._to_widget(cx, cy, scale)
+            remaining = self.match.emitter_capacity_remaining(emitter)
+            label = "∞" if remaining is None else str(remaining)
+            self._draw_count_badge(painter, wx, wy, label)
+
     def _draw_region_piece_counts(self, painter, scale: float) -> None:
         for region in self.match.field.scoring_regions:
             counts = self.match.region_scores.get(region.name, {})
@@ -283,6 +311,13 @@ class FieldCanvas(QtWidgets.QWidget):
 
     def _draw_pieces(self, painter, scale: float) -> None:
         painter.setPen(Qt.NoPen)
+        if self.playback_pieces is not None:
+            for snapshot in self.playback_pieces:
+                painter.setBrush(QtGui.QColor(snapshot.color) if snapshot.color else QtGui.QColor(255, 110, 0))
+                wx, wy = self._to_widget(snapshot.position_x, snapshot.position_y, scale)
+                r = max(snapshot.radius * scale, 2.0)
+                painter.drawEllipse(QtCore.QPointF(wx, wy), r, r)
+            return
         for piece in self.match.active_pieces:
             painter.setBrush(QtGui.QColor(piece.color) if piece.color else QtGui.QColor(255, 110, 0))
             wx, wy = self._to_widget(piece.position.x, piece.position.y, scale)

@@ -1,8 +1,11 @@
 """
 Telemetry recording and playback for match replay analysis.
 
-Records robot state and match-level data at 20Hz, enabling timeline scrubbing
-to review match progression and debug strategy/tactics behavior.
+Records robot and match-level data at 20Hz, and active game-piece positions
+at a coarser 5Hz (a field can carry up to a few hundred pieces at once, so
+recording them at the same rate as robots would multiply row counts by the
+piece count), enabling timeline scrubbing to review match progression and
+debug strategy/tactics behavior.
 """
 from __future__ import annotations
 
@@ -45,29 +48,54 @@ class MatchSnapshot:
     station_supply: dict[str, int]
 
 
+@dataclass
+class PieceSnapshot:
+    """State of one active (unscored) game piece at a recording tick. A
+    piece stops appearing once it scores, mirroring the convention behind
+    MatchSnapshot.active_piece_count. Carries radius/color (not just
+    position) so a scrubbed-to piece can be drawn from telemetry alone --
+    a scored piece is permanently removed from Match.active_pieces/pymunk
+    (see Match.step), so replaying it has no live GamePiece object to read
+    those from."""
+    time: float
+    piece_id: int
+    piece_type: str
+    position_x: float
+    position_y: float
+    radius: float
+    color: str | None
+    held_by: str | None  # robot_name, or None if free on the field
+
+
 class TelemetryRecorder:
-    """Records telemetry at 20Hz (samples every 3rd tick from 60Hz)."""
+    """Records robot/match telemetry at 20Hz (every 3rd tick from 60Hz) and
+    game-piece telemetry at a coarser 5Hz (every 12th tick) -- see module
+    docstring for why pieces are decimated separately."""
 
     RECORD_HZ = 20
+    PIECE_RECORD_HZ = 5
     TICK_HZ = 60
 
     def __init__(self, match: Match):
         self.match = match
         self.robot_frames: list[RobotSnapshot] = []
         self.match_frames: list[MatchSnapshot] = []
+        self.piece_frames: list[PieceSnapshot] = []
         self._tick_counter = 0
 
     def tick(self) -> None:
-        """Call once per simulation tick (60Hz). Records at 20Hz internally."""
+        """Call once per simulation tick (60Hz). Records robot/match state
+        at 20Hz and piece state at 5Hz internally."""
         self._tick_counter += 1
-        samples_per_record = self.TICK_HZ // self.RECORD_HZ
-        if self._tick_counter % samples_per_record != 0:
-            return
-
         elapsed = self.match.elapsed
-        for robot in self.match.robots:
-            self._record_robot(robot, elapsed)
-        self._record_match(elapsed)
+
+        if self._tick_counter % (self.TICK_HZ // self.RECORD_HZ) == 0:
+            for robot in self.match.robots:
+                self._record_robot(robot, elapsed)
+            self._record_match(elapsed)
+
+        if self._tick_counter % (self.TICK_HZ // self.PIECE_RECORD_HZ) == 0:
+            self._record_pieces(elapsed)
 
     def _record_robot(self, robot: Robot, elapsed: float) -> None:
         """Record a single robot's state."""
@@ -125,6 +153,26 @@ class TelemetryRecorder:
         )
         self.match_frames.append(snapshot)
 
+    def _record_pieces(self, elapsed: float) -> None:
+        """Record every active (unscored) game piece. `id(piece)` is used
+        as a stable identifier for the piece's lifetime in
+        Match.active_pieces (it's never persisted or reused across pieces
+        that are simultaneously alive)."""
+        for piece in self.match.active_pieces:
+            pos = piece.position
+            held_by = piece.held_by.characteristics.name if piece.held_by is not None else None
+            snapshot = PieceSnapshot(
+                time=elapsed,
+                piece_id=id(piece),
+                piece_type=piece.piece_type,
+                position_x=pos.x,
+                position_y=pos.y,
+                radius=piece.radius,
+                color=piece.color,
+                held_by=held_by,
+            )
+            self.piece_frames.append(snapshot)
+
     def to_robot_dataframe(self) -> pd.DataFrame:
         """Convert robot telemetry to DataFrame."""
         if not self.robot_frames:
@@ -159,6 +207,34 @@ class TelemetryRecorder:
             }
             for s in self.match_frames
         ])
+
+    def to_piece_dataframe(self) -> pd.DataFrame:
+        """Convert piece telemetry to DataFrame."""
+        if not self.piece_frames:
+            return pd.DataFrame()
+        return pd.DataFrame([
+            {
+                "time": s.time,
+                "piece_id": s.piece_id,
+                "piece_type": s.piece_type,
+                "position_x": s.position_x,
+                "position_y": s.position_y,
+                "radius": s.radius,
+                "color": s.color,
+                "held_by": s.held_by,
+            }
+            for s in self.piece_frames
+        ])
+
+    def get_piece_states_at_time(self, target_time: float) -> list[PieceSnapshot]:
+        """All piece snapshots from the latest recorded tick at or before
+        target_time -- pieces are all recorded together each tick, so this
+        is one batch rather than a per-piece nearest lookup."""
+        times = [s.time for s in self.piece_frames if s.time <= target_time]
+        if not times:
+            return []
+        latest = max(times)
+        return [s for s in self.piece_frames if s.time == latest]
 
     def get_robot_state_at_time(self, target_time: float, robot_name: str) -> RobotSnapshot | None:
         """Get the closest robot snapshot at or before target_time."""

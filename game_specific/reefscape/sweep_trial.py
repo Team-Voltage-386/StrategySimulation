@@ -12,7 +12,8 @@ by qualified name, so this module is all a worker process ever loads.
 Determinism contract: `run_trial(job)` is exact for a fixed
 (TrialJob, seed) -- every scoring interaction is a pymunk broad+narrow
 phase result and every draw of randomness (config perturbation, piece
-scatter) is a substream seeded off `job.seed`, so `run_trial` and
+scatter, scoring-reliability rolls) is a substream seeded off `job.seed`,
+so `run_trial` and
 `replay_trial` agree bit-for-bit (see
 test_reefscape_sweep.test_replay_matches_run_trial), *within* one
 machine/pymunk build -- not guaranteed bit-identical across machines.
@@ -111,7 +112,7 @@ def build_match_for_job(job: TrialJob, recorder_cls=None):
         auto_duration=job.match.auto_duration, teleop_duration=job.match.teleop_duration,
         disable_friendly_collisions=job.match.disable_friendly_collisions,
     )
-    match = Match(field, REEFSCAPE_SCORING_RULES, match_config)
+    match = Match(field, REEFSCAPE_SCORING_RULES, match_config, rng=substream(job.seed, "scoring"))
     _scatter_pieces(match, job.match.scatter_alliance, job.seed, job.variability)
 
     robots_by_label = {}

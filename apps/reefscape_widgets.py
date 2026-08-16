@@ -38,6 +38,8 @@ DEPOSIT_ACTIONS = (("l1", "L1"), ("l2", "L2"), ("l3", "L3"), ("l4", "L4"), ("pro
 DEFAULT_DEPOSIT_TIMES = {"l1": 0.3, "l2": 0.6, "l3": 1.0, "l4": 1.8, "processor": 0.4, "net": 1.2}
 DEFAULT_INTAKE_TIMES = {CORAL_TYPE: 0.4, ALGAE_TYPE: 0.4}
 DEFAULT_PIECE_CAPACITY = {CORAL_TYPE: 1, ALGAE_TYPE: 1}
+# 100% (deterministic scoring, the legacy behavior) for both piece types.
+DEFAULT_SCORING_RELIABILITY = {CORAL_TYPE: 1.0, ALGAE_TYPE: 1.0}
 
 PIECE_TYPES = (CORAL_TYPE, ALGAE_TYPE)
 # Default side layout, matching the example from the feature request: a
@@ -77,6 +79,7 @@ LABEL_HINTS = {
     "deposit_time": "Deposit Time (Default)",
     "deposit_time_by_action": "Deposit Time ({type})",
     "piece_capacity_by_type": "Piece Capacity ({type})",
+    "scoring_reliability_by_type": "Scoring Reliability ({type})",
 }
 
 
@@ -90,17 +93,23 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
         deposit_time=0.5,
         deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
         accepted_piece_types=frozenset({"coral", "algae"}),
+        scoring_reliability_by_type=dict(DEFAULT_SCORING_RELIABILITY),
     )
     defaults.update(overrides)
     return RobotCharacteristics(**defaults)
 
 
-def build_demo_match(alliance: str = "blue", disable_friendly_collisions: bool = False) -> Match:
+def build_demo_match(
+    alliance: str = "blue", disable_friendly_collisions: bool = False, emit_coral_to_field: bool = False,
+) -> Match:
     field = build_field()
     match = Match(
         field,
         REEFSCAPE_SCORING_RULES,
-        MatchConfig(auto_duration=15, teleop_duration=135, disable_friendly_collisions=disable_friendly_collisions),
+        MatchConfig(
+            auto_duration=15, teleop_duration=135,
+            disable_friendly_collisions=disable_friendly_collisions, emit_coral_to_field=emit_coral_to_field,
+        ),
     )
 
     rng = random.Random(0)
@@ -186,6 +195,20 @@ class RobotSettingsPanel(QtWidgets.QGroupBox):
         self.algae_intake_time_spin.setValue(DEFAULT_INTAKE_TIMES[ALGAE_TYPE])
         form.addRow("Algae Intake Time", self.algae_intake_time_spin)
 
+        self.coral_reliability_spin = QtWidgets.QDoubleSpinBox()
+        self.coral_reliability_spin.setRange(0.0, 100.0)
+        self.coral_reliability_spin.setSingleStep(1.0)
+        self.coral_reliability_spin.setSuffix(" %")
+        self.coral_reliability_spin.setValue(DEFAULT_SCORING_RELIABILITY[CORAL_TYPE] * 100.0)
+        form.addRow("Coral Scoring Reliability", self.coral_reliability_spin)
+
+        self.algae_reliability_spin = QtWidgets.QDoubleSpinBox()
+        self.algae_reliability_spin.setRange(0.0, 100.0)
+        self.algae_reliability_spin.setSingleStep(1.0)
+        self.algae_reliability_spin.setSuffix(" %")
+        self.algae_reliability_spin.setValue(DEFAULT_SCORING_RELIABILITY[ALGAE_TYPE] * 100.0)
+        form.addRow("Algae Scoring Reliability", self.algae_reliability_spin)
+
         hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
         hint.setWordWrap(True)
@@ -206,6 +229,10 @@ class RobotSettingsPanel(QtWidgets.QGroupBox):
             intake_time_by_type={
                 CORAL_TYPE: self.coral_intake_time_spin.value(),
                 ALGAE_TYPE: self.algae_intake_time_spin.value(),
+            },
+            scoring_reliability_by_type={
+                CORAL_TYPE: self.coral_reliability_spin.value() / 100.0,
+                ALGAE_TYPE: self.algae_reliability_spin.value() / 100.0,
             },
         )
 
@@ -385,9 +412,9 @@ class CollapsibleBox(QtWidgets.QWidget):
 
 
 class MatchSettingsPanel(QtWidgets.QGroupBox):
-    """Match-wide physics toggles that apply to the whole field regardless
-    of roster -- currently just whether same-alliance robots collide with
-    each other."""
+    """Match-wide toggles that apply to the whole field regardless of
+    roster: whether same-alliance robots collide with each other, and
+    whether each alliance's coral emitter is active."""
 
     def __init__(self, parent=None):
         super().__init__("MATCH SETTINGS", parent)
@@ -399,6 +426,13 @@ class MatchSettingsPanel(QtWidgets.QGroupBox):
         )
         layout.addWidget(self.disable_friendly_collisions_check)
 
+        self.emit_coral_to_field_check = QtWidgets.QCheckBox("Emit coral to field")
+        self.emit_coral_to_field_check.setToolTip(
+            "Each alliance's coral emitter drops one CORAL every 10s during teleop, drawn from that alliance's "
+            "top coral station's remaining supply, while it lasts."
+        )
+        layout.addWidget(self.emit_coral_to_field_check)
+
         hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
         hint.setWordWrap(True)
@@ -406,6 +440,9 @@ class MatchSettingsPanel(QtWidgets.QGroupBox):
 
     def disable_friendly_collisions(self) -> bool:
         return self.disable_friendly_collisions_check.isChecked()
+
+    def emit_coral_to_field(self) -> bool:
+        return self.emit_coral_to_field_check.isChecked()
 
 
 class RosterEntryRow(QtWidgets.QWidget):

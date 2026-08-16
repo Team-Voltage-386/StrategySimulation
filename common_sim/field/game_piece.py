@@ -6,7 +6,40 @@ touch physics wiring.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import pymunk
+
+
+@dataclass(frozen=True)
+class GamePieceSpec:
+    """Physical/visual characteristics for one piece_type -- radius, mass,
+    and display color. A game package registers one of these per piece
+    type it defines (see register_piece_spec), so every place that spawns
+    a piece of that type (Match.spawn_piece, an EmitterRegion, a station
+    dispense, a robot's preload) gets the same characteristics automatically
+    by piece_type alone, rather than each caller re-specifying them and
+    risking a mismatch (e.g. a piece spawned via one path ending up a
+    different size/color than the same piece_type spawned via another)."""
+    radius: float = 8.0
+    mass: float = 0.5
+    color: str | None = None
+
+
+# piece_type -> GamePieceSpec, populated by game-specific packages at
+# import time (see game_specific.reefscape.game_pieces). Looked up by
+# piece_spec() below; a piece_type that was never registered falls back to
+# GamePieceSpec()'s defaults, matching GamePiece's own pre-registry
+# defaults so unregistered types behave exactly as before this existed.
+_PIECE_SPECS: dict[str, GamePieceSpec] = {}
+
+
+def register_piece_spec(piece_type: str, spec: GamePieceSpec) -> None:
+    _PIECE_SPECS[piece_type] = spec
+
+
+def piece_spec(piece_type: str) -> GamePieceSpec:
+    return _PIECE_SPECS.get(piece_type, GamePieceSpec())
 
 
 class GamePiece:

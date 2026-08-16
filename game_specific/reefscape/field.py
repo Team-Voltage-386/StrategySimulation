@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 
-from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
+from common_sim.field.field_config import EmitterRegion, FieldConfig, IntakeLocation, Obstacle, ScoringRegion
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
 
 # Game Manual (V13) doesn't cap CORAL station supply -- 30 is a
@@ -25,6 +25,19 @@ from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
 # consume) so the GUI's remaining-count label has a finite number to show
 # and count down, rather than every station reading unlimited forever.
 CORAL_STATION_STARTING_PIECES = 30
+
+# Standard match structure this field assumes for phase-gated regions (e.g.
+# the coral emitter's active_times below) -- matches the MatchConfig values
+# apps/reefscape_widgets.py's build_demo_match constructs by default.
+AUTO_DURATION = 15.0
+TELEOP_DURATION = 135.0
+
+# One CORAL emitted every 10s, while linked station stock lasts -- see
+# build_field's emitter_regions and MatchConfig.emit_coral_to_field.
+CORAL_EMITTER_RATE_HZ = 1.0 / 10.0
+# Zone size the emitter drops pieces within -- arbitrary but small, since
+# it's just a spawn point, not a physical structure a robot interacts with.
+CORAL_EMITTER_ZONE_SIZE = 24.0
 
 # -- manual dimensions (inches), Section 5 ARENA -----------------------
 
@@ -149,6 +162,17 @@ def coral_station_positions(alliance: str) -> tuple[tuple[float, float], tuple[f
     return ((x, CORAL_STATION_CORNER_MARGIN), (x, FIELD_WIDTH - CORAL_STATION_CORNER_MARGIN))
 
 
+def alliance_zone_center(alliance: str) -> tuple[float, float]:
+    """Midpoint between this alliance's ALLIANCE WALL and its REEF --
+    roughly the middle of the open zone the alliance operates in, where
+    the CORAL emitter (build_field's emitter_regions) sits so a human
+    player lobbing pieces in doesn't need to reach either the wall or the
+    REEF specifically."""
+    reef_x, _ = reef_center(alliance)
+    wall_x = 0.0 if alliance == "blue" else FIELD_LENGTH
+    return ((wall_x + reef_x) / 2.0, FIELD_WIDTH / 2.0)
+
+
 def processor_position(alliance: str) -> tuple[float, float]:
     """Approximate PROCESSOR opening center, integrated into the
     guardrail near this alliance's REEF."""
@@ -215,9 +239,28 @@ def build_field() -> FieldConfig:
         for i, pos in enumerate(coral_station_positions(alliance))
     )
 
+    # One CORAL emitter per alliance, sharing its pool with that alliance's
+    # "top" (higher-y) CORAL STATION -- linked_collection_region means
+    # emitting draws down the same station_supply count a robot loading
+    # from that station would, rather than a separate stock. Only actually
+    # spawns pieces when MatchConfig.emit_coral_to_field is True.
+    emitter_regions = tuple(
+        EmitterRegion(
+            name=f"{alliance}_coral_emitter",
+            vertices=_rect(alliance_zone_center(alliance), CORAL_EMITTER_ZONE_SIZE, CORAL_EMITTER_ZONE_SIZE),
+            piece_type=CORAL_TYPE,
+            active_times=((AUTO_DURATION, AUTO_DURATION + TELEOP_DURATION),),
+            emit_rate_hz=CORAL_EMITTER_RATE_HZ,
+            linked_collection_region=f"{alliance}_coral_station_1",
+            alliance=alliance,
+        )
+        for alliance in ("blue", "red")
+    )
+
     return FieldConfig(
         width=FIELD_LENGTH, height=FIELD_WIDTH,
         obstacles=obstacles, scoring_regions=scoring_regions, intake_locations=intake_locations,
+        emitter_regions=emitter_regions,
     )
 
 

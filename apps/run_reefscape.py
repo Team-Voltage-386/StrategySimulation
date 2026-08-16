@@ -275,6 +275,11 @@ class MatchView(QtWidgets.QWidget):
         # _restore_state_at_time), so those need saving/restoring around a
         # scrub too, not just robot poses.
         self._live_match_snapshot: tuple | None = None
+        # Free-piece positions from that same moment, keyed by piece object
+        # (not id() -- these are live objects, not telemetry rows) so
+        # _exit_playback can put them back rather than leaving them
+        # stranded wherever the last scrub parked them.
+        self._live_piece_positions: dict[object, tuple] | None = None
         self._updating_slider_programmatically = False
         self._reset_match()
 
@@ -299,7 +304,11 @@ class MatchView(QtWidgets.QWidget):
 
     def _reset_match(self) -> None:
         alliance = self.primary_config_tab.settings_panel.alliance()
-        self.match = build_demo_match(alliance, self.match_settings_panel.disable_friendly_collisions())
+        self.match = build_demo_match(
+            alliance,
+            self.match_settings_panel.disable_friendly_collisions(),
+            self.match_settings_panel.emit_coral_to_field(),
+        )
         start_pose = sweep_trial.start_pose(alliance, -1)
         overrides = self.primary_config_tab.characteristics_overrides()
         characteristics = build_demo_characteristics(**overrides)
@@ -320,6 +329,8 @@ class MatchView(QtWidgets.QWidget):
         self.playback_time = None
         self._live_snapshot = None
         self._live_match_snapshot = None
+        self._live_piece_positions = None
+        self.canvas.playback_pieces = None
         self.transport_bar.slider.setEnabled(False)
         self._update_piece_counts()
         self.canvas.setFocus()
@@ -427,6 +438,9 @@ class MatchView(QtWidgets.QWidget):
             {region: dict(actions) for region, actions in self.match.region_scores.items()},
             dict(self.match.station_supply),
         )
+        self._live_piece_positions = {
+            piece: piece.body.position for piece in self.match.active_pieces if piece.held_by is None
+        }
 
     def _enter_playback_at_fraction(self, fraction: float) -> None:
         fraction = max(0.0, min(1.0, fraction))
@@ -438,12 +452,21 @@ class MatchView(QtWidgets.QWidget):
         self.canvas.update()
 
     def _restore_state_at_time(self, target_time: float) -> None:
-        """Pose/orientation/velocity only -- free (non-held) game pieces
-        aren't part of the recorded telemetry (see
-        common_sim/match/telemetry.py), so they stay wherever physics
-        last left them rather than rewinding too. Held pieces are
-        repositioned via sync_held_piece_positions() so they don't lag
-        behind the chassis jump.
+        """Pose/orientation/velocity for robots, rewound from telemetry.
+        Game pieces are handed to FieldCanvas as a snapshot list
+        (canvas.playback_pieces) rather than repositioned in place, because
+        a scored piece is permanently removed from Match.active_pieces and
+        pymunk (see Match.step) -- there's no live GamePiece left to move
+        once that's happened, only its recorded PieceSnapshot rows (see
+        common_sim/match/telemetry.py). This is only relied on for
+        scrubbing a match that has already ended, where no new piece can
+        spawn to collide with a stale piece_id.
+
+        Held pieces are repositioned via sync_held_piece_positions() so
+        they don't lag behind the chassis jump -- FieldCanvas still draws
+        them from the same playback_pieces list, so that call matters for
+        held-piece *physics state* (e.g. a subsequent live resume), not
+        for what's drawn while scrubbed.
 
         Also rewinds match.scores/region_scores/station_supply from the
         matching MatchSnapshot, so FieldCanvas's REEF grid squares and
@@ -458,6 +481,8 @@ class MatchView(QtWidgets.QWidget):
             robot.chassis.body.angle = math.radians(snapshot.orientation_deg)
             robot.chassis.body.velocity = (snapshot.velocity_x, snapshot.velocity_y)
             robot.sync_held_piece_positions()
+
+        self.canvas.playback_pieces = self.telemetry.get_piece_states_at_time(target_time)
 
         match_snapshot = self.telemetry.get_match_state_at_time(target_time)
         if match_snapshot is not None:
@@ -484,9 +509,14 @@ class MatchView(QtWidgets.QWidget):
             self.match.scores = scores
             self.match.region_scores = region_scores
             self.match.station_supply = station_supply
+        if self._live_piece_positions is not None:
+            for piece, position in self._live_piece_positions.items():
+                piece.body.position = position
+        self.canvas.playback_pieces = None
         self.playback_time = None
         self._live_snapshot = None
         self._live_match_snapshot = None
+        self._live_piece_positions = None
 
     # -- input -----------------------------------------------------------
 
@@ -655,6 +685,8 @@ class MatchView(QtWidgets.QWidget):
         self.playback_time = None
         self._live_snapshot = None
         self._live_match_snapshot = None
+        self._live_piece_positions = None
+        self.canvas.playback_pieces = None
         self.transport_bar.slider.setEnabled(bool(telemetry.match_frames))
         self._update_piece_counts()
         self.canvas.update()

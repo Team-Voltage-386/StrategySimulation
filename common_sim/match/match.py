@@ -8,13 +8,14 @@ into (Robot, ScoringRules, FieldConfig) stays game-agnostic on its own.
 """
 from __future__ import annotations
 
+import random
 from enum import Enum
 
 import pymunk
 
 from common_sim.control.behavior import BehaviorContext
-from common_sim.field.field_config import FieldConfig, point_in_polygon
-from common_sim.field.game_piece import GamePiece
+from common_sim.field.field_config import FieldConfig, point_in_polygon, polygon_centroid
+from common_sim.field.game_piece import GamePiece, piece_spec
 from common_sim.match.events import EventLog
 from common_sim.match.scoring import ScoringRules
 from common_sim.physics.engine import DEFAULT_SUBSTEP, SimEngine
@@ -34,6 +35,7 @@ class MatchConfig:
         auto_duration: float = 15.0,
         teleop_duration: float = 135.0,
         disable_friendly_collisions: bool = False,
+        emit_coral_to_field: bool = False,
     ):
         self.auto_duration = auto_duration
         self.teleop_duration = teleop_duration
@@ -41,6 +43,16 @@ class MatchConfig:
         # (pymunk ShapeFilter group per alliance) while collisions against
         # opposing-alliance robots are unaffected.
         self.disable_friendly_collisions = disable_friendly_collisions
+        # Master on/off switch for Match._step_emitters -- False (default)
+        # means FieldConfig.emitter_regions are declared but never actually
+        # spawn/consume/return pieces, so a game can describe its emitters
+        # once and let this toggle gate them at match-setup time instead of
+        # needing two different field configs. Named for REEFSCAPE's one
+        # current use (a coral emitter per alliance zone); a future game
+        # with a differently-themed emitter would still reuse this same
+        # flag rather than get its own, unless that ever needs to be
+        # independently toggleable.
+        self.emit_coral_to_field = emit_coral_to_field
 
     @property
     def total_duration(self) -> float:
@@ -70,11 +82,19 @@ class Match:
         scoring_rules: ScoringRules,
         match_config: MatchConfig | None = None,
         substep: float = DEFAULT_SUBSTEP,
+        rng: random.Random | None = None,
     ):
         self.field = field_config
         self.scoring_rules = scoring_rules
         self.config = match_config or MatchConfig()
         self.engine = SimEngine(substep=substep)
+        # Source of randomness for scoring-reliability rolls (see
+        # RobotCharacteristics.scoring_reliability_by_type). A caller that
+        # needs reproducible rolls (the Monte Carlo sweep) passes a seeded
+        # substream; unseeded (the default) is fine for interactive play,
+        # and a robot with no reliability configured never draws from this
+        # at all, so most callers can ignore it entirely.
+        self._rng = rng if rng is not None else random.Random()
 
         self.robots: list[Robot] = []
         self.active_pieces: list[GamePiece] = []
@@ -97,6 +117,39 @@ class Match:
             for location in field_config.intake_locations
             if location.starting_pieces is not None
         }
+
+        intake_locations_by_name = {location.name: location for location in field_config.intake_locations}
+        # Resolved IntakeLocation for each emitter that shares a station's
+        # pool (EmitterRegion.linked_collection_region), None for an
+        # emitter with its own independent capacity.
+        self._emitter_linked_stations: dict = {
+            emitter: intake_locations_by_name[emitter.linked_collection_region]
+            for emitter in field_config.emitter_regions
+            if emitter.linked_collection_region is not None
+        }
+        # Remaining emit count for emitters with their own finite capacity
+        # (initial_capacity set, not station-linked). An emitter missing
+        # here either shares a station's self.station_supply count instead,
+        # or has unlimited capacity.
+        self.emitter_supply: dict = {
+            emitter: emitter.initial_capacity
+            for emitter in field_config.emitter_regions
+            if emitter.linked_collection_region is None and emitter.initial_capacity is not None
+        }
+        # Seconds until each emitter's next emit, counted down in
+        # _step_emitters; only while the emitter is within an active_times
+        # window (elsewhere the timer just holds).
+        self._emitter_cooldowns: dict = {
+            emitter: 1.0 / emitter.emit_rate_hz for emitter in field_config.emitter_regions
+        }
+        # (ready_time, emitter) pairs for pieces scored in a
+        # linked_scoring_region, waiting out their return_delay before
+        # going back into the emitter's pool -- see _try_score / _step_emitters.
+        self._pending_emitter_returns: list = []
+        self._emitters_by_scoring_region: dict = {}
+        for emitter in field_config.emitter_regions:
+            if emitter.linked_scoring_region is not None:
+                self._emitters_by_scoring_region.setdefault(emitter.linked_scoring_region, []).append(emitter)
 
         self._build_obstacles()
         self._register_collision_handlers()
@@ -215,6 +268,13 @@ class Match:
         return robot
 
     def spawn_piece(self, piece_type: str, position: tuple[float, float], source: str = "field", **kwargs) -> GamePiece:
+        """radius/mass/color default to piece_type's registered
+        GamePieceSpec (see common_sim.field.game_piece) -- pass any of
+        them explicitly to override for this one piece."""
+        spec = piece_spec(piece_type)
+        kwargs.setdefault("radius", spec.radius)
+        kwargs.setdefault("mass", spec.mass)
+        kwargs.setdefault("color", spec.color)
         piece = GamePiece(self.engine.space, piece_type, position, collision_type=_PIECE_TYPE, source=source, **kwargs)
         self.active_pieces.append(piece)
         return piece
@@ -250,6 +310,21 @@ class Match:
         scored_count = self.region_scores.get(region.name, {}).get(action, 0)
         return scored_count >= cap
 
+    def _roll_scoring_success(self, robot: Robot, piece: GamePiece) -> bool:
+        """Whether a deliberate scoring attempt by `robot` lands, per its
+        RobotCharacteristics.scoring_reliability_for(piece.piece_type).
+        Only ever consulted for the explicit deposit-into-a-ready-region
+        path in step() -- a piece that merely drifts/bounces into a region
+        later (passive scoring) isn't a robot "attempt" and always keeps
+        the old deterministic behavior. Short-circuits at reliability 1.0
+        (the default for any unconfigured type) so the common case never
+        draws from self._rng, keeping existing sims' RNG draw sequence
+        untouched."""
+        reliability = robot.characteristics.reliability_for(piece.piece_type)
+        if reliability >= 1.0:
+            return True
+        return self._rng.random() < reliability
+
     def _try_score(self, piece: GamePiece, region, *, explicit: bool) -> None:
         """`explicit` says whether the robot was actually confirmed in
         position performing the scoring action right now (Match.step's
@@ -281,6 +356,13 @@ class Match:
         self.events.log(self.elapsed, "score", {
             "alliance": alliance, "action": action, "points": points, "piece_type": piece.piece_type,
         })
+
+        if self.config.emit_coral_to_field:
+            for emitter in self._emitters_by_scoring_region.get(region.name, ()):
+                if emitter.piece_type != piece.piece_type:
+                    continue
+                ready_time = self.elapsed + (emitter.return_delay or 0.0)
+                self._pending_emitter_returns.append((ready_time, emitter))
 
     def deposit_piece_for(self, robot: Robot) -> GamePiece | None:
         """Which of `robot`'s held pieces its currently-commanded deposit
@@ -348,6 +430,62 @@ class Match:
                 return region
         return None
 
+    # -- emitters ----------------------------------------------------------
+
+    def emitter_capacity_remaining(self, emitter) -> int | None:
+        """None means unlimited. A station-linked emitter reads the same
+        counter robots dispense from (self.station_supply), so it never
+        double-counts a station's stock; an unlinked emitter reads its own
+        self.emitter_supply, which is absent entirely (i.e. unlimited) when
+        initial_capacity was None."""
+        station = self._emitter_linked_stations.get(emitter)
+        if station is not None:
+            return self.station_supply.get(station)
+        return self.emitter_supply.get(emitter)
+
+    def _emitter_consume(self, emitter) -> None:
+        station = self._emitter_linked_stations.get(emitter)
+        if station is not None:
+            if station in self.station_supply:
+                self.station_supply[station] -= 1
+        elif emitter in self.emitter_supply:
+            self.emitter_supply[emitter] -= 1
+
+    def _emitter_return(self, emitter) -> None:
+        station = self._emitter_linked_stations.get(emitter)
+        if station is not None:
+            if station in self.station_supply:
+                self.station_supply[station] += 1
+        elif emitter in self.emitter_supply:
+            self.emitter_supply[emitter] += 1
+
+    def _emitter_active_now(self, emitter) -> bool:
+        if not emitter.active_times:
+            return True
+        return any(start <= self.elapsed < end for start, end in emitter.active_times)
+
+    def _step_emitters(self, dt: float) -> None:
+        ready_returns = [pending for pending in self._pending_emitter_returns if pending[0] <= self.elapsed]
+        for pending in ready_returns:
+            self._pending_emitter_returns.remove(pending)
+            self._emitter_return(pending[1])
+
+        for emitter in self.field.emitter_regions:
+            if not self._emitter_active_now(emitter):
+                continue
+            cooldown = self._emitter_cooldowns[emitter] - dt
+            while cooldown <= 0.0:
+                remaining = self.emitter_capacity_remaining(emitter)
+                if remaining is not None and remaining <= 0:
+                    cooldown = 0.0
+                    break
+                position = polygon_centroid(emitter.vertices)
+                self.spawn_piece(emitter.piece_type, position, source="emitter")
+                self._emitter_consume(emitter)
+                self.events.log(self.elapsed, "emit", {"emitter": emitter.name, "piece_type": emitter.piece_type})
+                cooldown += 1.0 / emitter.emit_rate_hz
+            self._emitter_cooldowns[emitter] = cooldown
+
     # -- stepping ----------------------------------------------------------
 
     def step(self, dt: float) -> None:
@@ -378,8 +516,9 @@ class Match:
             if dispensed_at is not None:
                 if dispensed_at in self.station_supply:
                     self.station_supply[dispensed_at] -= 1
+                color_override = {"color": dispensed_at.piece_color} if dispensed_at.piece_color is not None else {}
                 piece = self.spawn_piece(
-                    dispensed_at.piece_type, robot.pose.as_tuple()[:2], source="station", color=dispensed_at.piece_color,
+                    dispensed_at.piece_type, robot.pose.as_tuple()[:2], source="station", **color_override,
                 )
                 piece.held_by = robot
                 piece.shape.sensor = True
@@ -393,11 +532,19 @@ class Match:
             if released is not None:
                 self.events.log(self.elapsed, "deposit", {"alliance": robot.alliance, "piece_type": released.piece_type})
                 if ready_region is not None:
-                    self._try_score(released, ready_region, explicit=True)
+                    if self._roll_scoring_success(robot, released):
+                        self._try_score(released, ready_region, explicit=True)
+                    else:
+                        self.events.log(self.elapsed, "score_miss", {
+                            "alliance": robot.alliance, "piece_type": released.piece_type,
+                        })
                 else:
                     self._check_region_scoring(released)
 
             robot.sync_held_piece_positions()
+
+        if self.config.emit_coral_to_field:
+            self._step_emitters(dt)
 
         self.engine.step(dt)
 

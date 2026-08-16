@@ -189,9 +189,11 @@ class MatchWindow(QtWidgets.QMainWindow):
         timestamp = int(self.match.elapsed * 1000)
         robot_file = f"telemetry_robots_{timestamp}.csv"
         match_file = f"telemetry_match_{timestamp}.csv"
+        piece_file = f"telemetry_pieces_{timestamp}.csv"
 
         robot_df = self.telemetry.to_robot_dataframe()
         match_df = self.telemetry.to_match_dataframe()
+        piece_df = self.telemetry.to_piece_dataframe()
 
         if not robot_df.empty:
             robot_df.to_csv(robot_file, index=False)
@@ -200,6 +202,10 @@ class MatchWindow(QtWidgets.QMainWindow):
         if not match_df.empty:
             match_df.to_csv(match_file, index=False)
             print(f"Exported match telemetry to {match_file}")
+
+        if not piece_df.empty:
+            piece_df.to_csv(piece_file, index=False)
+            print(f"Exported piece telemetry to {piece_file}")
 
     def _restore_state_at_time(self, target_time: float) -> None:
         """Restore robot positions from telemetry at a specific time."""

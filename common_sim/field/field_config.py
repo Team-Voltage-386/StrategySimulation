@@ -111,6 +111,57 @@ class PieceSpawnRegion:
 
 
 @dataclass(frozen=True)
+class EmitterRegion:
+    """A zone that spawns loose game pieces onto the field over time, the
+    way a human player tosses pieces in rather than a robot collecting
+    them from a station -- see Match._step_emitters.
+
+    `active_times` is a list of (start, end) match-elapsed-second windows
+    during which the emitter runs; empty means "active for the whole
+    match". Outside its windows the emitter just idles -- capacity isn't
+    consumed and the emit-rate timer doesn't advance.
+
+    `emit_rate_hz` is how often (in Hz, e.g. 0.1 for one piece every 10s)
+    the emitter drops a new piece while it has capacity and is active.
+
+    `initial_capacity` caps how many pieces this emitter can ever emit,
+    None meaning unlimited. Ignored (must be None) when
+    `linked_collection_region` is set -- see below.
+
+    `linked_collection_region`, if set, names an IntakeLocation this
+    emitter shares its piece pool with: emitting draws down that
+    location's own remaining-supply counter (Match.station_supply)
+    instead of a separate count of the emitter's own, so a human-player
+    station and its matching on-field emitter never double-count the
+    same physical stock of pieces. Mutually exclusive with
+    `initial_capacity`.
+
+    `linked_scoring_region` + `return_delay` model a piece cycling back
+    onto the field after being scored (e.g. an algae that gets pulled
+    back off the NET and reused) -- naming a ScoringRegion here means a
+    piece of this emitter's `piece_type` scored there gets returned to
+    this emitter's pool (station-shared or its own) `return_delay`
+    seconds later, to be emitted again in its own turn at emit_rate_hz
+    rather than reappearing on the field immediately. None/0.0 delay
+    means the very next tick. Only meaningful alongside
+    `linked_scoring_region`.
+
+    An emitted piece's radius/mass/color come from `piece_type`'s
+    registered GamePieceSpec (see common_sim.field.game_piece,
+    Match.spawn_piece) -- an EmitterRegion doesn't redeclare them."""
+    name: str
+    vertices: tuple[tuple[float, float], ...]
+    piece_type: str
+    active_times: tuple[tuple[float, float], ...] = ()
+    emit_rate_hz: float = 1.0
+    initial_capacity: int | None = None
+    linked_collection_region: str | None = None
+    linked_scoring_region: str | None = None
+    return_delay: float | None = None
+    alliance: str | None = None
+
+
+@dataclass(frozen=True)
 class FieldConfig:
     width: float
     height: float
@@ -118,6 +169,7 @@ class FieldConfig:
     scoring_regions: tuple[ScoringRegion, ...] = field(default_factory=tuple)
     spawn_regions: tuple[PieceSpawnRegion, ...] = field(default_factory=tuple)
     intake_locations: tuple[IntakeLocation, ...] = field(default_factory=tuple)
+    emitter_regions: tuple[EmitterRegion, ...] = field(default_factory=tuple)
 
 
 def polygon_centroid(vertices: tuple[tuple[float, float], ...]) -> tuple[float, float]:

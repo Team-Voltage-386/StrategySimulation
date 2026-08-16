@@ -80,6 +80,14 @@ class RobotCharacteristics:
     intake_range: float = 4.0         # in, how far the intake sensor extends beyond the bumper
     accepted_piece_types: frozenset[str] = field(default_factory=frozenset)  # empty = accepts any type
 
+    # Per-piece-type probability, in [0, 1], that a deliberate scoring attempt
+    # (Match.step's explicit deposit-into-a-ready-region path) actually lands,
+    # e.g. {"coral": 0.9, "algae": 0.5} for a robot whose algae mechanism is
+    # less consistent than its coral one. A type missing from this dict scores
+    # every time (1.0), matching the legacy deterministic behavior -- so an
+    # empty dict (the default) never rolls any dice and costs nothing.
+    scoring_reliability_by_type: dict[str, float] = field(default_factory=dict)
+
     # Which physical side(s) can intake/score which piece types, e.g.
     # {"back": SideManipulators(intake_piece_types={"coral"}),
     #  "front": SideManipulators(score_piece_types={"coral"}),
@@ -103,6 +111,9 @@ class RobotCharacteristics:
         if self.piece_capacity_by_type:
             return self.piece_capacity_by_type.get(piece_type, 0)
         return self.piece_capacity
+
+    def reliability_for(self, piece_type: str) -> float:
+        return self.scoring_reliability_by_type.get(piece_type, 1.0)
 
     def side_intake_accepts(self, side: str, piece_type: str, source: str | None = None) -> bool:
         """`source`, when given ("field" or "station"), additionally
