@@ -485,3 +485,50 @@ def test_moving_robot_also_gets_an_obstacle_where_it_is_heading():
     # inches of slack: the pass-side bulge pulls an octagon's centroid
     # slightly off the center it was built around.
     assert math.isclose(min(centers), 100.0, abs_tol=3.0)
+
+
+def test_corridor_cull_keeps_robots_a_detour_could_reach_and_drops_the_rest():
+    """The visibility graph is O(N^2) in vertices and each robot puts
+    eight into it, so a plan at 3v3 spends most of its time on robots
+    standing nowhere near the route. `_within_corridor` drops those --
+    but the bound it culls on has to be wide enough to cover a route
+    that detours around a field structure, not just the straight line."""
+    field = FieldConfig(width=600, height=400, obstacles=(SQUARE_OBSTACLE,))
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    nav = NavigateTo(lambda ctx: Pose2d(560, 100, 0))
+    own_radius = math.hypot(14.0, 14.0)
+    start, goal = (20.0, 100.0), (560.0, 100.0)
+
+    on_the_line = _octagon((300.0, 100.0), 45.0, observer=start)
+    beside_the_line = _octagon((300.0, 160.0), 45.0, observer=start)  # inside the detour envelope
+    far_away = _octagon((300.0, 390.0), 45.0, observer=start)         # nothing could route there
+
+    kept = nav._within_corridor([on_the_line, beside_the_line, far_away], match, own_radius, start, goal)
+
+    assert on_the_line in kept
+    assert beside_the_line in kept, "culled a robot a detour around the obstacle would pass"
+    assert far_away not in kept
+
+
+def test_corridor_cull_slack_widens_with_the_field_structures():
+    """A robot off to the side of the straight line still has to be
+    planned around when a structure in the way pushes the route out
+    there. The cull scales its bound off the field's own obstacles, so
+    the same robot survives on a field with a structure and is dropped
+    on an empty one."""
+    # ~111in off the line: outside what an octagon alone can push a
+    # detour to, inside what rounding SQUARE_OBSTACLE can.
+    off_line = _octagon((300.0, 210.0), 45.0, observer=(20.0, 100.0))
+    start, goal = (20.0, 100.0), (560.0, 100.0)
+    own_radius = math.hypot(14.0, 14.0)
+    nav = NavigateTo(lambda ctx: Pose2d(560, 100, 0))
+
+    empty = _empty_match()
+    with_structure = Match(
+        FieldConfig(width=600, height=400, obstacles=(SQUARE_OBSTACLE,)),
+        TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000),
+    )
+
+    assert nav._within_corridor([off_line], empty, own_radius, start, goal) == []
+    assert nav._within_corridor([off_line], with_structure, own_radius, start, goal) == [off_line]

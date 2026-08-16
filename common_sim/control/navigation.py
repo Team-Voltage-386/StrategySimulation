@@ -97,6 +97,17 @@ def _segment_distance(point: Point, a: Point, b: Point) -> float:
     return math.hypot(point[0] - (a[0] + ex * t), point[1] - (a[1] + ey * t))
 
 
+def _bounding_circle(vertices: tuple[Point, ...]) -> tuple[Point, float]:
+    """A circle covering `vertices`: their average, and the distance from
+    it to the furthest one. Not the *minimum* enclosing circle -- just a
+    cheap superset, which is all `NavigateTo._within_corridor` needs --
+    it only ever wants an upper bound."""
+    n = len(vertices)
+    cx = sum(v[0] for v in vertices) / n
+    cy = sum(v[1] for v in vertices) / n
+    return (cx, cy), max(math.hypot(v[0] - cx, v[1] - cy) for v in vertices)
+
+
 def polygon_distance(point: Point, vertices: tuple[Point, ...]) -> float:
     """Distance from `point` to a polygon's boundary, or 0.0 if `point`
     is inside it."""
@@ -145,20 +156,33 @@ def _project(poly: tuple[Point, ...], axis: Point) -> tuple[float, float]:
 
 
 def _segments_intersect(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:
-    def cross(o, a, b):
-        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    # The four orientation cross-products, written out rather than
+    # factored into a `cross(o, a, b)` helper: this is the innermost
+    # call of the visibility graph (tens of millions per match at 3v3),
+    # and the helper cost more in call overhead than the arithmetic it
+    # was wrapping.
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = p3
+    x4, y4 = p4
+    ex, ey = x4 - x3, y4 - y3
+    d1 = ex * (y1 - y3) - ey * (x1 - x3)
+    d2 = ex * (y2 - y3) - ey * (x2 - x3)
+    if not ((d1 > 0.0 and d2 < 0.0) or (d1 < 0.0 and d2 > 0.0)):
+        return False
+    fx, fy = x2 - x1, y2 - y1
+    d3 = fx * (y3 - y1) - fy * (x3 - x1)
+    d4 = fx * (y4 - y1) - fy * (x4 - x1)
+    return (d3 > 0.0 and d4 < 0.0) or (d3 < 0.0 and d4 > 0.0)
 
-    d1 = cross(p3, p4, p1)
-    d2 = cross(p3, p4, p2)
-    d3 = cross(p1, p2, p3)
-    d4 = cross(p1, p2, p4)
-    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
-        return True
-    return False
+
+_CLOSE_TOL = 1e-6
+_CLOSE_TOL_SQ = _CLOSE_TOL * _CLOSE_TOL
 
 
-def _close(a: Point, b: Point, tol: float = 1e-6) -> bool:
-    return math.hypot(a[0] - b[0], a[1] - b[1]) <= tol
+def _close(a: Point, b: Point, tol: float = _CLOSE_TOL) -> bool:
+    dx, dy = a[0] - b[0], a[1] - b[1]
+    return dx * dx + dy * dy <= tol * tol
 
 
 # Fractions along a candidate segment sampled for "is this inside an
@@ -168,17 +192,61 @@ def _close(a: Point, b: Point, tol: float = 1e-6) -> bool:
 _VISIBILITY_SAMPLES = (0.07, 0.23, 0.41, 0.5, 0.59, 0.77, 0.93)
 
 
-def _visible(p1: Point, p2: Point, inflated_obstacles: list[tuple[Point, ...]]) -> bool:
+# A polygon carried together with its bounding box, as
+# (vertices, min_x, min_y, max_x, max_y) -- see `_bounded`.
+BoundedPolygon = tuple
+
+
+def _bounded(poly: tuple[Point, ...]) -> BoundedPolygon:
+    """Pair a polygon with its axis-aligned bounding box, computed once,
+    so the visibility tests below can reject a polygon that is nowhere
+    near a candidate segment without touching any of its edges. Most
+    obstacles are exactly that for most segments -- a 3v3 plan carries a
+    dozen polygons scattered across a 690x317in field -- and the reject
+    is four comparisons against the segment's own box, versus one
+    intersection test per edge plus seven point-in-polygon samples."""
+    xs = [v[0] for v in poly]
+    ys = [v[1] for v in poly]
+    return (poly, min(xs), min(ys), max(xs), max(ys))
+
+
+def _point_inside_any(point: Point, obstacles: list[BoundedPolygon]) -> bool:
+    x, y = point
+    for poly, min_x, min_y, max_x, max_y in obstacles:
+        if min_x <= x <= max_x and min_y <= y <= max_y and point_in_polygon(point, poly):
+            return True
+    return False
+
+
+def _visible(p1: Point, p2: Point, inflated_obstacles: list[BoundedPolygon]) -> bool:
     if _close(p1, p2):
         return True
-    dx, dy = p2[0] - p1[0], p2[1] - p1[1]
-    for poly in inflated_obstacles:
-        n = len(poly)
-        for i in range(n):
-            a, b = poly[i], poly[(i + 1) % n]
+    x1, y1 = p1
+    x2, y2 = p2
+    dx, dy = x2 - x1, y2 - y1
+    seg_min_x, seg_max_x = (x1, x2) if dx >= 0.0 else (x2, x1)
+    seg_min_y, seg_max_y = (y1, y2) if dy >= 0.0 else (y2, y1)
+    samples = None  # built lazily: most segments clear every polygon on the box test alone
+    for poly, min_x, min_y, max_x, max_y in inflated_obstacles:
+        # Disjoint bounding boxes -> the segment can neither cross an
+        # edge nor have any point inside; skip the whole polygon.
+        if max_x < seg_min_x or min_x > seg_max_x or max_y < seg_min_y or min_y > seg_max_y:
+            continue
+        # Walked pairwise from the wrap-around edge rather than by index
+        # + modulo, and the "is this edge endpoint one of ours" test is
+        # the squared-distance form of `_close` written out: both are hot
+        # enough for the bookkeeping to show up in a profile.
+        a = poly[-1]
+        for b in poly:
             if _segments_intersect(p1, p2, a, b):
-                if not (_close(p1, a) or _close(p1, b) or _close(p2, a) or _close(p2, b)):
+                ax, ay = a
+                bx, by = b
+                if not ((x1 - ax) ** 2 + (y1 - ay) ** 2 <= _CLOSE_TOL_SQ
+                        or (x1 - bx) ** 2 + (y1 - by) ** 2 <= _CLOSE_TOL_SQ
+                        or (x2 - ax) ** 2 + (y2 - ay) ** 2 <= _CLOSE_TOL_SQ
+                        or (x2 - bx) ** 2 + (y2 - by) ** 2 <= _CLOSE_TOL_SQ):
                     return False
+            a = b
         # The edge-crossing test above only catches a *strict* straddle,
         # so a segment that enters or leaves exactly through a vertex
         # slips through it: at a vertex, neither of the two edges meeting
@@ -190,8 +258,15 @@ def _visible(p1: Point, p2: Point, inflated_obstacles: list[tuple[Point, ...]]) 
         # sample used to be the backstop, and it misses both whenever the
         # midpoint happens to land outside. Sampling along the segment
         # catches them.
-        for t in _VISIBILITY_SAMPLES:
-            if point_in_polygon((p1[0] + dx * t, p1[1] + dy * t), poly):
+        if samples is None:
+            samples = [(x1 + dx * t, y1 + dy * t) for t in _VISIBILITY_SAMPLES]
+        for sample in samples:
+            sx, sy = sample
+            # A point outside the polygon's box is outside the polygon,
+            # so the box test here is exactly the ray cast's answer for
+            # far cheaper -- and on a segment merely grazing a polygon's
+            # box, most samples are outside it.
+            if min_x <= sx <= max_x and min_y <= sy <= max_y and point_in_polygon(sample, poly):
                 return False
     return True
 
@@ -273,6 +348,11 @@ def plan_path(
             inflated.append(_inflate(obstacle.vertices, clearance))
     if extra_obstacles:
         inflated.extend(extra_obstacles)
+    # Same polygons with their bounding boxes attached, computed once
+    # here rather than per candidate segment -- every visibility test
+    # below runs against this list, not `inflated` (which is only still
+    # needed to enumerate vertices into nodes).
+    bounded = [_bounded(poly) for poly in inflated]
 
     nodes: list[Point] = [start, goal]
     # Which polygon each node came from (None for start/goal), and which
@@ -291,7 +371,7 @@ def plan_path(
     # is an octagon with a vertex straight along +x, which is precisely
     # where a robot approaching along that axis would exit -- so this is
     # the aligned head-on case, not a measure-zero curiosity.
-    if not trapped[0] and not trapped[1] and _visible(start, goal, inflated):
+    if not trapped[0] and not trapped[1] and _visible(start, goal, bounded):
         return [Vec2d(*start), Vec2d(*goal)]
 
     # The field perimeter is a wall too, and it's the one obstacle that
@@ -340,7 +420,7 @@ def plan_path(
         edges[j].append((i, dist))
 
     escape_obstacles = {
-        endpoint: [poly for i, poly in enumerate(inflated) if i not in inside]
+        endpoint: [entry for i, entry in enumerate(bounded) if i not in inside]
         for endpoint, inside in trapped.items()
     }
     # Which vertices a trapped endpoint may use to get out (or in): the
@@ -391,7 +471,7 @@ def plan_path(
         if other is not None and other in escape_nodes[endpoint]:
             obstacles = escape_obstacles[endpoint]
         else:
-            obstacles = inflated
+            obstacles = bounded
         # Same vertex-exit blind spot as the direct start->goal check
         # above, so rule out an endpoint that is inside anything still
         # being enforced. Only start/goal are asked -- an obstacle vertex
@@ -399,7 +479,7 @@ def plan_path(
         # flip, and severing those edges is what `boundary_edges` exists
         # to prevent.
         for node in (i, j):
-            if node in trapped and any(point_in_polygon(nodes[node], poly) for poly in obstacles):
+            if node in trapped and _point_inside_any(nodes[node], obstacles):
                 return False
         return _visible(nodes[i], nodes[j], obstacles)
 
@@ -664,7 +744,12 @@ class NavigateTo(Behavior):
         goal = (target.x, target.y)
         if field is not None:
             own_radius = _robot_radius(robot.characteristics)
+            # Built first, then narrowed to the ones the route could
+            # actually meet -- `_other_robot_obstacles` answers "who is
+            # worth avoiding and how widely", `_within_corridor` answers
+            # "which of those this particular plan has to carry".
             extra_obstacles = self._other_robot_obstacles(robot, own_radius, match, start, goal)
+            extra_obstacles = self._within_corridor(extra_obstacles, match, own_radius, start, goal)
             path = plan_path(field, start, goal, own_radius, extra_obstacles=extra_obstacles)
         else:
             path = [Vec2d(*start), Vec2d(*goal)]
@@ -751,6 +836,45 @@ class NavigateTo(Behavior):
             if predicted_radius > contact_radius:
                 obstacles.append(_octagon(predicted, predicted_radius, observer=start))
         return obstacles
+
+    def _within_corridor(
+        self, obstacles: list[tuple[Point, ...]], match, own_radius: float, start: Point, goal: Point
+    ) -> list[tuple[Point, ...]]:
+        """Drop the robot obstacles standing too far off the start->goal
+        line for any route this plan could produce to come near them.
+
+        A shortest path that has to get around a convex obstacle hugs it,
+        so it never strays from the straight line by more than that
+        obstacle's own bounding radius. `slack` is the widest such
+        deviation anything in this plan can force -- the largest robot
+        obstacle, or a field structure inflated by our own radius,
+        whichever is bigger. Something further off the line than that
+        (plus its own radius, since a route only has to graze it to
+        matter) is something no leg of the route would ever reach.
+
+        Worth the trouble because `plan_path`'s visibility graph is
+        O(N^2) in vertices and every robot contributes eight of them: at
+        3v3 ten octagons put 80 vertices into a graph that would
+        otherwise hold 14, and nearly all of them stand nowhere near the
+        route being planned. Culling them is ~2.5x off a 3v3 match.
+
+        This is a bound, not a proof -- detours chained around several
+        obstacles in a row could in principle compound past `slack`. What
+        it buys back is speed; what it can cost is a route that rounds an
+        obstacle slightly differently than the uncut graph would have.
+        Measured over 8 seeded 3v3 matches, half came out bit-identical
+        and the rest differed only in trajectory, with mean pieces scored
+        and mean score unchanged inside run-to-run noise."""
+        if not obstacles:
+            return obstacles
+        circles = [_bounding_circle(poly) for poly in obstacles]
+        slack = max(radius for _, radius in circles)
+        for obstacle in getattr(getattr(match, "field", None), "obstacles", ()):
+            slack = max(slack, _bounding_circle(obstacle.vertices)[1] + own_radius)
+        return [
+            poly for poly, (center, radius) in zip(obstacles, circles)
+            if _segment_distance(center, start, goal) <= radius + slack
+        ]
 
     # How far a target has to drift before it's worth rebuilding the
     # whole visibility graph for it. A target derived from the robot's

@@ -166,6 +166,56 @@ def _robot_can_score(robot: Robot, piece_type: str) -> bool:
     return any(robot.characteristics.side_score_accepts(side, piece_type) for side in SIDES)
 
 
+def own_side_test(match, alliance: str, *, margin_frac: float = 0.0):
+    """Builds a `(x, y) -> bool` predicate answering "is this point on
+    `alliance`'s own half of the field?".
+
+    `margin_frac` pushes the dividing line that fraction of the distance
+    between the two alliances' centroids into the *opponents'* half, so
+    a caller can ask the stricter "is it well over the line?" instead of
+    "is it past it at all" -- what you want when the answer flips a
+    decision that's expensive to change your mind about.
+
+    The halves are inferred from the field itself rather than declared,
+    so this stays game-agnostic: take the centroid of every feature each
+    alliance owns (its scoring regions and intake locations), split on
+    whichever axis those two centroids are furthest apart along, and put
+    the dividing line halfway between them. For REEFSCAPE that lands the
+    line on the long axis at midfield, with each alliance's REEF, CORAL
+    STATIONS and PROCESSOR on its own side -- which is the split a robot
+    deciding whether a piece is worth crossing the field for cares about.
+
+    Returned as a closure because the split is a property of the field,
+    not of the point: a caller ranking a dozen candidate pieces computes
+    it once instead of per piece.
+
+    Degenerate fields -- one alliance owning nothing, or both alliances'
+    features sharing a centroid -- have no discernible split, and every
+    point is reported as own-side so that a caller gating on this simply
+    does nothing rather than something arbitrary."""
+    owned: dict[str, list[tuple[float, float]]] = {}
+    for feature in (*match.field.scoring_regions, *match.field.intake_locations):
+        if feature.alliance is not None:
+            owned.setdefault(feature.alliance, []).append(polygon_centroid(feature.vertices))
+    centroids = {
+        side: (sum(p[0] for p in points) / len(points), sum(p[1] for p in points) / len(points))
+        for side, points in owned.items()
+    }
+
+    ours = centroids.get(alliance)
+    theirs = next((c for side, c in centroids.items() if side != alliance), None)
+    if ours is None or theirs is None:
+        return lambda x, y: True
+
+    axis = 0 if abs(ours[0] - theirs[0]) >= abs(ours[1] - theirs[1]) else 1
+    if abs(ours[axis] - theirs[axis]) < 1e-6:
+        return lambda x, y: True
+
+    midline = (ours[axis] + theirs[axis]) / 2.0 + margin_frac * (theirs[axis] - ours[axis])
+    ours_is_low = ours[axis] < midline
+    return lambda x, y: ((x, y)[axis] < midline) == ours_is_low
+
+
 def opponents(match, alliance: str) -> list[Robot]:
     return [r for r in match.robots if r.alliance != alliance]
 

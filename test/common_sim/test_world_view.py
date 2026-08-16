@@ -227,3 +227,53 @@ def test_region_approach_point_clears_another_occupant():
     # the region (so the deposit still counts).
     assert math.hypot(point[0] - centroid[0], point[1] - centroid[1]) >= 28.0
     assert point_in_polygon(point, goal.vertices)
+
+
+def _two_sided_match() -> Match:
+    """Owned features at each end of the long axis, mirrored -- blue low,
+    red high, so the halves come out split at x=150."""
+    field = FieldConfig(
+        width=300, height=200,
+        scoring_regions=(
+            ScoringRegion(
+                name="blue_goal", vertices=((10, 80), (50, 80), (50, 120), (10, 120)),
+                actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}), alliance="blue",
+            ),
+            ScoringRegion(
+                name="red_goal", vertices=((250, 80), (290, 80), (290, 120), (250, 120)),
+                actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}), alliance="red",
+            ),
+        ),
+        intake_locations=(
+            IntakeLocation(
+                name="blue_feeder", vertices=((0, 0), (20, 0), (20, 20), (0, 20)),
+                piece_type=WIDGET, starting_pieces=2, alliance="blue",
+            ),
+            IntakeLocation(
+                name="red_feeder", vertices=((280, 0), (300, 0), (300, 20), (280, 20)),
+                piece_type=WIDGET, starting_pieces=2, alliance="red",
+            ),
+        ),
+    )
+    return Match(field, TableScoringRules({}), MatchConfig())
+
+
+def test_own_side_test_splits_on_the_axis_the_alliances_are_spread_along():
+    match = _two_sided_match()
+    blue, red = world_view.own_side_test(match, "blue"), world_view.own_side_test(match, "red")
+
+    for x in (0, 100, 149):
+        assert blue(x, 100) and not red(x, 100)
+    for x in (151, 200, 300):
+        assert red(x, 100) and not blue(x, 100)
+    # The split is on x, so y doesn't move a point across it.
+    assert blue(50, 0) and blue(50, 199)
+
+
+def test_own_side_test_passes_everything_when_the_field_has_no_split():
+    # A field where only one alliance owns anything has no discernible
+    # halves -- rather than invent a dividing line, every point counts as
+    # own-side so a caller gating on this simply does nothing.
+    match = make_match()   # unowned goal + feeder
+    test = world_view.own_side_test(match, "blue")
+    assert test(0, 0) and test(300, 200)

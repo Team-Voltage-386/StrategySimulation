@@ -181,6 +181,123 @@ def test_collect_still_targets_a_piece_it_would_reach_first():
     assert tactic._target_piece is piece
 
 
+def test_collect_leaves_a_teammates_piece_and_goes_to_a_farther_station():
+    # The one piece on the field is a race we'd lose to a teammate, and
+    # the only station is much farther off than the piece. Contesting on
+    # ETA alone would still send us at the piece, which is exactly the
+    # two-robots-on-one-piece pileup -- following a teammate in scores
+    # nothing at all, so the station wins however far away it is.
+    station = IntakeLocation(
+        name="feeder", vertices=((260, 90), (280, 90), (280, 110), (260, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(38, 100, 0))
+    contested = match.spawn_piece(WIDGET, (40, 100))
+    partner.controller = _FakeController(target_piece=contested)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is None
+    assert tactic._target_station is station
+
+
+def test_collect_still_weighs_a_station_on_eta_against_an_opponents_piece():
+    # Same shape, but the rival is an *opponent*: contesting a piece
+    # they'd reach first is still real play (they may fumble it), so
+    # this stays the plain ETA comparison rather than handing the
+    # station an automatic win the way a teammate's claim does.
+    station = IntakeLocation(
+        name="feeder", vertices=((260, 90), (280, 90), (280, 110), (260, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(38, 100, 0), alliance="red")
+    contested = match.spawn_piece(WIDGET, (40, 100))
+    opponent.controller = _FakeController(target_piece=contested)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is contested
+
+
+def _two_sided_field(**kwargs) -> FieldConfig:
+    """A field with an owned goal at each end, which is what
+    world_view.own_side_test reads the halves off -- blue's at low x,
+    red's at high x, dividing line at x=150."""
+    kwargs.setdefault("scoring_regions", (
+        ScoringRegion(
+            name="blue_goal", vertices=((10, 80), (50, 80), (50, 120), (10, 120)),
+            actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}), alliance="blue",
+        ),
+        ScoringRegion(
+            name="red_goal", vertices=((250, 80), (290, 80), (290, 120), (250, 120)),
+            actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}), alliance="red",
+        ),
+    ))
+    return FieldConfig(width=300, height=200, **kwargs)
+
+
+def test_collect_takes_a_farther_own_side_piece_over_a_closer_opposing_one():
+    # Nothing is contested here -- the near piece is simply parked on the
+    # opponents' half. Crossing the field for it costs most of a cycle,
+    # so the uncontested one back home wins despite being farther.
+    match = make_match(_two_sided_field(), auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(160, 100, 0), alliance="blue")
+    opposing = match.spawn_piece(WIDGET, (180, 100))
+    own = match.spawn_piece(WIDGET, (60, 100))
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is own
+
+    # ...and with the gate off, the game says a cross-field piece is a
+    # normal option, so the nearest one wins as it always did.
+    tactic = tactics.Collect(piece_type=WIDGET, opposing_side="allow")
+    tactic.tick(ctx)
+    assert tactic._target_piece is opposing
+
+
+def test_collect_crosses_the_field_when_its_own_half_is_empty():
+    # The gate is "only if there's nothing else", not "never" -- with our
+    # own half picked clean and no station to fall back on, the piece
+    # across the field is better than standing still.
+    match = make_match(_two_sided_field(), auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(100, 100, 0), alliance="blue")
+    opposing = match.spawn_piece(WIDGET, (250, 100))
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is opposing
+
+
+def test_collect_prefers_a_station_over_a_piece_across_the_field():
+    # With the own half empty but a station on it, the station is the
+    # better job than the cross-field trip regardless of which is nearer
+    # -- same rule that settles a teammate's claim.
+    station = IntakeLocation(
+        name="feeder", vertices=((10, 90), (30, 90), (30, 110), (10, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    match = make_match(_two_sided_field(intake_locations=(station,)), auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(140, 100, 0), alliance="blue")
+    match.spawn_piece(WIDGET, (160, 100))  # just over the line, far nearer than the station
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is None
+    assert tactic._target_station is station
+
+
 def test_collect_prefers_station_over_a_piece_rolling_away():
     # The piece is closer right now, but it's rolling away fast enough
     # that the station -- farther off but standing still -- is actually
@@ -723,3 +840,31 @@ def test_collect_leaves_a_blocked_station_for_a_free_one():
     # advance by a full period rather than a single physics tick.
     tactic.tick(BehaviorContext(robot=robot, dt=tactic.replan_period, match=match))
     assert tactic._target_station.name == "far_feeder"
+
+
+def test_collect_gives_up_a_piece_that_rolls_well_onto_the_opposing_half():
+    # Committed to the nearer of two pieces, which then gets knocked over
+    # the line. Following it is the cross-field trip the gate exists to
+    # refuse, so it's handed off to the one still on our own half -- but
+    # only once it's clearly over, not the instant it crosses.
+    match = make_match(_two_sided_field(), auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(100, 100, 0), alliance="blue")
+    rolling = match.spawn_piece(WIDGET, (140, 100))
+    stationary = match.spawn_piece(WIDGET, (40, 100))   # farther off, but safely home
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is rolling
+
+    # Just over the line (x=150) is still inside the 10% margin (~24in),
+    # so a piece drifting around midfield doesn't flip this every replan.
+    rolling.shape.body.position = (160, 100)
+    for _ in range(20):
+        tactic.tick(ctx)
+    assert tactic._target_piece is rolling
+
+    rolling.shape.body.position = (220, 100)
+    for _ in range(20):
+        tactic.tick(ctx)
+    assert tactic._target_piece is stationary

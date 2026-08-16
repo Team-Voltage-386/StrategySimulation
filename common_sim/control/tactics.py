@@ -9,6 +9,7 @@ GUI can build a property inspector for it with zero per-tactic GUI code.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Literal
 
 from common_sim.control import world_view
@@ -78,6 +79,40 @@ def _predicted_piece_position(origin: tuple[float, float], piece, speed: float) 
 # targets every replan instead of ever actually driving to one.
 _RETARGET_MARGIN_MIN = 0.3
 _RETARGET_MARGIN_RATIO = 0.15
+
+# How far past the halfway line a committed piece has to have rolled --
+# as a fraction of the distance between the two alliances' ends -- before
+# `opposing_side="last_resort"` gives up on chasing it (see
+# `Collect._rolled_to_opposing_side`).
+_OPPOSING_SIDE_ROLL_MARGIN = 0.10
+
+
+def _last_resort(tier: tuple[int, int, int]) -> bool:
+    """Whether a `_piece_rank` tier is one a robot would rather not take
+    at all, as opposed to merely a worse bet -- which is what decides
+    whether a station gets to win outright or only on ETA.
+
+    Two of the three demotions mean the piece isn't really ours to go
+    for: a teammate is about to reach it (`_piece_rank` reason 1), or
+    it's parked on the opponents' half (reason 3). Faced with either, a
+    station is the better job however far off it is. Being out-run by an
+    *opponent* (reason 2) is different -- contesting is still real play,
+    and whether it beats a trip to the station is exactly the ETA
+    question `_pick_target` already asks."""
+    return bool(tier[0] or tier[2])
+
+
+@dataclass(frozen=True)
+class _Contention:
+    """The best (soonest) ETA any *other* robot currently declaring a
+    given piece would reach it in, kept split by whose robot it is. The
+    two are not interchangeable: a teammate that beats us there has
+    already covered that piece for the alliance, so following it in is
+    pure waste, whereas out-racing us to a piece is exactly what an
+    opponent is trying to do and contesting it can still be the right
+    call."""
+    teammate: float = math.inf
+    opponent: float = math.inf
 
 
 def _robot_engaged_with_station(robot, station) -> bool:
@@ -163,6 +198,7 @@ class Collect(Tactic):
         Param("mode", kind="choice", choices=("nearest", "densest"), default="nearest"),
         Param("cluster_radius", kind="float", default=24.0, min=0, suffix=" in"),
         Param("max_range", kind="float", default=None, optional=True, min=0, suffix=" in"),
+        Param("opposing_side", kind="choice", choices=("last_resort", "allow"), default="last_resort"),
     )
 
     def __init__(
@@ -171,12 +207,23 @@ class Collect(Tactic):
         mode: Literal["nearest", "densest"] = "nearest",
         cluster_radius: float = 24.0,
         max_range: float | None = None,
+        opposing_side: Literal["last_resort", "allow"] = "last_resort",
         replan_period: float = 0.1,
     ):
         self.piece_type = piece_type
         self.mode = mode
         self.cluster_radius = cluster_radius
         self.max_range = max_range
+        # Whether a piece sitting on the opponents' half of the field is
+        # a normal option ("allow") or one only taken when this half has
+        # nothing left ("last_resort"). A game gate, not a tuning knob:
+        # in REEFSCAPE a cross-field trip costs most of a cycle and the
+        # CORAL STATION back home never runs dry, so wandering over is
+        # almost always a loss -- but a game whose pieces all live in a
+        # contested middle, or one with no meaningful side split at all,
+        # wants "allow". Fields where world_view can't tell the halves
+        # apart ignore this setting either way.
+        self.opposing_side = opposing_side
         self.replan_period = replan_period
 
         self._target_piece = None
@@ -361,14 +408,15 @@ class Collect(Tactic):
         best = min(candidates, key=eta)
         return best, eta(best)
 
-    def _piece_contenders(self, ctx: BehaviorContext) -> dict[object, float]:
-        """Map of {piece: fastest rival ETA} from every other robot on the
-        field -- teammate or opponent -- currently declaring that piece as
-        its intent. Obstacle-routed, like our own ETA, so a rival on the
-        far side of the REEF from a piece isn't mistaken for the faster
-        claimant just because it looks closer as the crow flies."""
+    def _piece_contenders(self, ctx: BehaviorContext) -> dict[object, _Contention]:
+        """Map of {piece: _Contention} from every other robot on the field
+        currently declaring that piece as its intent, with each rival's
+        ETA filed under whether it is a teammate's or an opponent's.
+        Obstacle-routed, like our own ETA, so a rival on the far side of
+        the REEF from a piece isn't mistaken for the faster claimant just
+        because it looks closer as the crow flies."""
         match, robot = ctx.match, ctx.robot
-        contenders: dict[object, float] = {}
+        contenders: dict[object, _Contention] = {}
         for other in match.robots:
             if other is robot:
                 continue
@@ -381,9 +429,41 @@ class Collect(Tactic):
             origin = other.pose.translation
             predicted = _predicted_piece_position((origin.x, origin.y), target, speed)
             eta = estimate_travel_time(match.field, (origin.x, origin.y), predicted, characteristics) + _tiebreak_bias(match, other)
-            if target not in contenders or eta < contenders[target]:
-                contenders[target] = eta
+            current = contenders.get(target, _Contention())
+            if other.alliance == robot.alliance:
+                contenders[target] = _Contention(min(current.teammate, eta), current.opponent)
+            else:
+                contenders[target] = _Contention(current.teammate, min(current.opponent, eta))
         return contenders
+
+    def _piece_rank(self, piece, our_eta: float, contention: _Contention, on_own_side) -> tuple[int, int, int, float]:
+        """Sort key deciding which of several reachable pieces to go for:
+        the three flags pick a *tier*, and ETA only breaks ties inside
+        it. Every flag clear is the tier a robot actually wants; each one
+        set is a reason this piece is only worth taking because nothing
+        better exists.
+
+        Worst first, because that's the order the reasons trump each
+        other:
+
+        1. A teammate gets there first -- the alliance already has that
+           piece covered, so following it in scores nothing at all. This
+           is the tier that has to lose to everything else, including a
+           trip across the field, and the reason two robots stop
+           converging on one piece: the loser of the race is left with a
+           strictly better option (usually the station) and takes it.
+        2. An opponent gets there first -- likely a wasted drive too, but
+           contesting at least denies them if they fumble it, so this
+           only loses to options we'd actually win.
+        3. It's on the opposing half and `opposing_side` says to treat
+           that as a last resort -- slow, but we do come home with a
+           piece, so this is the mildest demotion of the three."""
+        return (
+            int(contention.teammate < our_eta),
+            int(contention.opponent < our_eta),
+            int(not on_own_side(piece.position.x, piece.position.y)),
+            our_eta,
+        )
 
     def _piece_eta(self, ctx: BehaviorContext, origin, piece, characteristics) -> float:
         """Obstacle-routed time to reach a piece that may still be
@@ -396,7 +476,11 @@ class Collect(Tactic):
         predicted = _predicted_piece_position((origin.x, origin.y), piece, speed)
         return estimate_travel_time(ctx.match.field, (origin.x, origin.y), predicted, characteristics)
 
-    def _best_piece(self, ctx: BehaviorContext) -> tuple[object | None, float]:
+    def _piece_tiers(self, ctx: BehaviorContext) -> dict[object, tuple[int, int, int, float]]:
+        """`_piece_rank` for every piece this robot could collect right
+        now, keyed by piece. Built in one pass because both the rival
+        ETAs and the own-half split are shared across all the candidates
+        and neither is cheap enough to recompute per piece."""
         match, robot = ctx.match, ctx.robot
         origin = robot.pose.translation
         characteristics = robot.characteristics
@@ -404,37 +488,76 @@ class Collect(Tactic):
         if self.max_range is not None:
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.max_range]
         if not pieces:
-            return None, math.inf
+            return {}
+
+        contenders = self._piece_contenders(ctx)
+        our_bias = _tiebreak_bias(match, robot)
+        if self.opposing_side == "last_resort":
+            on_own_side = world_view.own_side_test(match, robot.alliance)
+        else:
+            on_own_side = lambda x, y: True  # noqa: E731 -- gate off: every piece counts as near
 
         # "Nearest" means quickest to actually reach, not closest right
         # now -- a piece rolling away, or one tucked past an obstacle,
         # can take longer to reach than one that's farther off by air
-        # distance but has a clear, direct route.
-        def eta(p):
-            return self._piece_eta(ctx, origin, p, characteristics)
+        # distance but has a clear, direct route. The tiebreak bias goes
+        # in here so the comparison against a rival's (equally biased)
+        # ETA can't read as a tie from both sides at once.
+        return {
+            piece: self._piece_rank(
+                piece,
+                self._piece_eta(ctx, origin, piece, characteristics) + our_bias,
+                contenders.get(piece, _Contention()),
+                on_own_side,
+            )
+            for piece in pieces
+        }
 
-        # Skip a piece anyone else -- teammate or opponent -- would reach
-        # first. Two robots both picking "nearest" otherwise converge on
-        # the identical piece and idle nose-to-nose at it instead of
-        # splitting up; an opponent's claim isn't automatically off
-        # limits the same way a crowded station is, though -- if we'd
-        # actually win the race there's no reason to give it up. Falling
-        # back to every piece (including losing races) when nothing is
-        # winnable is the same "contest rather than sit idle" rule
-        # stations use once every station is crowded.
-        contenders = self._piece_contenders(ctx)
-        our_bias = _tiebreak_bias(match, robot)
-        winnable = [p for p in pieces if contenders.get(p) is None or eta(p) + our_bias <= contenders[p]]
-        candidates = winnable or pieces
+    def _best_piece(self, ctx: BehaviorContext) -> tuple[object | None, float, bool]:
+        """The piece to go for, its ETA, and whether the tier it came
+        from is one this robot would rather not take at all -- see
+        `_last_resort`."""
+        tiers = self._piece_tiers(ctx)
+        if not tiers:
+            return None, math.inf, False
+
+        # Consider only the best tier present, so a reason to avoid a
+        # piece is never traded away for a shorter drive: two robots
+        # both picking "nearest" otherwise converge on the identical
+        # piece and idle nose-to-nose at it instead of splitting up.
+        # Dropping to a worse tier when that's all there is (rather than
+        # standing still) is the same "contest rather than sit idle"
+        # rule stations use once every station is crowded.
+        best_tier = min(rank[:3] for rank in tiers.values())
+        candidates = [piece for piece, rank in tiers.items() if rank[:3] == best_tier]
 
         if self.mode == "densest":
-            clusters = world_view.piece_clusters(match, candidates, self.cluster_radius)
+            clusters = world_view.piece_clusters(ctx.match, candidates, self.cluster_radius)
             best = max(clusters, key=lambda c: c.count)
-            target = min(best.pieces, key=eta)
+            target = min(best.pieces, key=lambda p: tiers[p][3])
         else:
-            target = min(candidates, key=eta)
+            target = min(candidates, key=lambda p: tiers[p][3])
 
-        return target, eta(target)
+        return target, tiers[target][3], _last_resort(best_tier)
+
+    def _rolled_to_opposing_side(self, ctx: BehaviorContext) -> bool:
+        """Whether the committed piece has since rolled well onto the
+        opponents' half. Chasing it over is the same cross-field trip
+        `opposing_side` refuses to *start*, and a piece knocked loose
+        toward the opponents' end is exactly how a robot ends up making
+        it anyway -- so give it up and re-pick rather than follow.
+
+        Judged against a line pushed `_OPPOSING_SIDE_ROLL_MARGIN` past
+        the real one, so a piece drifting along midfield doesn't flip
+        this every replan; nothing else moves the boundary, so a plain
+        threshold would be a coin toss right where pieces linger."""
+        if self.opposing_side != "last_resort":
+            return False
+        piece = self._target_piece
+        on_own_side = world_view.own_side_test(
+            ctx.match, ctx.robot.alliance, margin_frac=_OPPOSING_SIDE_ROLL_MARGIN,
+        )
+        return not on_own_side(piece.position.x, piece.position.y)
 
     def _losing_piece_race(self, ctx: BehaviorContext) -> bool:
         """Whether some other robot would now reach the committed piece
@@ -447,8 +570,8 @@ class Collect(Tactic):
         if piece is None:
             return False
         our_eta = self._piece_eta(ctx, robot.pose.translation, piece, robot.characteristics) + _tiebreak_bias(ctx.match, robot)
-        rival_eta = self._piece_contenders(ctx).get(piece)
-        return rival_eta is not None and rival_eta < our_eta
+        contention = self._piece_contenders(ctx).get(piece, _Contention())
+        return min(contention.teammate, contention.opponent) < our_eta
 
     def _better_piece_exists(self, ctx: BehaviorContext) -> bool:
         """Whether, now that real obstacle-routed travel time is known
@@ -470,8 +593,11 @@ class Collect(Tactic):
         if current_eta == math.inf:
             return True
         _, station_eta = self._best_station(ctx)
-        _, piece_eta = self._best_piece(ctx)
-        best_eta = min(station_eta, piece_eta)
+        _, piece_eta, piece_last_resort = self._best_piece(ctx)
+        # A last-resort piece never displaces a committed one on ETA
+        # alone -- "closer" is not a reason to go take one a teammate is
+        # already about to reach, or to head across the field.
+        best_eta = min(station_eta, math.inf if piece_last_resort else piece_eta)
         if best_eta == math.inf:
             return False
         margin = max(_RETARGET_MARGIN_MIN, current_eta * _RETARGET_MARGIN_RATIO)
@@ -496,10 +622,16 @@ class Collect(Tactic):
         # distance, so a piece rolling away doesn't out-ruler a station
         # that's slightly farther off but standing still. Ties go to the
         # station since it never runs out mid-cycle.
+        #
+        # A station also wins outright, however far off it is, over a
+        # piece only a last resort would take (see `_last_resort`). This
+        # is what actually settles a two-robot race for one piece: the
+        # robot that would lose it has somewhere strictly better to be,
+        # so it goes there instead of trailing its own teammate in.
         station, station_eta = self._best_station(ctx)
-        piece, piece_eta = self._best_piece(ctx)
+        piece, piece_eta, piece_last_resort = self._best_piece(ctx)
 
-        if station is not None and station_eta <= piece_eta:
+        if station is not None and (piece_last_resort or station_eta <= piece_eta):
             self._target_station, self._target_piece = station, None
             return True
         if piece is not None:
@@ -533,7 +665,11 @@ class Collect(Tactic):
         target_lost = self._target_piece is not None and (
             self._target_piece.held_by is not None
             or self._target_piece.scored
-            or (reconsider and (self._losing_piece_race(ctx) or self._better_piece_exists(ctx)))
+            or (reconsider and (
+                self._rolled_to_opposing_side(ctx)
+                or self._losing_piece_race(ctx)
+                or self._better_piece_exists(ctx)
+            ))
         )
         # A station is committed to once and then queued for, so nothing
         # would ever pull a robot off one an opponent has parked in --
