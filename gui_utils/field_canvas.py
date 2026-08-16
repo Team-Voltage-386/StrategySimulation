@@ -136,6 +136,12 @@ class FieldCanvas(QtWidgets.QWidget):
             elif status == "invalid":
                 painter.setPen(QtGui.QPen(QtGui.QColor(theme.ACCENT_RED), 3))
                 painter.setBrush(INVALID_FILL)
+            elif region.alliance is not None:
+                outline = ALLIANCE_COLORS.get(region.alliance, QtGui.QColor(theme.ACCENT_AMBER))
+                fill = QtGui.QColor(outline)
+                fill.setAlpha(30)
+                painter.setPen(QtGui.QPen(outline, 2))
+                painter.setBrush(fill)
             else:
                 painter.setPen(QtGui.QPen(QtGui.QColor(theme.ACCENT_AMBER), 2))
                 painter.setBrush(QtGui.QColor(255, 176, 32, 30))
@@ -230,7 +236,7 @@ class FieldCanvas(QtWidgets.QWidget):
             cx, cy = polygon_centroid(region.vertices)
             wx, wy = self._to_widget(cx, cy, scale)
             if set(REEF_GRID_LEVELS) & region.actions:
-                alliance = "red" if region.name.startswith("red_") else "blue"
+                alliance = region.alliance or "blue"
                 self._draw_reef_grid(painter, wx, wy, counts, alliance)
             elif region.actions:
                 self._draw_count_badge(painter, wx, wy, str(sum(counts.values())))

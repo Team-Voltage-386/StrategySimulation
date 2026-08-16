@@ -116,3 +116,65 @@ def test_navigate_to_without_match_falls_back_to_direct_drive():
         if status != Status.RUNNING:
             break
     assert status == Status.SUCCESS
+
+
+def test_navigate_to_avoids_head_on_robot_and_both_arrive():
+    # Two robots driving straight at each other on the same line used to
+    # deadlock forever (each robot's straight-line path plows through the
+    # other, so neither yields and both sit jammed together). With
+    # avoid_robots (the default), each treats the other as a dynamic
+    # obstacle and routes around it.
+    # Goals overshoot past each robot's own side (rather than landing
+    # exactly on the other's starting pose) so the two robots are genuinely
+    # passing through each other's path, not racing for a shared point --
+    # a contested destination is a separate scenario, exercised below.
+    field = FieldConfig(width=300, height=200)
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot_a = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    robot_b = match.add_robot(make_characteristics(), Pose2d(280, 100, math.pi))
+
+    nav_a = NavigateTo(lambda ctx: Pose2d(275, 100, 0), replan_period=0.25)
+    nav_b = NavigateTo(lambda ctx: Pose2d(25, 100, 0), replan_period=0.25)
+    ctx_a = BehaviorContext(robot=robot_a, dt=1.0 / 60.0, match=match)
+    ctx_b = BehaviorContext(robot=robot_b, dt=1.0 / 60.0, match=match)
+
+    status_a = status_b = Status.RUNNING
+    for _ in range(3000):
+        if status_a == Status.RUNNING:
+            status_a = nav_a.tick(ctx_a)
+        if status_b == Status.RUNNING:
+            status_b = nav_b.tick(ctx_b)
+        match.step(1.0 / 60.0)
+        if status_a != Status.RUNNING and status_b != Status.RUNNING:
+            break
+
+    assert status_a == Status.SUCCESS
+    assert status_b == Status.SUCCESS
+
+
+def test_navigate_to_reaches_target_near_another_robot_without_deadlock():
+    # A robot standing right where a teammate wants to score (or right
+    # next to a piece another robot is also collecting) used to deadlock:
+    # once the target sits inside the other robot's avoidance radius, the
+    # visibility graph had no edge reaching the goal at all, A* reported
+    # it unreachable, and NavigateTo just... never got there. (Two robots
+    # can't both occupy the *exact* same point -- that's a target-picking
+    # contention the tactic layer avoids, not something navigation alone
+    # can promise -- but getting close to one is a routine scoring
+    # approach and must still succeed.)
+    field = FieldConfig(width=300, height=200)
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot_a = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    robot_b = match.add_robot(make_characteristics(), Pose2d(160, 100, math.pi))
+
+    nav_a = NavigateTo(lambda ctx: Pose2d(150, 100, 0), replan_period=0.25)
+    ctx_a = BehaviorContext(robot=robot_a, dt=1.0 / 60.0, match=match)
+
+    status_a = Status.RUNNING
+    for _ in range(3000):
+        status_a = nav_a.tick(ctx_a)
+        match.step(1.0 / 60.0)
+        if status_a != Status.RUNNING:
+            break
+
+    assert status_a == Status.SUCCESS

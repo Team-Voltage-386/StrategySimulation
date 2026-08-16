@@ -48,7 +48,7 @@ class PiecesAvailable(Trigger):
     within: float | None = None  # inches from the robot; None = anywhere on field
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
-        pieces = world_view.collectable_pieces(ctx.match, piece_type=self.piece_type)
+        pieces = world_view.collectable_pieces(ctx.match, piece_type=self.piece_type, robot=ctx.robot)
         if self.within is not None:
             origin = ctx.robot.pose.translation
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.within]

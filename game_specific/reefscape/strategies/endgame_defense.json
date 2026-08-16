@@ -32,7 +32,7 @@
       "tactic": {
         "type": "Score",
         "region": null,
-        "action": "l4"
+        "action": null
       },
       "priority": 10,
       "min_duration": 0.0,

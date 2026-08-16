@@ -2,8 +2,10 @@
 world_view tests against a synthetic field/match, mirroring
 test_match_synthetic.py's trivial made-up game.
 """
+import math
+
 from common_sim.control import world_view
-from common_sim.field.field_config import FieldConfig, IntakeLocation, ScoringRegion
+from common_sim.field.field_config import FieldConfig, IntakeLocation, ScoringRegion, point_in_polygon
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.scoring import TableScoringRules
@@ -147,3 +149,81 @@ def test_region_by_name():
     match = make_match()
     assert world_view.region_by_name(match, "goal") is not None
     assert world_view.region_by_name(match, "nope") is None
+
+
+TIGHT_REGION = ScoringRegion(
+    name="tight", vertices=((100, -10), (120, -10), (120, 10), (100, 10)),
+    actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+)
+
+
+class _FakeIntent:
+    def __init__(self, target_region):
+        self.target_region = target_region
+
+
+class _FakeController:
+    def __init__(self, target_region):
+        self.intent = _FakeIntent(target_region)
+
+    def tick(self, ctx):
+        pass
+
+
+def test_region_robot_capacity_scales_with_region_size():
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+    # 20x20 -- smaller than the robot's own 28x28 footprint.
+    assert world_view.region_robot_capacity(TIGHT_REGION, robot) == 1
+    # 170x120 "goal" -- room for plenty.
+    assert world_view.region_robot_capacity(match.field.scoring_regions[0], robot) > 1
+
+
+def test_region_occupants_counts_both_position_and_intent():
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+    standing_in = match.add_robot(make_characteristics(), Pose2d(150, 0, 0))
+    heading_for = match.add_robot(make_characteristics(), Pose2d(0, 100, 0))
+    heading_for.controller = _FakeController(target_region="goal")
+    elsewhere = match.add_robot(make_characteristics(), Pose2d(0, -100, 0))
+    elsewhere.controller = _FakeController(target_region="somewhere-else")
+
+    goal = match.field.scoring_regions[0]
+    occupants = world_view.region_occupants(match, goal, exclude=robot)
+    assert set(occupants) == {standing_in, heading_for}
+    assert elsewhere not in occupants
+    # `exclude` keeps a robot from counting itself as its own crowd.
+    assert robot not in world_view.region_occupants(match, goal, exclude=robot)
+
+
+def test_region_has_room_only_until_capacity():
+    field = FieldConfig(width=300, height=200, scoring_regions=(TIGHT_REGION,))
+    match = Match(field, TableScoringRules({}), MatchConfig())
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+    assert world_view.region_has_room(match, TIGHT_REGION, robot)
+
+    claimer = match.add_robot(make_characteristics(), Pose2d(0, 50, 0))
+    claimer.controller = _FakeController(target_region="tight")
+    assert not world_view.region_has_room(match, TIGHT_REGION, robot)
+
+
+def test_region_approach_point_is_centroid_when_region_is_empty():
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+    goal = match.field.scoring_regions[0]
+    assert world_view.region_approach_point(goal, robot, []) == world_view.region_centroid(goal)
+
+
+def test_region_approach_point_clears_another_occupant():
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+    goal = match.field.scoring_regions[0]
+    centroid = world_view.region_centroid(goal)
+    occupant = match.add_robot(make_characteristics(), Pose2d(*centroid, 0))
+
+    point = world_view.region_approach_point(goal, robot, [occupant])
+    assert point != centroid
+    # Far enough that the two chassis aren't touching, and still inside
+    # the region (so the deposit still counts).
+    assert math.hypot(point[0] - centroid[0], point[1] - centroid[1]) >= 28.0
+    assert point_in_polygon(point, goal.vertices)

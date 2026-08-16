@@ -216,7 +216,8 @@ class Robot:
         sides = self._nearby_pieces.get(piece)
         if not sides:
             return False
-        return any(self.characteristics.side_intake_accepts(s, piece.piece_type) for s in sides)
+        source = "station" if piece.source == "station" else "field"
+        return any(self.characteristics.side_intake_accepts(s, piece.piece_type, source=source) for s in sides)
 
     def _capacity_available_for(self, piece_type: str) -> bool:
         held_of_type = sum(1 for p in self.held_pieces if p.piece_type == piece_type)
@@ -245,7 +246,7 @@ class Robot:
         intake its piece_type counts -- e.g. a side wired for algae only
         can sit inside a CORAL station's zone without triggering it."""
         for location, sides in self._nearby_stations.items():
-            if any(self.characteristics.side_intake_accepts(s, location.piece_type) for s in sides):
+            if any(self.characteristics.side_intake_accepts(s, location.piece_type, source="station") for s in sides):
                 return location
         return None
 

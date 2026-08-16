@@ -23,11 +23,14 @@ from __future__ import annotations
 import math
 import random
 import sys
+from pathlib import Path
 
 from pyqtgraph.Qt import QtCore, QtWidgets
 
 from common_sim.analysis.metrics import extract_metrics
+from common_sim.control import strategy_io
 from common_sim.control.input_sources import GamepadInput, KeyBindings, KeyboardInput
+from common_sim.control.strategy import StrategyController
 from common_sim.field.field_config import point_in_polygon
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig, Phase
@@ -38,7 +41,7 @@ from game_specific.reefscape.field import (
 )
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
-from common_sim.robot.characteristics import RobotCharacteristics, SideManipulators, SIDES
+from common_sim.robot.characteristics import INTAKE_SOURCES, RobotCharacteristics, SideManipulators, SIDES
 from gui_utils import theme
 from gui_utils.console_panel import ConsolePanel
 from gui_utils.field_canvas import FieldCanvas
@@ -74,6 +77,10 @@ DEFAULT_SIDE_CHECKS = {
     ("back", "in", CORAL_TYPE), ("front", "out", CORAL_TYPE),
     ("right", "in", ALGAE_TYPE), ("right", "out", ALGAE_TYPE),
 }
+
+STRATEGIES_DIR = Path(__file__).resolve().parent.parent / "game_specific" / "reefscape" / "strategies"
+STRATEGY_FILES: dict[str, Path] = {p.stem: p for p in sorted(STRATEGIES_DIR.glob("*.json"))}
+STRATEGY_NAMES = list(STRATEGY_FILES.keys())
 
 GAMEPAD_BINDINGS = [
     ("Left Stick", "Drive"), ("Right Stick X", "Rotate"),
@@ -127,15 +134,21 @@ class RobotSettingsPanel(QtWidgets.QGroupBox):
 
     Displayed/entered in metric (m/s, m/s², deg/s) even though
     RobotCharacteristics itself stays in inches/radians internally --
-    characteristics_overrides() does the conversion."""
+    characteristics_overrides() does the conversion.
 
-    def __init__(self, parent=None):
+    show_alliance is False for roster (AI) robots -- their alliance is
+    already fixed by which roster box (BLUE/RED) they were added to, so
+    a second alliance picker in their own tab would be redundant and
+    could be set inconsistently with their roster box."""
+
+    def __init__(self, parent=None, show_alliance: bool = True):
         super().__init__("ROBOT SETTINGS", parent)
         form = QtWidgets.QFormLayout(self)
 
         self.alliance_combo = QtWidgets.QComboBox()
         self.alliance_combo.addItems(["Blue", "Red"])
-        form.addRow("Alliance", self.alliance_combo)
+        if show_alliance:
+            form.addRow("Alliance", self.alliance_combo)
 
         self.max_speed_spin = QtWidgets.QDoubleSpinBox()
         self.max_speed_spin.setRange(0.5, 8.0)
@@ -235,6 +248,77 @@ class TimingPanel(QtWidgets.QGroupBox):
         return {action: spin.value() for action, spin in self._deposit_spins.items()}
 
 
+class RobotConfigTab(QtWidgets.QWidget):
+    """One robot's full config -- chassis settings, manipulators, and
+    per-action deposit timing -- bundled as a single scrollable tab page.
+    One of these exists per robot in the match (the primary robot plus
+    every AI roster entry), hosted inside ReefscapeWindow's ROBOT CONFIG
+    tab widget."""
+
+    def __init__(self, show_alliance: bool = True, parent=None):
+        super().__init__(parent)
+        self.settings_panel = RobotSettingsPanel(show_alliance=show_alliance)
+        self.manipulator_panel = SideManipulatorPanel()
+        self.timing_panel = TimingPanel()
+
+        content = QtWidgets.QWidget()
+        content_layout = QtWidgets.QVBoxLayout(content)
+        content_layout.addWidget(self.settings_panel)
+        content_layout.addWidget(self.manipulator_panel)
+        content_layout.addWidget(self.timing_panel)
+        content_layout.addStretch(1)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidget(content)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(scroll)
+
+    def characteristics_overrides(self) -> dict:
+        overrides = self.settings_panel.characteristics_overrides()
+        overrides["side_manipulators"] = self.manipulator_panel.side_manipulators()
+        overrides["deposit_time_by_action"] = self.timing_panel.deposit_time_by_action()
+        return overrides
+
+
+class CollapsibleBox(QtWidgets.QWidget):
+    """A titled section that can be collapsed to just its header --
+    used to keep ROBOT CONFIG's per-robot tabs from permanently eating
+    left-column space once the roster grows."""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.toggle_button = QtWidgets.QToolButton(text=f" {title}")
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(True)
+        self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.toggle_button.setArrowType(Qt.DownArrow)
+        self.toggle_button.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
+        self.toggle_button.toggled.connect(self._on_toggled)
+
+        self.content = QtWidgets.QWidget()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.toggle_button)
+        layout.addWidget(self.content)
+
+    def setContentLayout(self, content_layout) -> None:
+        # QWidget can only own one layout; reparent the placeholder's
+        # away first so Qt allows the real one to be installed.
+        old_layout = self.content.layout()
+        if old_layout is not None:
+            QtWidgets.QWidget().setLayout(old_layout)
+        self.content.setLayout(content_layout)
+
+    def _on_toggled(self, checked: bool) -> None:
+        self.content.setVisible(checked)
+        self.toggle_button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+
+
 class ControlsPanel(QtWidgets.QGroupBox):
     """Plain-text reference for the active input source's bindings --
     replaces the old painted Xbox controller diagram with just the
@@ -254,6 +338,148 @@ class ControlsPanel(QtWidgets.QGroupBox):
         heading = "GAMEPAD" if available else "KEYBOARD"
         lines = [f"{control}: {action}" for control, action in bindings]
         self.label.setText(f"{heading}\n" + "\n".join(lines))
+
+
+class RosterEntryRow(QtWidgets.QWidget):
+    """One extra AI robot: a strategy-file combo plus a remove button."""
+
+    removed = QtCore.Signal(object)
+
+    def __init__(self, strategy_names, parent=None):
+        super().__init__(parent)
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        self.strategy_combo = QtWidgets.QComboBox()
+        self.strategy_combo.addItems(strategy_names)
+        layout.addWidget(self.strategy_combo, stretch=1)
+
+        remove_button = QtWidgets.QPushButton("✕")
+        remove_button.setFixedWidth(24)
+        remove_button.clicked.connect(lambda: self.removed.emit(self))
+        layout.addWidget(remove_button)
+
+    def strategy_name(self) -> str:
+        return self.strategy_combo.currentText()
+
+
+class AllianceRosterBox(QtWidgets.QGroupBox):
+    """Add/remove AI robots for one alliance, each with its own strategy
+    selection. Every extra robot gets its own RobotConfigTab (chassis,
+    manipulators, timing) so per-bot tuning is possible -- the shared
+    default characteristics remain just the starting point for that tab.
+
+    row_added/row_removed let the owning window keep a ROBOT CONFIG tab
+    widget in sync with the roster as entries are added/removed."""
+
+    row_added = QtCore.Signal(object, object)  # (RosterEntryRow, RobotConfigTab)
+    row_removed = QtCore.Signal(object)  # RosterEntryRow
+
+    def __init__(self, title: str, strategy_names, parent=None):
+        super().__init__(title, parent)
+        self._strategy_names = strategy_names
+        self._rows: list[RosterEntryRow] = []
+        self._config_tabs: dict[RosterEntryRow, "RobotConfigTab"] = {}
+
+        layout = QtWidgets.QVBoxLayout(self)
+        self.rows_layout = QtWidgets.QVBoxLayout()
+        layout.addLayout(self.rows_layout)
+
+        add_button = QtWidgets.QPushButton("+ ADD ROBOT")
+        add_button.clicked.connect(self._add_row)
+        layout.addWidget(add_button)
+
+    def _add_row(self) -> None:
+        if not self._strategy_names:
+            return
+        row = RosterEntryRow(self._strategy_names)
+        row.removed.connect(self._remove_row)
+        self.rows_layout.addWidget(row)
+        self._rows.append(row)
+        config_tab = RobotConfigTab(show_alliance=False)
+        self._config_tabs[row] = config_tab
+        self.row_added.emit(row, config_tab)
+
+    def _remove_row(self, row: RosterEntryRow) -> None:
+        self._rows.remove(row)
+        self._config_tabs.pop(row)
+        self.row_removed.emit(row)
+        row.setParent(None)
+        row.deleteLater()
+
+    def strategy_names(self) -> list[str]:
+        return [row.strategy_name() for row in self._rows]
+
+    def rows_with_config(self) -> list[tuple["RosterEntryRow", "RobotConfigTab"]]:
+        return [(row, self._config_tabs[row]) for row in self._rows]
+
+
+class RosterPanel(QtWidgets.QGroupBox):
+    """Controls how many AI-strategy robots join the match beyond the
+    single human/gamepad-controlled primary robot: a per-alliance roster
+    of extra robots, plus a toggle to let a strategy drive the primary
+    robot instead of the keyboard/gamepad.
+
+    robot_added/robot_removed forward the alliance roster boxes' signals,
+    tagged with which alliance they belong to, so the owning window can
+    keep its ROBOT CONFIG tabs in sync with the roster."""
+
+    robot_added = QtCore.Signal(str, object, object)  # (alliance, row, config_tab)
+    robot_removed = QtCore.Signal(str, object)  # (alliance, row)
+
+    def __init__(self, strategy_names, parent=None):
+        super().__init__("ROSTER", parent)
+        layout = QtWidgets.QVBoxLayout(self)
+
+        self.ai_primary_check = QtWidgets.QCheckBox("AI drives primary robot")
+        layout.addWidget(self.ai_primary_check)
+
+        self.primary_strategy_combo = QtWidgets.QComboBox()
+        self.primary_strategy_combo.addItems(strategy_names)
+        self.primary_strategy_combo.setEnabled(False)
+        self.ai_primary_check.toggled.connect(self.primary_strategy_combo.setEnabled)
+        layout.addWidget(self.primary_strategy_combo)
+
+        # Only meaningful once AI is driving -- with a human at the
+        # keyboard/gamepad, running faster than real time would just make
+        # the robot undrivable.
+        self.fast_forward_check = QtWidgets.QCheckBox("Run as fast as possible")
+        self.fast_forward_check.setEnabled(False)
+        self.fast_forward_check.setToolTip("Advance the sim as fast as the CPU allows instead of at real-time speed.")
+        self.ai_primary_check.toggled.connect(self._on_ai_primary_toggled)
+        layout.addWidget(self.fast_forward_check)
+
+        self.blue_roster = AllianceRosterBox("BLUE -- EXTRA ROBOTS", strategy_names)
+        self.red_roster = AllianceRosterBox("RED -- EXTRA ROBOTS", strategy_names)
+        self.blue_roster.row_added.connect(lambda row, tab: self.robot_added.emit("blue", row, tab))
+        self.blue_roster.row_removed.connect(lambda row: self.robot_removed.emit("blue", row))
+        self.red_roster.row_added.connect(lambda row, tab: self.robot_added.emit("red", row, tab))
+        self.red_roster.row_removed.connect(lambda row: self.robot_removed.emit("red", row))
+        layout.addWidget(self.blue_roster)
+        layout.addWidget(self.red_roster)
+
+        hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
+        hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+    def _on_ai_primary_toggled(self, checked: bool) -> None:
+        self.fast_forward_check.setEnabled(checked)
+        if not checked:
+            self.fast_forward_check.setChecked(False)
+
+    def ai_drives_primary(self) -> bool:
+        return self.ai_primary_check.isChecked() and bool(STRATEGY_NAMES)
+
+    def fast_forward_enabled(self) -> bool:
+        return self.ai_drives_primary() and self.fast_forward_check.isChecked()
+
+    def primary_strategy_name(self) -> str:
+        return self.primary_strategy_combo.currentText()
+
+    def roster_rows(self, alliance: str) -> list[tuple["RosterEntryRow", "RobotConfigTab"]]:
+        box = self.blue_roster if alliance == "blue" else self.red_roster
+        return box.rows_with_config()
 
 
 class SideManipulatorPanel(QtWidgets.QGroupBox):
@@ -277,8 +503,14 @@ class SideManipulatorPanel(QtWidgets.QGroupBox):
             label.setFont(theme.technical_font(8, bold=True))
             label.setAlignment(QtCore.Qt.AlignCenter)
             grid.addWidget(label, 0, col)
+        source_col = len(columns) + 1
+        source_label = QtWidgets.QLabel("IN SOURCE")
+        source_label.setFont(theme.technical_font(8, bold=True))
+        source_label.setAlignment(QtCore.Qt.AlignCenter)
+        grid.addWidget(source_label, 0, source_col)
 
         self._checks: dict[tuple[str, str, str], QtWidgets.QCheckBox] = {}
+        self._source_combos: dict[str, QtWidgets.QComboBox] = {}
         for row, side in enumerate(SIDES, start=1):
             grid.addWidget(QtWidgets.QLabel(side.upper()), row, 0)
             for col, (piece_type, mode) in enumerate(columns, start=1):
@@ -286,11 +518,22 @@ class SideManipulatorPanel(QtWidgets.QGroupBox):
                 box.setChecked((side, mode, piece_type) in DEFAULT_SIDE_CHECKS)
                 grid.addWidget(box, row, col, alignment=QtCore.Qt.AlignCenter)
                 self._checks[(side, mode, piece_type)] = box
+            # Where this side's intake (if any) can actually pick a piece
+            # up from -- a loose piece on the field, a human-player
+            # collection region, or both. One combo per side rather than
+            # per piece type since a physical mechanism's placement (floor
+            # intake vs. wall-height station scoop) doesn't usually vary
+            # by what it's grabbing.
+            combo = QtWidgets.QComboBox()
+            combo.addItems([s.capitalize() for s in INTAKE_SOURCES])
+            combo.setCurrentText("Both")
+            grid.addWidget(combo, row, source_col)
+            self._source_combos[side] = combo
 
         hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
         hint.setWordWrap(True)
-        grid.addWidget(hint, len(SIDES) + 1, 0, 1, len(columns) + 1)
+        grid.addWidget(hint, len(SIDES) + 1, 0, 1, source_col + 1)
 
     def side_manipulators(self) -> dict[str, SideManipulators]:
         """Always returns one entry per SIDES member (even if empty),
@@ -306,7 +549,10 @@ class SideManipulatorPanel(QtWidgets.QGroupBox):
             score_types = frozenset(
                 pt for pt in PIECE_TYPES if self._checks[(side, "out", pt)].isChecked()
             )
-            result[side] = SideManipulators(intake_piece_types=intake_types, score_piece_types=score_types)
+            intake_source = self._source_combos[side].currentText().lower()
+            result[side] = SideManipulators(
+                intake_piece_types=intake_types, score_piece_types=score_types, intake_source=intake_source,
+            )
         return result
 
 
@@ -399,16 +645,26 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle("sparky-sim -- REEFSCAPE")
 
-        self.settings_panel = RobotSettingsPanel()
-        self.manipulator_panel = SideManipulatorPanel()
-        self.timing_panel = TimingPanel()
-        self.controls_panel = ControlsPanel()
+        self.roster_panel = RosterPanel(STRATEGY_NAMES)
+        self.roster_panel.robot_added.connect(self._on_robot_added)
+        self.roster_panel.robot_removed.connect(self._on_robot_removed)
+        self.roster_panel.fast_forward_check.toggled.connect(self._update_timer_interval)
+
+        self.primary_config_tab = RobotConfigTab(show_alliance=True)
+        self._row_config_tabs: dict[object, RobotConfigTab] = {}
+        self.config_tabs = QtWidgets.QTabWidget()
+        self.config_tabs.addTab(self.primary_config_tab, "PRIMARY")
+
+        self.config_box = CollapsibleBox("ROBOT CONFIG")
+        config_box_layout = QtWidgets.QVBoxLayout()
+        config_box_layout.setContentsMargins(0, 0, 0, 0)
+        config_box_layout.addWidget(self.config_tabs)
+        self.config_box.setContentLayout(config_box_layout)
+
         left_content = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left_content)
-        left_layout.addWidget(self.settings_panel)
-        left_layout.addWidget(self.manipulator_panel)
-        left_layout.addWidget(self.timing_panel)
-        left_layout.addWidget(self.controls_panel)
+        left_layout.addWidget(self.roster_panel)
+        left_layout.addWidget(self.config_box)
         left_layout.addStretch(1)
 
         left_column = QtWidgets.QScrollArea()
@@ -436,10 +692,12 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
 
         self.telemetry_panel = TelemetryPanel("TELEMETRY")
         self.scoring_panel = ScoringControlsPanel()
+        self.controls_panel = ControlsPanel()
         right_column = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_column)
         right_layout.addWidget(self.telemetry_panel)
         right_layout.addWidget(self.scoring_panel)
+        right_layout.addWidget(self.controls_panel)
         right_layout.addStretch(1)
         right_column.setFixedWidth(240)
 
@@ -470,25 +728,70 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.timer.start(int(1000 / self.TICK_HZ))
         self.canvas.setFocus()
 
+    def _update_timer_interval(self) -> None:
+        # Interval 0 makes Qt fire the timer again as soon as the event
+        # loop is otherwise idle -- the sim then advances one fixed dt
+        # per tick as fast as the CPU (and canvas repaint) allow, rather
+        # than throttled to real time.
+        fast = self.roster_panel.fast_forward_enabled()
+        self.timer.setInterval(0 if fast else int(1000 / self.TICK_HZ))
+
+    # -- robot config tabs ------------------------------------------------
+
+    def _on_robot_added(self, alliance: str, row, config_tab: RobotConfigTab) -> None:
+        self._row_config_tabs[row] = config_tab
+        index = len(self.roster_panel.roster_rows(alliance))
+        self.config_tabs.addTab(config_tab, f"{alliance.upper()} {index}")
+
+    def _on_robot_removed(self, alliance: str, row) -> None:
+        config_tab = self._row_config_tabs.pop(row)
+        tab_index = self.config_tabs.indexOf(config_tab)
+        if tab_index >= 0:
+            self.config_tabs.removeTab(tab_index)
+
     # -- match lifecycle -----------------------------------------------
 
     def _reset_match(self) -> None:
-        alliance = self.settings_panel.alliance()
+        alliance = self.primary_config_tab.settings_panel.alliance()
         self.match = build_demo_match(alliance)
         station = coral_station_positions(alliance)[0]
         facing = 0.0 if alliance == "blue" else 3.14159265
         start_pose = Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1], facing)
-        overrides = self.settings_panel.characteristics_overrides()
-        overrides["side_manipulators"] = self.manipulator_panel.side_manipulators()
-        overrides["deposit_time_by_action"] = self.timing_panel.deposit_time_by_action()
+        overrides = self.primary_config_tab.characteristics_overrides()
         characteristics = build_demo_characteristics(**overrides)
         self.robot = self.match.add_robot(characteristics, start_pose, alliance=alliance)
+        if self.roster_panel.ai_drives_primary():
+            self._attach_strategy(self.robot, self.roster_panel.primary_strategy_name())
+
+        for roster_alliance in ("blue", "red"):
+            for i, (row, config_tab) in enumerate(self.roster_panel.roster_rows(roster_alliance)):
+                self._spawn_roster_robot(roster_alliance, i, row.strategy_name(), config_tab)
+
         self.canvas.match = self.match
         self.console.reset()
         self._logged_event_count = 0
-        self.paused = False
+        self.paused = True
         self._update_piece_counts()
         self.canvas.setFocus()
+
+    def _attach_strategy(self, robot, strategy_name: str) -> None:
+        strategy = strategy_io.load_strategy(STRATEGY_FILES[strategy_name])
+        robot.controller = StrategyController(strategy, robot)
+
+    def _spawn_roster_robot(self, alliance: str, index: int, strategy_name: str, config_tab: RobotConfigTab) -> None:
+        """Extra AI robots line up at that alliance's coral stations,
+        staggered along the wall so they don't spawn stacked on top of
+        each other (or on the primary robot, which starts at station 0)."""
+        station = coral_station_positions(alliance)[index % 2]
+        facing = 0.0 if alliance == "blue" else math.pi
+        offset = 30.0 + 40.0 * (index // 2 + 1)
+        along_wall = offset if index % 2 == 0 else -offset
+        pose = Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1] + along_wall, facing)
+        overrides = config_tab.characteristics_overrides()
+        overrides["name"] = f"{alliance}-ai-{index}"
+        characteristics = build_demo_characteristics(**overrides)
+        robot = self.match.add_robot(characteristics, pose, alliance=alliance)
+        self._attach_strategy(robot, strategy_name)
 
     def _toggle_paused(self) -> None:
         self.paused = not self.paused
@@ -528,12 +831,13 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
             self._toggle_paused()
 
         if not self.paused:
-            c = self.robot.characteristics
-            self.robot.drive_field_relative(dt, drive.vx * c.max_speed, drive.vy * c.max_speed, drive.omega * c.max_angular_speed)
-            self.robot.set_intake_active(operator.intake_active)
-            deposit_active = operator.deposit_active or self.scoring_panel.score_button.isDown()
-            action = self._effective_deposit_action()
-            self.robot.set_deposit_active(deposit_active, action=action)
+            if self.robot.controller is None:
+                c = self.robot.characteristics
+                self.robot.drive_field_relative(dt, drive.vx * c.max_speed, drive.vy * c.max_speed, drive.omega * c.max_angular_speed)
+                self.robot.set_intake_active(operator.intake_active)
+                deposit_active = operator.deposit_active or self.scoring_panel.score_button.isDown()
+                action = self._effective_deposit_action()
+                self.robot.set_deposit_active(deposit_active, action=action)
             self.match.step(dt)
             self._drain_new_events()
 

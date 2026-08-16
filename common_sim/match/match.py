@@ -316,6 +316,8 @@ class Match:
             return None
         piece_type = piece.piece_type
         for region in self.field.scoring_regions:
+            if region.alliance is not None and region.alliance != robot.alliance:
+                continue
             if region.piece_types and piece_type not in region.piece_types:
                 continue
             if action not in region.actions:

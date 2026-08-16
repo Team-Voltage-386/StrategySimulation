@@ -128,6 +128,84 @@ def test_score_pinned_region_and_action():
     assert match.scores["blue"] == 2.0
 
 
+# Two same-size scoring regions, each barely bigger than one 28x28
+# robot, one nearer the robot's start than the other -- so "best value"
+# and "has room" can disagree.
+NEAR_REGION = ScoringRegion(
+    name="near", vertices=((100, 90), (120, 90), (120, 110), (100, 110)),
+    actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+)
+FAR_REGION = ScoringRegion(
+    name="far", vertices=((100, 150), (120, 150), (120, 170), (100, 170)),
+    actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+)
+
+
+def _score_tactic_holding_piece(match, robot, **kwargs):
+    piece = match.spawn_piece(WIDGET, (robot.pose.x, robot.pose.y))
+    piece.held_by = robot
+    piece.last_holder_alliance = robot.alliance
+    robot.held_pieces.append(piece)
+    tactic = tactics.Score(**kwargs)
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    return tactic
+
+
+def test_score_prefers_nearest_region_when_uncontested():
+    # Control for the test below: nothing about crowding is in play, so
+    # the planner's own "best value rate" choice stands.
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "near"
+
+
+def test_score_picks_another_region_when_the_best_one_is_taken():
+    # A region only one robot fits in, already claimed by a robot that's
+    # on its way there: going anyway just puts the two of them nose to
+    # nose on the same spot, so take the farther (still free) one.
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(20, 40, 0))
+    partner.controller = _FakeController(target_region="near")
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "far"
+
+
+def test_score_shares_a_region_with_room_for_both():
+    # The default "goal" region is 170x120 -- several robots wide. A
+    # claim on it shouldn't push anyone away, but the two robots must
+    # still aim at different spots within it.
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(165, 100, 0))  # region centroid
+    partner.controller = _FakeController(target_region="goal")
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "goal"
+
+    target = tactic._provide_target(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert target.distance_to(partner.pose) >= 28.0
+
+
+def test_score_contests_a_full_region_rather_than_stalling():
+    # Every region taken -- doubling up still eventually scores; waiting
+    # forever holding the piece never does.
+    field = make_field(scoring_regions=(NEAR_REGION,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    partner = match.add_robot(make_characteristics(), Pose2d(20, 40, 0))
+    partner.controller = _FakeController(target_region="near")
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current is not None
+    assert tactic._current.region.name == "near"
+
+
 def test_idle_never_terminates():
     match = make_match()
     robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))

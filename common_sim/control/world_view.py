@@ -8,10 +8,17 @@ just the attributes it reads.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from common_sim.field.field_config import IntakeLocation, ScoringRegion, polygon_centroid
+from common_sim.field.field_config import (
+    IntakeLocation,
+    ScoringRegion,
+    point_in_polygon,
+    polygon_area,
+    polygon_centroid,
+)
 from common_sim.field.game_piece import GamePiece
 from common_sim.robot.characteristics import SIDES
 from common_sim.robot.robot import Robot
@@ -26,11 +33,16 @@ def collectable_pieces(
     piece_type: str | None = None,
     alliance: str | None = None,
     exclude_held: bool = True,
+    robot: Robot | None = None,
 ) -> list[GamePiece]:
     """Un-scored pieces currently on the field, optionally filtered by
     type and by which alliance last held them (a piece dropped without
     scoring keeps `last_holder_alliance`; a never-held field/station
-    piece has it as None and only matches `alliance=None`)."""
+    piece has it as None and only matches `alliance=None`). `robot`, when
+    given, additionally drops pieces `robot` has no side configured to
+    intake from the field (a side wired for "station" only doesn't make
+    a loose field piece collectable) -- otherwise a Collect tactic would
+    target and drive at a piece it physically can never pick up."""
     pieces = []
     for piece in match.active_pieces:
         if piece.scored:
@@ -40,6 +52,10 @@ def collectable_pieces(
         if piece_type is not None and piece.piece_type != piece_type:
             continue
         if alliance is not None and piece.last_holder_alliance != alliance:
+            continue
+        if robot is not None and not any(
+            robot.characteristics.side_intake_accepts(side, piece.piece_type, source="field") for side in SIDES
+        ):
             continue
         pieces.append(piece)
     return pieces
@@ -94,10 +110,14 @@ def station_options(match, robot: Robot) -> list[IntakeLocation]:
     has a side configured to intake, and capacity left for."""
     options = []
     for location in match.field.intake_locations:
+        if location.alliance is not None and location.alliance != robot.alliance:
+            continue
         remaining = match.station_supply.get(location, 1)
         if remaining <= 0:
             continue
-        if not any(robot.characteristics.side_intake_accepts(side, location.piece_type) for side in SIDES):
+        if not any(
+            robot.characteristics.side_intake_accepts(side, location.piece_type, source="station") for side in SIDES
+        ):
             continue
         held_of_type = sum(1 for p in robot.held_pieces if p.piece_type == location.piece_type)
         if held_of_type >= robot.characteristics.capacity_for(location.piece_type):
@@ -131,6 +151,8 @@ def scoring_options(match, robot: Robot) -> list[LegalScoringOption]:
         if not _robot_can_score(robot, piece.piece_type):
             continue
         for region in match.field.scoring_regions:
+            if region.alliance is not None and region.alliance != robot.alliance:
+                continue
             if region.piece_types and piece.piece_type not in region.piece_types:
                 continue
             for action in region.actions:
@@ -161,3 +183,100 @@ def region_by_name(match, name: str) -> ScoringRegion | None:
 
 def region_centroid(region: ScoringRegion) -> tuple[float, float]:
     return polygon_centroid(region.vertices)
+
+
+def region_robot_capacity(region: ScoringRegion, robot: Robot) -> int:
+    """How many robots can plausibly work `region` at the same time, from
+    its area against `robot`'s own footprint. A REEFSCAPE REEF face's
+    scoring zone is barely wider than one robot (capacity 1 -- a second
+    robot heading there has nowhere to stand that isn't where the first
+    one already is); a zone like the NET spans most of the field and fits
+    several side by side.
+
+    Area-over-footprint is deliberately crude: it ignores region shape (a
+    long thin corridor packs worse than a square of equal area) and the
+    fact that robots score from a standoff rather than parking inside.
+    All it has to separate is "one robot at a time" from "plenty of
+    room", which is the only distinction that decides whether a second
+    robot should go find a different region. Never returns less than 1 --
+    a region too small for even one robot to stand in is still a region
+    exactly one robot scores at."""
+    characteristics = robot.characteristics
+    footprint = max(1e-6, characteristics.width * characteristics.length)
+    return max(1, int(polygon_area(region.vertices) // footprint))
+
+
+def region_occupants(match, region: ScoringRegion, *, exclude: Robot | None = None) -> list[Robot]:
+    """Robots currently working `region`: standing in it, or publishing an
+    `intent.target_region` naming it (on their way there to score, or
+    parked on it to defend it). Intent counts as much as position --
+    two robots that both pick the same region commit to it long before
+    either arrives, and by the time they're both physically in it they're
+    already nose to nose, which is exactly what a caller checking this is
+    trying to avoid. Not filtered by alliance: an opponent sitting in a
+    region blocks it just as thoroughly as a partner does."""
+    occupants = []
+    for other in match.robots:
+        if other is exclude:
+            continue
+        intent = getattr(other, "intent", None)
+        claimed = getattr(intent, "target_region", None) if intent is not None else None
+        if claimed == region.name or point_in_polygon((other.pose.x, other.pose.y), region.vertices):
+            occupants.append(other)
+    return occupants
+
+
+def region_has_room(match, region: ScoringRegion, robot: Robot) -> bool:
+    """Whether `robot` can join `region` without crowding whoever is
+    already working it."""
+    return len(region_occupants(match, region, exclude=robot)) < region_robot_capacity(region, robot)
+
+
+# Grid resolution for region_approach_point's search over a region's
+# interior. 7x7 is enough to find a well-separated spot in a big zone
+# without the cost mattering (this runs at most once per replan period).
+_APPROACH_SAMPLES = 7
+
+
+def region_approach_point(region: ScoringRegion, robot: Robot, occupants: list[Robot]) -> tuple[float, float]:
+    """Where inside `region` `robot` should drive to. The centroid when
+    it has the region to itself; otherwise the interior point that clears
+    the other occupants, preferring the closest such point to `robot`
+    rather than the single farthest one (which would send it to a far
+    corner of a big zone for no benefit). Without this, two robots
+    sharing a region big enough for both would still aim at the identical
+    centroid and shove each other over it."""
+    centroid = polygon_centroid(region.vertices)
+    others = [(r.pose.x, r.pose.y) for r in occupants]
+    if not others:
+        return centroid
+
+    characteristics = robot.characteristics
+    # Past a full footprint diagonal of separation, more clearance buys
+    # nothing -- so treat everything beyond it as equally good and let
+    # "closest to the robot" pick between them.
+    enough = math.hypot(characteristics.width, characteristics.length)
+    origin = (robot.pose.x, robot.pose.y)
+
+    xs = [v[0] for v in region.vertices]
+    ys = [v[1] for v in region.vertices]
+    min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
+
+    best, best_key = centroid, _spread_key(centroid, others, origin, enough)
+    for i in range(_APPROACH_SAMPLES):
+        for j in range(_APPROACH_SAMPLES):
+            point = (
+                min_x + (i + 0.5) / _APPROACH_SAMPLES * (max_x - min_x),
+                min_y + (j + 0.5) / _APPROACH_SAMPLES * (max_y - min_y),
+            )
+            if not point_in_polygon(point, region.vertices):
+                continue
+            key = _spread_key(point, others, origin, enough)
+            if key > best_key:
+                best, best_key = point, key
+    return best
+
+
+def _spread_key(point, others, origin, enough: float):
+    clearance = min(math.hypot(point[0] - o[0], point[1] - o[1]) for o in others)
+    return (min(clearance, enough), -math.hypot(point[0] - origin[0], point[1] - origin[1]))

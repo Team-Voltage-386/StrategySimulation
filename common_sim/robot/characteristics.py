@@ -23,16 +23,24 @@ SIDE_OUTWARD: dict[str, tuple[float, float]] = {
     "front": (1.0, 0.0), "back": (-1.0, 0.0), "left": (0.0, 1.0), "right": (0.0, -1.0),
 }
 
+# Where a side's intake can actually pick a piece up from: a loose piece
+# sitting on the field, a human-player collection region (IntakeLocation
+# station), or both. "both" is the default so a caller that never sets
+# this keeps the old undifferentiated behavior.
+INTAKE_SOURCES: tuple[str, ...] = ("field", "station", "both")
+
 
 @dataclass(frozen=True)
 class SideManipulators:
-    """What a robot can physically do through one side. Both fields are
-    explicit membership sets (unlike RobotCharacteristics.accepted_piece_types,
-    an empty set here means "nothing", not "any type") -- this type only
-    exists to describe a side a caller actually configured, so there is no
-    ambiguous "unconfigured" state to default against."""
+    """What a robot can physically do through one side. Both piece-type
+    fields are explicit membership sets (unlike
+    RobotCharacteristics.accepted_piece_types, an empty set here means
+    "nothing", not "any type") -- this type only exists to describe a side
+    a caller actually configured, so there is no ambiguous "unconfigured"
+    state to default against."""
     intake_piece_types: frozenset[str] = frozenset()
     score_piece_types: frozenset[str] = frozenset()
+    intake_source: str = "both"  # one of INTAKE_SOURCES
 
 
 @dataclass(frozen=True)
@@ -96,11 +104,20 @@ class RobotCharacteristics:
             return self.piece_capacity_by_type.get(piece_type, 0)
         return self.piece_capacity
 
-    def side_intake_accepts(self, side: str, piece_type: str) -> bool:
+    def side_intake_accepts(self, side: str, piece_type: str, source: str | None = None) -> bool:
+        """`source`, when given ("field" or "station"), additionally
+        requires that side's `intake_source` to match it (a side set to
+        "both" always matches). None means "don't care about source" --
+        used by callers that only need physical-capability gating, e.g.
+        the intake sensor wedge and `active_intake_sides`."""
         if not self.side_manipulators:
             return side == "front" and (not self.accepted_piece_types or piece_type in self.accepted_piece_types)
         cfg = self.side_manipulators.get(side)
-        return cfg is not None and piece_type in cfg.intake_piece_types
+        if cfg is None or piece_type not in cfg.intake_piece_types:
+            return False
+        if source is not None and cfg.intake_source != "both" and cfg.intake_source != source:
+            return False
+        return True
 
     def side_score_accepts(self, side: str, piece_type: str) -> bool:
         if not self.side_manipulators:
@@ -121,5 +138,15 @@ class RobotCharacteristics:
         completed deposit ejects the piece from."""
         for side in SIDES:
             if self.side_score_accepts(side, piece_type):
+                return side
+        return "front"
+
+    def intake_side_for(self, piece_type: str) -> str:
+        """First side (in SIDES order) configured to intake `piece_type`,
+        or "front" if none is -- Collect uses this to pick which edge it
+        rotates toward a target piece/station, mirroring score_side_for's
+        role for the scoring side."""
+        for side in SIDES:
+            if self.side_intake_accepts(side, piece_type):
                 return side
         return "front"

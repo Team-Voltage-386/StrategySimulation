@@ -57,6 +57,11 @@ class ScoringRegion:
     # like before this field existed. Enforced by Match, see
     # Match.region_full / Match._try_score.
     capacity_by_action: dict[str, int] | None = None
+    # Which alliance owns this region ("red"/"blue"), None if it's
+    # neutral/shared. world_view.scoring_options and Match.deposit_region_for
+    # both filter on this against Robot.alliance, so a robot never plans to
+    # (or actually does) score on the opposing alliance's regions.
+    alliance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -85,6 +90,10 @@ class IntakeLocation:
     dispense_time: float
     starting_pieces: int | None = None
     piece_color: str | None = None
+    # Which alliance this station belongs to ("red"/"blue"), None if
+    # shared. world_view.station_options filters on this against
+    # Robot.alliance, mirroring ScoringRegion.alliance.
+    alliance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +124,18 @@ def polygon_centroid(vertices: tuple[tuple[float, float], ...]) -> tuple[float, 
     xs = [v[0] for v in vertices]
     ys = [v[1] for v in vertices]
     return (sum(xs) / len(xs), sum(ys) / len(ys))
+
+
+def polygon_area(vertices: tuple[tuple[float, float], ...]) -> float:
+    """Shoelace area, always positive -- callers describe regions in
+    whichever winding order reads naturally, and none of them care about
+    orientation."""
+    total = 0.0
+    x1, y1 = vertices[-1]
+    for x2, y2 in vertices:
+        total += x1 * y2 - x2 * y1
+        x1, y1 = x2, y2
+    return abs(total) / 2.0
 
 
 def point_in_polygon(point: tuple[float, float], vertices: tuple[tuple[float, float], ...]) -> bool:

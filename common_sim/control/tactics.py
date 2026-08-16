@@ -107,7 +107,7 @@ class Collect(Tactic):
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
-        self._nav = NavigateTo(self._provide_target, heading_mode="face_travel", replan_period=replan_period)
+        self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
     def reset(self) -> None:
         self._target_piece = None
@@ -119,10 +119,23 @@ class Collect(Tactic):
         robot = ctx.robot
         if self._target_station is not None:
             cx, cy = polygon_centroid(self._target_station.vertices)
-            return Pose2d(cx, cy, robot.pose.heading)
-        assert self._target_piece is not None
-        pos = self._target_piece.position
-        return Pose2d(pos.x, pos.y, robot.pose.heading)
+            piece_type = self._target_station.piece_type
+        else:
+            assert self._target_piece is not None
+            cx, cy = self._target_piece.position.x, self._target_piece.position.y
+            piece_type = self._target_piece.piece_type
+
+        # Rotate so the configured intake side faces the target, the same
+        # way Score._provide_target presents the scoring side -- otherwise
+        # a robot whose intake only accepts a piece type on a non-front
+        # side (e.g. algae on "right") drives straight at the target
+        # nose-first and never actually gets it in intake range.
+        side = robot.characteristics.intake_side_for(piece_type)
+        outward = SIDE_OUTWARD[side]
+        bearing = math.atan2(cy - robot.pose.y, cx - robot.pose.x)
+        side_local_angle = math.atan2(outward[1], outward[0])
+        heading = wrap_angle(bearing - side_local_angle)
+        return Pose2d(cx, cy, heading)
 
     def _pick_target(self, ctx: BehaviorContext) -> bool:
         match, robot = ctx.match, ctx.robot
@@ -138,13 +151,28 @@ class Collect(Tactic):
                 ), None
                 return True
 
-        pieces = world_view.collectable_pieces(match, piece_type=self.piece_type)
+        pieces = world_view.collectable_pieces(match, piece_type=self.piece_type, robot=robot)
         if self.max_range is not None:
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.max_range]
         if not pieces:
             self._target_piece = None
             self._target_station = None
             return False
+
+        # Prefer a piece no teammate is already heading for -- two robots
+        # independently picking "nearest" converge on the same piece when
+        # it's the obvious choice for both, driving them nose-to-nose at
+        # its position instead of splitting up. Only when every remaining
+        # piece is already claimed do we fall back to contesting one
+        # (better to double up than to sit idle).
+        claimed = {
+            partner.intent.target_piece
+            for partner in world_view.partners(match, robot.alliance)
+            if partner is not robot and partner.intent is not None
+        }
+        unclaimed = [p for p in pieces if p not in claimed]
+        if unclaimed:
+            pieces = unclaimed
 
         if self.mode == "densest":
             clusters = world_view.piece_clusters(match, pieces, self.cluster_radius)
@@ -213,7 +241,12 @@ class Score(Tactic):
         assert self._current is not None
         robot = ctx.robot
         region = self._current.region
-        cx, cy = polygon_centroid(region.vertices)
+        # Aim off-centroid when someone else is already working this
+        # region -- only ever happens on a region big enough that
+        # _pick_option was willing to share it, and without it both
+        # robots would drive at the identical centroid.
+        occupants = world_view.region_occupants(ctx.match, region, exclude=robot)
+        cx, cy = world_view.region_approach_point(region, robot, occupants)
         side = robot.characteristics.score_side_for(self._current.piece.piece_type)
         outward = SIDE_OUTWARD[side]
         # Heading that presents `side` toward the region: rotate so the
@@ -239,17 +272,41 @@ class Score(Tactic):
             if not legal:
                 self._current = None
                 return False
-            pos = (robot.pose.x, robot.pose.y)
-            built = [build_option(match, robot, o, pos) for o in legal]
-            self._current = max(built, key=lambda o: o.value_rate)
+            self._current = self._best_uncrowded(ctx, legal) or self._best_valued(ctx, legal)
             return True
 
         options = self.planner.plan(match, robot)
         if not options:
             self._current = None
             return False
-        self._current = options[0]
+        best = options[0]
+        if world_view.region_has_room(match, best.region, robot):
+            self._current = best
+            return True
+
+        # The planner ranks on value alone, so with identical regions to
+        # choose from every robot on the alliance picks the same one and
+        # they converge on it together. When its choice is a region
+        # someone else is already working that's too small to share (a
+        # single REEF face, say), re-pick among the regions that do have
+        # room -- for the same piece, since the planner already decided
+        # which piece to score first. Falls back to the crowded choice
+        # when nothing has room: contesting a spot still eventually
+        # scores, standing around holding the piece never does.
+        legal = [o for o in world_view.scoring_options(match, robot) if o.piece is best.piece]
+        self._current = self._best_uncrowded(ctx, legal) or best
         return True
+
+    def _best_uncrowded(self, ctx: BehaviorContext, legal) -> object | None:
+        roomy = [o for o in legal if world_view.region_has_room(ctx.match, o.region, ctx.robot)]
+        return self._best_valued(ctx, roomy)
+
+    def _best_valued(self, ctx: BehaviorContext, legal) -> object | None:
+        if not legal:
+            return None
+        pos = (ctx.robot.pose.x, ctx.robot.pose.y)
+        built = [build_option(ctx.match, ctx.robot, o, pos) for o in legal]
+        return max(built, key=lambda o: o.value_rate)
 
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
@@ -293,7 +350,9 @@ class Defend(Tactic):
         self.engage_range = engage_range
         self.replan_period = replan_period
         self.target_region_name: str | None = None
-        self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
+        self._nav = NavigateTo(
+            self._provide_target, heading_mode="face_target", replan_period=replan_period, avoid_robots=False
+        )
 
     def reset(self) -> None:
         self.target_region_name = None

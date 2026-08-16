@@ -47,7 +47,7 @@ CORAL_STATION_DEPTH = 13 * 12 + 8 + 3 / 8   # 13 ft 8-3/8 in
 # How far a CORAL STATION loading zone's center sits from the true field
 # corner along each wall -- keeps the zone (and an approaching robot)
 # clear of the perimeter walls while still reading as "at the corner".
-CORAL_STATION_CORNER_MARGIN = 30.0
+CORAL_STATION_CORNER_MARGIN = 10.0
 
 PROCESSOR_WIDTH = 3 * 12 + 7 + 3 / 8      # 3 ft 7-3/8 in
 PROCESSOR_DEPTH = 1 * 12 + 6              # 1 ft 6 in
@@ -72,8 +72,20 @@ REEF_FACE_SCORING_WIDTH = 22.0   # matches roughly one REEF face's width
 # count, so this is a dry-run placeholder (generous enough that L1 rarely
 # becomes the strategy bottleneck, matching how it plays in practice).
 REEF_BRANCH_CAPACITY = 1
+# Each REEF face has 2 branches (A/B) at every one of L2-L4 -- a single
+# ScoringRegion here models the whole face (not one branch, since both
+# branches sit in the same physical zone), so its per-level capacity
+# needs to be both branches' worth, not one. Getting this wrong makes a
+# face's L2/L3/L4 register "full" after only 1 CORAL each, well before
+# the other physical branch is actually occupied.
+REEF_BRANCHES_PER_LEVEL = 2
 REEF_TROUGH_CAPACITY = 6
-REEF_LEVEL_CAPACITY = {"l1": REEF_TROUGH_CAPACITY, "l2": REEF_BRANCH_CAPACITY, "l3": REEF_BRANCH_CAPACITY, "l4": REEF_BRANCH_CAPACITY}
+REEF_LEVEL_CAPACITY = {
+    "l1": REEF_TROUGH_CAPACITY,
+    "l2": REEF_BRANCHES_PER_LEVEL * REEF_BRANCH_CAPACITY,
+    "l3": REEF_BRANCHES_PER_LEVEL * REEF_BRANCH_CAPACITY,
+    "l4": REEF_BRANCHES_PER_LEVEL * REEF_BRANCH_CAPACITY,
+}
 
 
 def _hex_vertices(center: tuple[float, float], apothem: float) -> tuple[tuple[float, float], ...]:
@@ -101,7 +113,7 @@ def _hex_face_centers_and_normals(center: tuple[float, float], apothem: float):
         yield midpoint, normal
 
 
-def _reef_scoring_regions(name_prefix: str, center: tuple[float, float]) -> tuple[ScoringRegion, ...]:
+def _reef_scoring_regions(name_prefix: str, center: tuple[float, float], alliance: str) -> tuple[ScoringRegion, ...]:
     """One ScoringRegion per REEF face (6 total), each offering all 4
     CORAL levels -- L1-L4 differ in point value and (via a robot's
     RobotCharacteristics.deposit_time_by_action) how long a robot takes
@@ -121,7 +133,7 @@ def _reef_scoring_regions(name_prefix: str, center: tuple[float, float]) -> tupl
         )
         regions.append(ScoringRegion(
             name=f"{name_prefix}_face_{i}", vertices=vertices, actions=REEF_LEVELS, piece_types=frozenset({CORAL_TYPE}),
-            capacity_by_action=dict(REEF_LEVEL_CAPACITY),
+            capacity_by_action=dict(REEF_LEVEL_CAPACITY), alliance=alliance,
         ))
     return tuple(regions)
 
@@ -164,8 +176,8 @@ def build_field() -> FieldConfig:
     )
 
     scoring_regions = (
-        _reef_scoring_regions("blue_reef", blue_reef_center)
-        + _reef_scoring_regions("red_reef", red_reef_center)
+        _reef_scoring_regions("blue_reef", blue_reef_center, "blue")
+        + _reef_scoring_regions("red_reef", red_reef_center, "red")
         + (
             # PROCESSOR (and REEF above) require a robot to actually place
             # the piece -- passive_scoring defaults False, so a piece that
@@ -176,22 +188,22 @@ def build_field() -> FieldConfig:
             ScoringRegion(
                 name="blue_processor",
                 vertices=_rect(processor_position("blue"), PROCESSOR_WIDTH, PROCESSOR_DEPTH),
-                actions=frozenset({"processor"}), piece_types=frozenset({ALGAE_TYPE}),
+                actions=frozenset({"processor"}), piece_types=frozenset({ALGAE_TYPE}), alliance="blue",
             ),
             ScoringRegion(
                 name="red_processor",
                 vertices=_rect(processor_position("red"), PROCESSOR_WIDTH, PROCESSOR_DEPTH),
-                actions=frozenset({"processor"}), piece_types=frozenset({ALGAE_TYPE}),
+                actions=frozenset({"processor"}), piece_types=frozenset({ALGAE_TYPE}), alliance="red",
             ),
             ScoringRegion(
                 name="blue_net",
                 vertices=_rect((FIELD_LENGTH / 2.0 - 60, FIELD_WIDTH / 2.0), 80, FIELD_WIDTH * 0.9),
-                actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True,
+                actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True, alliance="blue",
             ),
             ScoringRegion(
                 name="red_net",
                 vertices=_rect((FIELD_LENGTH / 2.0 + 60, FIELD_WIDTH / 2.0), 80, FIELD_WIDTH * 0.9),
-                actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True,
+                actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True, alliance="red",
             ),
         )
     )
@@ -199,11 +211,12 @@ def build_field() -> FieldConfig:
     intake_locations = tuple(
         IntakeLocation(
             name=f"{alliance}_coral_station_{i}",
-            vertices=_rect(pos, 24.0, 24.0),
+            vertices=_rect(pos, 36.0, 36.0),
             piece_type=CORAL_TYPE,
             dispense_time=CORAL_STATION_DISPENSE_TIME,
             starting_pieces=CORAL_STATION_STARTING_PIECES,
             piece_color="white",  # matches spawn_coral's field-pile color
+            alliance=alliance,
         )
         for alliance in ("blue", "red")
         for i, pos in enumerate(coral_station_positions(alliance))

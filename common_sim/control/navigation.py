@@ -76,7 +76,25 @@ def _visible(p1: Point, p2: Point, inflated_obstacles: list[tuple[Point, ...]]) 
     return True
 
 
-def plan_path(field: FieldConfig, start: Point, goal: Point, robot_radius: float) -> list[Vec2d]:
+def _octagon(center: Point, radius: float) -> tuple[Point, ...]:
+    """Cheap circle approximation for a moving robot treated as a
+    round dynamic obstacle -- 8 vertices is plenty for the visibility
+    graph planner and avoids favoring any particular pass side the way
+    a 4-gon's flat faces would."""
+    cx, cy = center
+    return tuple(
+        (cx + radius * math.cos(a), cy + radius * math.sin(a))
+        for a in (i * math.pi / 4.0 for i in range(8))
+    )
+
+
+def plan_path(
+    field: FieldConfig,
+    start: Point,
+    goal: Point,
+    robot_radius: float,
+    extra_obstacles: list[tuple[Point, ...]] | None = None,
+) -> list[Vec2d]:
     """Shortest path from `start` to `goal` that stays clear of
     `field.obstacles`, each inflated by `robot_radius`, via a visibility
     graph (nodes = start, goal, and every inflated obstacle vertex) and
@@ -84,24 +102,53 @@ def plan_path(field: FieldConfig, start: Point, goal: Point, robot_radius: float
     fields declare -- not a general-purpose planner. Falls back to the
     direct line if no obstacle-clear path exists at all (shouldn't
     happen on a field with any legal path, but never leaves a tactic
-    with no waypoints to drive toward)."""
+    with no waypoints to drive toward).
+
+    `extra_obstacles`, when given, are additional already-inflated
+    polygons (e.g. other robots' footprints) folded into the same
+    visibility graph -- not re-inflated by `robot_radius`, since the
+    caller already sized them for the pair of bodies involved."""
     inflated = [_inflate(o.vertices, robot_radius) for o in field.obstacles]
+    if extra_obstacles:
+        inflated.extend(extra_obstacles)
 
     if _visible(start, goal, inflated):
         return [Vec2d(*start), Vec2d(*goal)]
 
     nodes: list[Point] = [start, goal]
+    boundary_edges: set[tuple[int, int]] = set()
     for poly in inflated:
+        base = len(nodes)
+        n = len(poly)
         nodes.extend(poly)
+        # A polygon's own consecutive vertices are always mutually
+        # visible -- that segment *is* the polygon's boundary. Add them
+        # unconditionally rather than through the general _visible()
+        # check below: an edge's midpoint sits exactly on the polygon
+        # boundary, where point_in_polygon's ray-casting is a coin flip
+        # on floating-point noise, which would otherwise randomly sever
+        # the one connection a path needs to hug the obstacle round
+        # (e.g. a robot dead ahead, inflated to a circle-ish polygon).
+        for i in range(n):
+            boundary_edges.add((base + i, base + (i + 1) % n))
 
     start_idx, goal_idx = 0, 1
     edges: dict[int, list[tuple[int, float]]] = {i: [] for i in range(len(nodes))}
+
+    def _add_edge(i: int, j: int) -> None:
+        dist = math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1])
+        edges[i].append((j, dist))
+        edges[j].append((i, dist))
+
+    for i, j in boundary_edges:
+        _add_edge(i, j)
+
     for i in range(len(nodes)):
         for j in range(i + 1, len(nodes)):
+            if (i, j) in boundary_edges or (j, i) in boundary_edges:
+                continue
             if _visible(nodes[i], nodes[j], inflated):
-                dist = math.hypot(nodes[i][0] - nodes[j][0], nodes[i][1] - nodes[j][1])
-                edges[i].append((j, dist))
-                edges[j].append((i, dist))
+                _add_edge(i, j)
 
     path_indices = _astar(nodes, edges, start_idx, goal_idx)
     if path_indices is None:
@@ -179,6 +226,12 @@ class NavigateTo(Behavior):
     `standoff` pulls the final waypoint back toward the prior one by that
     many inches, so the robot stops short of the target instead of
     driving to its exact center.
+
+    `avoid_robots` folds every other robot on the field into the same
+    replan as a circular dynamic obstacle (see `_replan`), so two
+    robots on a collision course route around each other instead of
+    shoving head-on and stalling forever. Tactics whose whole point is
+    to make contact or hold a blocking pose (`Defend`) pass False.
     """
 
     def __init__(
@@ -192,6 +245,8 @@ class NavigateTo(Behavior):
         heading_tolerance: float = 0.05,
         speed_gain: float = 3.0,
         heading_gain: float = 4.0,
+        avoid_robots: bool = True,
+        robot_avoid_margin: float = 6.0,
     ):
         self.target_provider = target_provider
         self.heading_mode = heading_mode
@@ -201,6 +256,8 @@ class NavigateTo(Behavior):
         self.heading_tolerance = heading_tolerance
         self.speed_gain = speed_gain
         self.heading_gain = heading_gain
+        self.avoid_robots = avoid_robots
+        self.robot_avoid_margin = robot_avoid_margin
 
         self._path: list[Vec2d] | None = None
         self._waypoint_index = 0
@@ -213,11 +270,13 @@ class NavigateTo(Behavior):
         self._replan_timer = 0.0
         self._last_target = None
 
-    def _replan(self, robot, target: Pose2d, field: FieldConfig | None) -> None:
+    def _replan(self, robot, target: Pose2d, field: FieldConfig | None, match=None) -> None:
         start = (robot.pose.x, robot.pose.y)
         goal = (target.x, target.y)
         if field is not None:
-            path = plan_path(field, start, goal, _robot_radius(robot.characteristics))
+            own_radius = _robot_radius(robot.characteristics)
+            extra_obstacles = self._other_robot_obstacles(robot, own_radius, match, start, goal)
+            path = plan_path(field, start, goal, own_radius, extra_obstacles=extra_obstacles)
         else:
             path = [Vec2d(*start), Vec2d(*goal)]
 
@@ -231,6 +290,50 @@ class NavigateTo(Behavior):
         self._path = path
         self._waypoint_index = 0
 
+    def _other_robot_obstacles(
+        self, robot, own_radius: float, match, start: Point, goal: Point
+    ) -> list[tuple[Point, ...]]:
+        """Other robots as circular obstacles, shrunk so they never swallow
+        `goal` outright. Without the shrink, a robot standing right on or
+        near where this robot is headed (a shared piece, a contested
+        scoring spot) leaves the visibility graph with no edge reaching
+        goal_idx at all; A* reports unreachable, and `plan_path` falls all
+        the way back to the direct start->goal line -- silently dropping
+        avoidance for the whole route, not just the last few inches, which
+        is exactly the nose-to-nose shoving this is meant to prevent.
+        Shrinking keeps the obstacle's push-back everywhere else on the
+        route while letting the final approach actually reach a point
+        near another robot instead of stalling short of it forever.
+
+        Deliberately *not* shrunk against `start` the same way: as two
+        robots close on each other, `start` (each one's own current
+        position, refreshed every replan) naturally ends up near/inside
+        the other's obstacle well before their bodies actually touch --
+        that's the normal, expected trigger for a detour, not a
+        degenerate input. Excluding this obstacle from blocking `start`'s
+        own edges to suppress that non-issue was tried and made things
+        worse: it also suppressed the direct start->goal edge itself,
+        since that edge shares the now-exempted endpoint, so the two
+        robots stopped detouring at all right as they closed in."""
+        if not self.avoid_robots or match is None:
+            return []
+        others = getattr(match, "robots", None)
+        if not others:
+            return []
+        obstacles = []
+        for other in others:
+            if other is robot:
+                continue
+            other_pos = (other.pose.x, other.pose.y)
+            other_radius = _robot_radius(other.characteristics)
+            radius = own_radius + other_radius + self.robot_avoid_margin
+            clearance_to_goal = math.hypot(other_pos[0] - goal[0], other_pos[1] - goal[1]) - 1.0
+            radius = min(radius, clearance_to_goal)
+            if radius <= 0.0:
+                continue
+            obstacles.append(_octagon(other_pos, radius))
+        return obstacles
+
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
         target = self.target_provider(ctx)
@@ -239,7 +342,7 @@ class NavigateTo(Behavior):
         self._replan_timer -= ctx.dt
         target_moved = self._last_target is None or (target.x, target.y) != (self._last_target.x, self._last_target.y)
         if self._path is None or self._replan_timer <= 0.0 or target_moved:
-            self._replan(robot, target, field)
+            self._replan(robot, target, field, match=ctx.match)
             self._replan_timer = self.replan_period
             self._last_target = target
 
