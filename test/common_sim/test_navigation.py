@@ -8,7 +8,16 @@ anything downstream (tactics) can depend on robots actually arriving.
 import math
 
 from common_sim.control.behavior import BehaviorContext, Status
-from common_sim.control.navigation import NavigateTo, estimate_travel_time, plan_path
+from common_sim.control.navigation import (
+    NavigateTo,
+    _inflate,
+    clear_standoff,
+    convex_overlap,
+    estimate_travel_time,
+    footprint_polygon,
+    plan_path,
+    polygon_distance,
+)
 from common_sim.field.field_config import FieldConfig, Obstacle, point_in_polygon
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
@@ -55,6 +64,97 @@ def test_plan_path_routes_around_obstacle():
     assert math.isclose(path[-1].y, goal[1], abs_tol=1e-6)
 
 
+def _hexagon(center, apothem):
+    radius = apothem / math.cos(math.radians(30))
+    return tuple(
+        (center[0] + radius * math.cos(math.radians(30 + 60 * i)),
+         center[1] + radius * math.sin(math.radians(30 + 60 * i)))
+        for i in range(6)
+    )
+
+
+def test_inflate_clears_every_edge_by_the_full_radius():
+    # The REEF is a hexagon, and a hexagon is exactly where the old
+    # centroid-radial inflation lost the most: it only reached `radius`
+    # at the six vertices, leaving each *face* 13% short -- inches of
+    # robot inside the real structure for a path that hugs the polygon.
+    apothem, radius = 32.75, 19.8
+    hexagon = _hexagon((150, 100), apothem)
+    inflated = _inflate(hexagon, radius)
+
+    for i in range(len(hexagon)):
+        a, b = hexagon[i], hexagon[(i + 1) % len(hexagon)]
+        midpoint = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        outward = (midpoint[0] - 150, midpoint[1] - 100)
+        # A hair inside the full radius -- exactly on the offset boundary
+        # is a ray-casting coin flip, which says nothing either way.
+        scale = radius * 0.999 / math.hypot(*outward)
+        just_outside = (midpoint[0] + outward[0] * scale, midpoint[1] + outward[1] * scale)
+        assert point_in_polygon(just_outside, inflated), "face inflated by less than the full radius"
+
+
+def test_inflate_square_is_exact():
+    square = ((0, 0), (10, 0), (10, 10), (0, 10))
+    inflated = _inflate(square, 2.0)
+    assert all(
+        any(math.isclose(v[0], x, abs_tol=1e-9) and math.isclose(v[1], y, abs_tol=1e-9) for v in inflated)
+        for x, y in ((-2, -2), (12, -2), (12, 12), (-2, 12))
+    )
+
+
+def test_plan_path_still_detours_when_the_goal_hugs_the_obstacle():
+    # A scoring target sits right against the structure it scores on, so
+    # it lands inside the obstacle-inflated-by-robot-radius polygon. That
+    # used to make the goal unreachable in the visibility graph, and
+    # plan_path fell back to a straight line -- losing avoidance for the
+    # whole route, which is how robots ended up driving through the REEF.
+    field = make_field_with_obstacle()  # box spans x 90..150, y -40..40
+    goal = (155, 0)  # 5in off the box's far face; well inside a 14in inflation
+    path = plan_path(field, (0, 0), goal, robot_radius=14.0)
+
+    assert len(path) > 2, "should still route around the box, not cut straight to the goal"
+    for i in range(len(path) - 1):
+        a, b = (path[i].x, path[i].y), (path[i + 1].x, path[i + 1].y)
+        mid = ((a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0)
+        assert not point_in_polygon(mid, SQUARE_OBSTACLE.vertices)
+    assert math.isclose(path[-1].x, goal[0]) and math.isclose(path[-1].y, goal[1])
+
+
+def test_polygon_distance_is_zero_inside_and_perpendicular_outside():
+    assert polygon_distance((120, 0), SQUARE_OBSTACLE.vertices) == 0.0
+    assert math.isclose(polygon_distance((80, 0), SQUARE_OBSTACLE.vertices), 10.0)
+
+
+def test_clear_standoff_puts_the_bumper_on_the_aim_point():
+    field = make_field_with_obstacle()
+    aim = (85, 0)  # on the box's near face
+    x, y, heading = clear_standoff(
+        field, aim, from_point=(0, 0), distance=14.0,
+        width=28.0, length=28.0, side_local_angle=0.0,  # "front"
+    )
+    # Approached straight on from -x, so it parks 14in back along that line...
+    assert math.isclose(x, 71.0, abs_tol=1e-6) and math.isclose(y, 0.0, abs_tol=1e-6)
+    # ...with the front facing the aim, and the chassis in free space.
+    assert math.isclose(heading, 0.0, abs_tol=1e-6)
+    chassis = footprint_polygon((x, y), heading, 28.0, 28.0)
+    assert not convex_overlap(chassis, SQUARE_OBSTACLE.vertices)
+
+
+def test_clear_standoff_rotates_away_from_an_unreachable_approach():
+    # Aim on the box's *far* face while the robot is on the near side:
+    # approaching "straight from where I am" would park the chassis
+    # inside the box, so it has to swing around to a real approach.
+    field = make_field_with_obstacle()
+    aim = (155, 0)  # just off the box's +x face
+    x, y, heading = clear_standoff(
+        field, aim, from_point=(0, 0), distance=14.0,
+        width=28.0, length=28.0, side_local_angle=0.0,
+    )
+    chassis = footprint_polygon((x, y), heading, 28.0, 28.0)
+    assert not convex_overlap(chassis, SQUARE_OBSTACLE.vertices)
+    assert math.isclose(math.hypot(x - aim[0], y - aim[1]), 14.0, abs_tol=1e-6)
+
+
 def test_estimate_travel_time_zero_distance():
     field = FieldConfig(width=300, height=200)
     characteristics = make_characteristics()
@@ -99,6 +199,42 @@ def test_navigate_to_reaches_target_around_obstacle():
 
     assert status == Status.SUCCESS
     assert robot.pose.distance_to(target) <= 2.0 + 1e-6
+
+
+def test_navigate_to_rounds_an_obstacle_with_a_target_that_moves_every_tick():
+    # A target derived from the robot's own live pose (Score's standoff,
+    # Collect's approach) shifts a little every tick, so every tick
+    # replans -- and a replan restarts the path at waypoint 0. Advancing
+    # one waypoint per tick then caps progress at waypoint 1, which is
+    # exactly the waypoint the robot is arriving at as it rounds a
+    # corner: it parks a fraction of an inch short of it, creeping at a
+    # speed proportional to a distance already inside the tolerance,
+    # until the route's shape happens to change. On the REEFSCAPE field
+    # that stalled robots at a REEF corner for four seconds at a time.
+    hexagon = _hexagon((150, 100), 32.75)  # a REEF, in the middle of the route
+    field = FieldConfig(width=300, height=200, obstacles=(Obstacle(name="reef", vertices=hexagon),))
+    match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot = match.add_robot(make_characteristics(), Pose2d(30, 100, 0))
+
+    goal = (270.0, 100.0)
+    tick_count = [0]
+
+    def jittering_target(ctx):
+        # +/-0.6in every tick: never settles, always past
+        # _TARGET_MOVE_EPSILON, so every single tick replans.
+        tick_count[0] += 1
+        return Pose2d(goal[0], goal[1] + (0.6 if tick_count[0] % 2 else -0.6), 0.0)
+
+    nav = NavigateTo(jittering_target, heading_mode="face_travel", replan_period=0.25)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    for _ in range(600):  # 10s -- the clear route is under 2s of driving
+        nav.tick(ctx)
+        match.step(ctx.dt)
+        ctx.elapsed += ctx.dt
+        assert not point_in_polygon((robot.pose.x, robot.pose.y), hexagon)
+
+    remaining = math.hypot(robot.pose.x - goal[0], robot.pose.y - goal[1])
+    assert remaining < 5.0, f"stopped {remaining:.1f}in short of the target -- stalled on a waypoint"
 
 
 def test_navigate_to_without_match_falls_back_to_direct_drive():

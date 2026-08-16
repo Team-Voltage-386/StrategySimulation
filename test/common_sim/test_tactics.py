@@ -1,6 +1,9 @@
+import math
+
 from common_sim.control import tactics
 from common_sim.control.behavior import BehaviorContext, Sequence, Status, Wait
-from common_sim.field.field_config import FieldConfig, IntakeLocation, ScoringRegion
+from common_sim.control.navigation import convex_overlap, footprint_polygon
+from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.scoring import TableScoringRules
@@ -204,6 +207,108 @@ def test_score_contests_a_full_region_rather_than_stalling():
     tactic = _score_tactic_holding_piece(match, robot)
     assert tactic._current is not None
     assert tactic._current.region.name == "near"
+
+
+# A REEFSCAPE REEF face in miniature: a solid structure, with a scoring
+# zone only as deep as the real one (10in) sitting against its face. A
+# robot that aims its chassis *center* at that zone is asking to put
+# half its own length inside the structure.
+STRUCTURE = Obstacle(name="structure", vertices=((140, 60), (200, 60), (200, 140), (140, 140)))
+FACE_REGION = ScoringRegion(
+    name="face", vertices=((130, 89), (140, 89), (140, 111), (130, 111)),
+    actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+)
+
+
+def test_score_stands_off_a_structure_instead_of_driving_into_it():
+    field = make_field(scoring_regions=(FACE_REGION,), obstacles=(STRUCTURE,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (20, 100))
+    piece.held_by = robot
+    piece.last_holder_alliance = robot.alliance
+    robot.held_pieces.append(piece)
+
+    tactic = tactics.Score()
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    status = Status.RUNNING
+    for _ in range(2000):
+        status = tactic.tick(ctx)
+        match.step(ctx.dt)
+        ctx.elapsed += ctx.dt
+        chassis = footprint_polygon(
+            (robot.pose.x, robot.pose.y), robot.pose.heading,
+            robot.characteristics.width, robot.characteristics.length,
+        )
+        assert not convex_overlap(chassis, STRUCTURE.vertices), "drove into the structure it was scoring on"
+        if status != Status.RUNNING:
+            break
+
+    assert status == Status.SUCCESS
+    assert piece.scored
+
+
+def test_collect_stands_off_a_piece_lying_against_a_structure():
+    # REEFSCAPE spawns ALGAE about 7in off the REEF wall. Aiming the
+    # chassis *center* at one asks for half the robot's length inside
+    # the structure -- and a goal that deep inside the structure's
+    # robot-radius inflation also caps how much clearance the planner is
+    # allowed to keep on the way there, so it clips the corner en route.
+    field = make_field(obstacles=(STRUCTURE,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 40, 0))
+    piece = match.spawn_piece(WIDGET, (133, 100))  # 7in off the structure's near face
+
+    tactic = tactics.Collect(piece_type=WIDGET)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic.tick(ctx)  # picks the piece and builds a target for it
+    target = tactic._provide_target(ctx)
+
+    chassis = footprint_polygon(
+        (target.x, target.y), target.heading,
+        robot.characteristics.width, robot.characteristics.length,
+    )
+    assert not convex_overlap(chassis, STRUCTURE.vertices), "target pose puts the chassis in the structure"
+
+    # ...and it's still a pose that can actually pick the piece up: the
+    # piece sits outside the chassis but inside the intake's reach.
+    half_extent = robot.characteristics.length / 2.0
+    reach = math.hypot(piece.position.x - target.x, piece.position.y - target.y)
+    assert half_extent <= reach <= half_extent + robot.characteristics.intake_range
+
+    # And end to end it does collect it.
+    status = run(match, tactic, robot)
+    assert status == Status.SUCCESS
+    assert len(robot.held_pieces) == 1
+
+
+def test_score_keeps_moving_when_its_target_shifts_every_tick():
+    # Score's target is derived from the robot's own live pose, so it
+    # drifts a little every tick and every tick triggers a replan. A
+    # replan restarts the path at waypoint 0, so anything that advances
+    # only one waypoint per tick pins the robot at waypoint 1 -- which,
+    # right at an inflated obstacle's corner, is inches from where it
+    # already stands. It sat there for seconds at a time.
+    field = make_field(scoring_regions=(FACE_REGION,), obstacles=(STRUCTURE,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    # Behind the structure, so the route has to round a corner and the
+    # path has an intermediate waypoint at all.
+    robot = match.add_robot(make_characteristics(), Pose2d(250, 30, 0))
+    piece = match.spawn_piece(WIDGET, (250, 30))
+    piece.held_by = robot
+    piece.last_holder_alliance = robot.alliance
+    robot.held_pieces.append(piece)
+
+    tactic = tactics.Score()
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    start = (robot.pose.x, robot.pose.y)
+    for _ in range(120):  # 2s -- ample to clear the corner it used to stall on
+        tactic.tick(ctx)
+        match.step(ctx.dt)
+        ctx.elapsed += ctx.dt
+
+    travelled = math.hypot(robot.pose.x - start[0], robot.pose.y - start[1])
+    assert travelled > 40.0, f"only travelled {travelled:.1f}in in 2s -- stalled on a waypoint"
 
 
 def test_idle_never_terminates():

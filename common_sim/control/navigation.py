@@ -22,25 +22,126 @@ HeadingMode = Union[str, float]
 
 
 def _inflate(vertices: tuple[Point, ...], radius: float) -> tuple[Point, ...]:
-    """Radially expand a convex polygon's vertices away from its own
-    centroid by `radius`. Not a true Minkowski-sum offset (corners of a
-    non-round polygon end up inflated a bit less than `radius` along
-    their edge normals) -- an acceptable approximation for the small,
-    roughly-regular obstacles (hex REEFs, etc.) this sim's fields use,
-    and cheap/deterministic, which matters more here than exactness."""
+    """Offset a convex polygon outward by `radius` along its own edge
+    normals -- the Minkowski sum with a disc of that radius, with each
+    rounded corner left as the sharp intersection of its two adjacent
+    offset edges (outside the true offset, so conservative).
+
+    This used to scale the vertices radially away from the centroid
+    instead, which only gives the full `radius` *at* the vertices: every
+    edge between them fell short by cos(half the vertex angle) -- 13% on
+    a hexagon, so a REEF face inflated by a 19.8in robot radius only
+    stood 17.1in off. A planner hugs the inflated polygon exactly, so
+    those missing inches are inches of robot inside the real structure,
+    which is what had robots clipping the REEF's corners on the way
+    past."""
     n = len(vertices)
+    if n < 3 or radius <= 0.0:
+        return tuple(vertices)
     cx = sum(v[0] for v in vertices) / n
     cy = sum(v[1] for v in vertices) / n
-    inflated = []
-    for x, y in vertices:
-        dx, dy = x - cx, y - cy
-        dist = math.hypot(dx, dy)
-        if dist < 1e-6:
-            inflated.append((x, y))
+
+    # Each edge's offset line, as (point on it, unit direction).
+    lines: list[tuple[Point, Point] | None] = []
+    for i in range(n):
+        ax, ay = vertices[i]
+        bx, by = vertices[(i + 1) % n]
+        ex, ey = bx - ax, by - ay
+        length = math.hypot(ex, ey)
+        if length < 1e-9:  # duplicate vertex -- no edge to offset
+            lines.append(None)
             continue
-        scale = (dist + radius) / dist
-        inflated.append((cx + dx * scale, cy + dy * scale))
+        dx, dy = ex / length, ey / length
+        nx, ny = dy, -dx
+        if nx * ((ax + bx) / 2.0 - cx) + ny * ((ay + by) / 2.0 - cy) < 0.0:
+            nx, ny = -nx, -ny  # point the normal away from the interior
+        lines.append(((ax + nx * radius, ay + ny * radius), (dx, dy)))
+
+    inflated = []
+    for i in range(n):
+        # Vertex i is where edges i-1 and i meet, so its offset copy is
+        # where those two offset lines meet. Collinear or degenerate
+        # edges have no single intersection -- there the radial estimate
+        # is exact anyway (a straight-through "corner" turns no corner).
+        point = _line_intersection(lines[i - 1], lines[i])
+        inflated.append(point if point is not None else _radial(vertices[i], (cx, cy), radius))
     return tuple(inflated)
+
+
+def _line_intersection(a: tuple[Point, Point] | None, b: tuple[Point, Point] | None) -> Point | None:
+    if a is None or b is None:
+        return None
+    (p1, d1), (p2, d2) = a, b
+    cross = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(cross) < 1e-9:
+        return None
+    t = ((p2[0] - p1[0]) * d2[1] - (p2[1] - p1[1]) * d2[0]) / cross
+    return (p1[0] + d1[0] * t, p1[1] + d1[1] * t)
+
+
+def _radial(vertex: Point, center: Point, radius: float) -> Point:
+    dx, dy = vertex[0] - center[0], vertex[1] - center[1]
+    dist = math.hypot(dx, dy)
+    if dist < 1e-6:
+        return vertex
+    scale = (dist + radius) / dist
+    return (center[0] + dx * scale, center[1] + dy * scale)
+
+
+def _segment_distance(point: Point, a: Point, b: Point) -> float:
+    ex, ey = b[0] - a[0], b[1] - a[1]
+    length_sq = ex * ex + ey * ey
+    if length_sq < 1e-12:
+        return math.hypot(point[0] - a[0], point[1] - a[1])
+    t = max(0.0, min(1.0, ((point[0] - a[0]) * ex + (point[1] - a[1]) * ey) / length_sq))
+    return math.hypot(point[0] - (a[0] + ex * t), point[1] - (a[1] + ey * t))
+
+
+def polygon_distance(point: Point, vertices: tuple[Point, ...]) -> float:
+    """Distance from `point` to a polygon's boundary, or 0.0 if `point`
+    is inside it."""
+    if point_in_polygon(point, vertices):
+        return 0.0
+    n = len(vertices)
+    return min(_segment_distance(point, vertices[i], vertices[(i + 1) % n]) for i in range(n))
+
+
+def footprint_polygon(center: Point, heading: float, width: float, length: float) -> tuple[Point, ...]:
+    """A robot's chassis rectangle in world coordinates, given where its
+    center is and which way it faces (+x local is `length`-wise, matching
+    RobotCharacteristics and SIDE_OUTWARD's "front")."""
+    half_l, half_w = length / 2.0, width / 2.0
+    cos_h, sin_h = math.cos(heading), math.sin(heading)
+    return tuple(
+        (center[0] + x * cos_h - y * sin_h, center[1] + x * sin_h + y * cos_h)
+        for x, y in ((half_l, half_w), (half_l, -half_w), (-half_l, -half_w), (-half_l, half_w))
+    )
+
+
+def convex_overlap(a: tuple[Point, ...], b: tuple[Point, ...]) -> bool:
+    """Separating-axis test for two convex polygons. Exactly touching
+    counts as clear, so a footprint flush against a structure's face --
+    the whole point of a scoring standoff -- isn't rejected as a
+    collision."""
+    for poly in (a, b):
+        n = len(poly)
+        for i in range(n):
+            (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % n]
+            axis = (y1 - y2, x2 - x1)
+            length = math.hypot(*axis)
+            if length < 1e-9:
+                continue
+            axis = (axis[0] / length, axis[1] / length)
+            a_min, a_max = _project(a, axis)
+            b_min, b_max = _project(b, axis)
+            if a_max <= b_min + 1e-9 or b_max <= a_min + 1e-9:
+                return False
+    return True
+
+
+def _project(poly: tuple[Point, ...], axis: Point) -> tuple[float, float]:
+    values = [p[0] * axis[0] + p[1] * axis[1] for p in poly]
+    return min(values), max(values)
 
 
 def _segments_intersect(p1: Point, p2: Point, p3: Point, p4: Point) -> bool:
@@ -108,7 +209,11 @@ def plan_path(
     polygons (e.g. other robots' footprints) folded into the same
     visibility graph -- not re-inflated by `robot_radius`, since the
     caller already sized them for the pair of bodies involved."""
-    inflated = [_inflate(o.vertices, robot_radius) for o in field.obstacles]
+    inflated = []
+    for obstacle in field.obstacles:
+        clearance = _clearance_for_goal(obstacle.vertices, robot_radius, goal)
+        if clearance is not None:
+            inflated.append(_inflate(obstacle.vertices, clearance))
     if extra_obstacles:
         inflated.extend(extra_obstacles)
 
@@ -154,6 +259,92 @@ def plan_path(
     if path_indices is None:
         return [Vec2d(*start), Vec2d(*goal)]
     return [Vec2d(*nodes[i]) for i in path_indices]
+
+
+# How far outside an inflated obstacle a goal has to stay for the
+# visibility graph to be able to reach it at all.
+_GOAL_CLEARANCE = 1.0
+
+
+def _clearance_for_goal(vertices: tuple[Point, ...], robot_radius: float, goal: Point) -> float | None:
+    """How far to inflate one obstacle: `robot_radius`, capped so the
+    inflated polygon never swallows `goal`. None means skip the obstacle
+    entirely.
+
+    Scoring targets sit right up against the structure being scored on
+    (a REEF face's zone starts at the REEF wall), so a goal inside the
+    inflated hex is the normal case, not a corner case. Left alone it is
+    also the worst case: no visibility-graph edge reaches the goal, A*
+    reports it unreachable, and `plan_path` falls back to the direct
+    start->goal line -- dropping obstacle avoidance for the *entire*
+    route, which is how a robot ends up driving through the REEF's
+    corner on its way to a face. Capping trades a couple of inches of
+    clearance on that one obstacle for keeping the detour at all, and is
+    the same trade `NavigateTo._other_robot_obstacles` already makes for
+    robots."""
+    room = polygon_distance(goal, vertices) - _GOAL_CLEARANCE
+    if room <= 0.0:
+        # Goal on or inside the structure itself. Keeping the raw
+        # polygon still bends the route around it; a goal genuinely
+        # inside leaves nothing to plan around.
+        return None if point_in_polygon(goal, vertices) else 0.0
+    return min(robot_radius, room)
+
+
+# Directions tried around a target when the straight-on approach would
+# park the chassis in a structure. 24 gives 15-degree steps -- fine
+# enough that a robot never gives up a workable approach angle, coarse
+# enough to stay a trivial loop.
+_STANDOFF_SAMPLES = 24
+
+
+def clear_standoff(
+    field: FieldConfig,
+    aim: Point,
+    from_point: Point,
+    distance: float,
+    *,
+    width: float,
+    length: float,
+    side_local_angle: float,
+    margin: float = 1.0,
+) -> tuple[float, float, float]:
+    """Where a robot should park to put one of its sides `distance` in
+    front of its center onto `aim`, and the heading that presents that
+    side (`side_local_angle` is the side's outward normal in the robot's
+    own frame). Returns (x, y, heading).
+
+    Prefers approaching from wherever the robot already is, and rotates
+    away from that bearing only as far as it must to keep the chassis --
+    its real `width` x `length` rectangle, not a point -- out of the
+    field's obstacles. Falls back to the preferred bearing when no angle
+    is clear, since a pose the robot can't quite reach still beats no
+    target at all."""
+    bearing = math.atan2(from_point[1] - aim[1], from_point[0] - aim[0])
+    step = 2.0 * math.pi / _STANDOFF_SAMPLES
+    preferred = None
+    for offset in _spiral_offsets(step, _STANDOFF_SAMPLES):
+        angle = bearing + offset
+        center = (aim[0] + math.cos(angle) * distance, aim[1] + math.sin(angle) * distance)
+        # The side's outward normal must point from the center at `aim`,
+        # i.e. back along the standoff direction.
+        heading = wrap_angle(angle + math.pi - side_local_angle)
+        if preferred is None:
+            preferred = (center[0], center[1], heading)
+        chassis = footprint_polygon(center, heading, width + 2.0 * margin, length + 2.0 * margin)
+        if not any(convex_overlap(chassis, o.vertices) for o in field.obstacles):
+            return (center[0], center[1], heading)
+    assert preferred is not None
+    return preferred
+
+
+def _spiral_offsets(step: float, samples: int):
+    """0, +step, -step, +2*step, ... -- nearest-first around a preferred
+    bearing, so the returned approach is the least rotation that works."""
+    yield 0.0
+    for i in range(1, samples // 2 + 1):
+        yield i * step
+        yield -i * step
 
 
 def _astar(nodes: list[Point], edges: dict[int, list[tuple[int, float]]], start: int, goal: int) -> list[int] | None:
@@ -334,21 +525,50 @@ class NavigateTo(Behavior):
             obstacles.append(_octagon(other_pos, radius))
         return obstacles
 
+    # How far a target has to drift before it's worth rebuilding the
+    # whole visibility graph for it. A target derived from the robot's
+    # own live pose (Score's standoff, Collect's approach) jitters by
+    # thousandths of an inch every tick; replanning on that is pure
+    # cost, and the route it returns is the same one.
+    _TARGET_MOVE_EPSILON = 0.5
+
+    def _target_moved(self, target: Pose2d) -> bool:
+        if self._last_target is None:
+            return True
+        return math.hypot(target.x - self._last_target.x, target.y - self._last_target.y) > self._TARGET_MOVE_EPSILON
+
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
         target = self.target_provider(ctx)
         field = getattr(ctx.match, "field", None) if ctx.match is not None else None
 
         self._replan_timer -= ctx.dt
-        target_moved = self._last_target is None or (target.x, target.y) != (self._last_target.x, self._last_target.y)
-        if self._path is None or self._replan_timer <= 0.0 or target_moved:
+        if self._path is None or self._replan_timer <= 0.0 or self._target_moved(target):
             self._replan(robot, target, field, match=ctx.match)
             self._replan_timer = self.replan_period
             self._last_target = target
 
         assert self._path is not None
-        waypoint = self._path[self._waypoint_index]
         pose = robot.pose
+
+        # Skip every waypoint already reached, not just one per tick. A
+        # replan restarts the path at index 0 -- and index 0 is the
+        # robot's own position, so it's always "reached" -- which means a
+        # single advance per tick caps progress at waypoint 1. That is
+        # fine while replans are 0.25s apart, but a target that moves
+        # every tick (any Score target, since clear_standoff picks its
+        # approach from where the robot currently is) replans every tick,
+        # and then the robot can *never* get past waypoint 1: it creeps
+        # toward it at a speed proportional to a distance that is already
+        # inside the tolerance, and sits there until the route's shape
+        # happens to change. That's what parked robots a few inches shy
+        # of an inflated REEF corner for seconds at a time.
+        while self._waypoint_index < len(self._path) - 1:
+            if (self._path[self._waypoint_index] - pose.translation).length > self.position_tolerance:
+                break
+            self._waypoint_index += 1
+
+        waypoint = self._path[self._waypoint_index]
         delta = waypoint - pose.translation
         distance = delta.length
         is_final = self._waypoint_index == len(self._path) - 1
@@ -356,18 +576,9 @@ class NavigateTo(Behavior):
         desired_heading = self._desired_heading(pose, waypoint, target, delta)
         heading_error = wrap_angle(desired_heading - pose.heading)
 
-        at_waypoint = distance <= self.position_tolerance
-        if at_waypoint and is_final and abs(heading_error) <= self.heading_tolerance:
+        if distance <= self.position_tolerance and is_final and abs(heading_error) <= self.heading_tolerance:
             robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
             return Status.SUCCESS
-        if at_waypoint and not is_final:
-            self._waypoint_index += 1
-            waypoint = self._path[self._waypoint_index]
-            delta = waypoint - pose.translation
-            distance = delta.length
-            is_final = self._waypoint_index == len(self._path) - 1
-            desired_heading = self._desired_heading(pose, waypoint, target, delta)
-            heading_error = wrap_angle(desired_heading - pose.heading)
 
         vx, vy = 0.0, 0.0
         if distance > 1e-6:
@@ -393,5 +604,9 @@ class NavigateTo(Behavior):
 __all__ = [
     "plan_path",
     "estimate_travel_time",
+    "clear_standoff",
+    "convex_overlap",
+    "footprint_polygon",
+    "polygon_distance",
     "NavigateTo",
 ]

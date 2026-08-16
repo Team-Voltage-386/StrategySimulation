@@ -14,7 +14,7 @@ from typing import Literal
 
 from common_sim.control import world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
-from common_sim.control.navigation import NavigateTo
+from common_sim.control.navigation import NavigateTo, clear_standoff
 from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
 from common_sim.field.field_config import polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
@@ -117,6 +117,7 @@ class Collect(Tactic):
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         robot = ctx.robot
+        characteristics = robot.characteristics
         if self._target_station is not None:
             cx, cy = polygon_centroid(self._target_station.vertices)
             piece_type = self._target_station.piece_type
@@ -130,12 +131,35 @@ class Collect(Tactic):
         # a robot whose intake only accepts a piece type on a non-front
         # side (e.g. algae on "right") drives straight at the target
         # nose-first and never actually gets it in intake range.
-        side = robot.characteristics.intake_side_for(piece_type)
+        side = characteristics.intake_side_for(piece_type)
         outward = SIDE_OUTWARD[side]
-        bearing = math.atan2(cy - robot.pose.y, cx - robot.pose.x)
         side_local_angle = math.atan2(outward[1], outward[0])
-        heading = wrap_angle(bearing - side_local_angle)
-        return Pose2d(cx, cy, heading)
+
+        if self._target_station is not None:
+            # An intake station is a floor area, not a structure: driving
+            # into it is the correct thing to do, and standing off it
+            # would leave the side's sensor short of the location.
+            bearing = math.atan2(cy - robot.pose.y, cx - robot.pose.x)
+            return Pose2d(cx, cy, wrap_angle(bearing - side_local_angle))
+
+        # A loose piece, though, is aimed at with the *bumper*, parked so
+        # the piece sits mid-wedge in the intake's reach rather than under
+        # the chassis center. REEFSCAPE spawns ALGAE about 7in off the
+        # REEF wall; a robot putting its center there buries half its
+        # length in the REEF, and the goal being that deep inside the
+        # inflated hex also caps the clearance the planner is allowed to
+        # keep on the way over (see _clearance_for_goal), so it clips the
+        # REEF's corner getting there too. Standing off fixes both: the
+        # chassis stays out, and the goal it plans toward is far enough
+        # from the structure to earn full clearance.
+        half_extent = (characteristics.length if side in ("front", "back") else characteristics.width) / 2.0
+        x, y, heading = clear_standoff(
+            ctx.match.field, (cx, cy), (robot.pose.x, robot.pose.y),
+            half_extent + characteristics.intake_range / 2.0,
+            width=characteristics.width, length=characteristics.length,
+            side_local_angle=side_local_angle,
+        )
+        return Pose2d(x, y, heading)
 
     def _pick_target(self, ctx: BehaviorContext) -> bool:
         match, robot = ctx.match, ctx.robot
@@ -246,16 +270,29 @@ class Score(Tactic):
         # _pick_option was willing to share it, and without it both
         # robots would drive at the identical centroid.
         occupants = world_view.region_occupants(ctx.match, region, exclude=robot)
-        cx, cy = world_view.region_approach_point(region, robot, occupants)
+        aim = world_view.region_approach_point(region, robot, occupants)
         side = robot.characteristics.score_side_for(self._current.piece.piece_type)
         outward = SIDE_OUTWARD[side]
-        # Heading that presents `side` toward the region: rotate so the
-        # side's outward normal points from robot to region, i.e. the
-        # side's local outward direction aligned with the bearing.
-        bearing = math.atan2(cy - robot.pose.y, cx - robot.pose.x)
         side_local_angle = math.atan2(outward[1], outward[0])
-        heading = wrap_angle(bearing - side_local_angle)
-        return Pose2d(cx, cy, heading)
+
+        # Park with the scoring side's bumper edge on `aim`, not the
+        # chassis *center* on it. A scoring zone is sized to the entry
+        # face of the structure it belongs to -- a REEFSCAPE REEF face's
+        # is 10in deep, starting at the REEF wall -- so a robot aiming
+        # its center there is asking to put 14in of its own chassis
+        # inside solid structure. It never arrives: it grinds along the
+        # REEF, ends up parked askew, and its manipulator never squares
+        # up. Scoring only ever needed the side's reach points inside
+        # the zone (Robot.side_engages_polygon), which a bumper-on-the-
+        # zone pose satisfies with the whole chassis in free space.
+        characteristics = robot.characteristics
+        half_extent = (characteristics.length if side in ("front", "back") else characteristics.width) / 2.0
+        x, y, heading = clear_standoff(
+            ctx.match.field, aim, (robot.pose.x, robot.pose.y), half_extent,
+            width=characteristics.width, length=characteristics.length,
+            side_local_angle=side_local_angle,
+        )
+        return Pose2d(x, y, heading)
 
     def _pick_option(self, ctx: BehaviorContext) -> bool:
         match, robot = ctx.match, ctx.robot
