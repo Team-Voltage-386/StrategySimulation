@@ -22,7 +22,7 @@ REGISTRY: dict[str, type] = {
     cls.__name__: cls
     for cls in (
         triggers.Always, triggers.PiecesAvailable, triggers.MatchTime, triggers.PiecesHeld,
-        triggers.AtCapacity, triggers.ScoringAvailable, triggers.OpponentNear,
+        triggers.AtCapacity, triggers.ScoringAvailable, triggers.OpponentNear, triggers.BeingDefended,
         triggers.AllOf, triggers.AnyOf, triggers.Not,
         tactics.Collect, tactics.Score, tactics.Defend, tactics.RunScript, tactics.Idle,
     )

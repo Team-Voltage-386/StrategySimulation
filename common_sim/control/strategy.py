@@ -40,11 +40,48 @@ class Strategy:
 class Intent:
     """What the active tactic is currently trying to do -- read by
     Defend on opposing robots (`target == "opponent_intent"`) and by a
-    GUI to draw the active target on the field canvas."""
+    GUI to draw the active target on the field canvas.
+
+    `defending`/`marking` are the *counter*-defense half of that same
+    channel: a denial tactic declares not just where it's going but that
+    the reason is denial, and whom it's denying. Without the flag a
+    defender parked on a scoring region is indistinguishable from a
+    teammate about to score there, so the robot being denied can't tell
+    "that spot is busy for a moment" from "that spot is being taken away
+    from me for the rest of the match" -- and those want opposite
+    responses (wait vs. go somewhere else)."""
     tactic_name: str
     target_region: str | None = None
     target_piece: object = None
     target_pose: object = None
+    defending: bool = False
+    marking: object = None  # the Robot this denial is aimed at, when known
+
+
+def _reject_nested_for_duration(rule: Rule) -> None:
+    """`for_duration` is bookkept here, against the rule's own trigger --
+    see triggers.py's module docstring. A trigger nested inside an
+    AllOf/AnyOf/Not is evaluated by its parent, which calls plain
+    `evaluate()` and never consults the hysteresis clock, so a
+    `for_duration` down there is silently ignored: the rule fires
+    immediately and a strategy that reads as "once a defender has been on
+    me for two seconds" behaves as "the instant one glances at me".
+
+    Silently, and for as long as nobody thinks to measure it -- which is
+    exactly how it was found. So refuse to build the controller at all
+    rather than run a strategy that doesn't mean what it says. The fix is
+    always to lift the duration onto the outermost trigger, which is what
+    the author meant anyway."""
+    pending = list(rule.trigger.children())
+    while pending:
+        node = pending.pop()
+        if node.for_duration:
+            raise ValueError(
+                f"rule {rule.name!r}: for_duration={node.for_duration} on a nested "
+                f"{type(node).__name__} is never applied -- move it to the rule's "
+                f"outermost trigger ({type(rule.trigger).__name__})"
+            )
+        pending.extend(node.children())
 
 
 class _RuleState:
@@ -60,6 +97,9 @@ class StrategyController:
     def __init__(self, strategy: Strategy, robot: "Robot"):
         self.strategy = strategy
         self.robot = robot
+
+        for rule in strategy.rules:
+            _reject_nested_for_duration(rule)
 
         self._states: dict[str, _RuleState] = {rule.name: _RuleState() for rule in strategy.rules}
         self._active_rule: Rule | None = None
@@ -176,6 +216,8 @@ class StrategyController:
         tactic_name = type(tactic).__name__
         target_region: str | None = None
         target_piece = None
+        defending = False
+        marking = None
 
         if isinstance(tactic, Score) and tactic._current is not None:
             target_region = tactic._current.region.name
@@ -186,5 +228,10 @@ class StrategyController:
                 target_region = tactic._target_station.name
         elif isinstance(tactic, Defend):
             target_region = tactic.target_region_name
+            defending = True
+            marking = tactic.marked_robot
 
-        self.intent = Intent(tactic_name=tactic_name, target_region=target_region, target_piece=target_piece)
+        self.intent = Intent(
+            tactic_name=tactic_name, target_region=target_region, target_piece=target_piece,
+            defending=defending, marking=marking,
+        )

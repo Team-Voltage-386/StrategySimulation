@@ -80,6 +80,65 @@ def _predicted_piece_position(origin: tuple[float, float], piece, speed: float) 
 _RETARGET_MARGIN_MIN = 0.3
 _RETARGET_MARGIN_RATIO = 0.15
 
+# How long a robot sticks with a target it has just switched to before
+# it is willing to switch again. A defender re-reads our published intent
+# and gives chase, so without this the two would trade moves every replan
+# -- we move, it follows, we move -- and neither the defender's denial
+# nor our scoring would ever complete. One commitment window is long
+# enough to actually arrive and deposit at a target the defender was not
+# already sitting on.
+_EVADE_COMMIT_PERIOD = 3.0
+
+# How long a robot keeps at a scoring attempt that isn't completing
+# before re-opening the question of what to score and where: this
+# multiple of the time the attempt *should* have taken (travel +
+# deposit, priced when the target was picked), floored at
+# `_STALL_PATIENCE_MIN` so a target already within arm's reach still
+# gets a fair few seconds.
+#
+# This is not a defense mechanism -- it's the escape hatch for a Score
+# that has committed to something it cannot finish, from any cause. The
+# worst case is a robot that scoops up a piece its strategy has no plan
+# for (a stray ALGAE picked up in passing by a CORAL cycler): the
+# planner ranks that piece's one region top, the region never comes
+# free, and with no re-pick the robot holds it and stops cycling for the
+# rest of the match. Measured on a 2v2: 140s of a 150s match spent
+# holding one un-scoreable piece.
+#
+# It is also, in practice, the whole of the counter-defense. Comparing
+# arrival times ("could a defender get there before me?") looks like the
+# principled test and turns out to be useless for the case that matters:
+# a defender already parked on the spot we're parked at wins that race by
+# roughly nothing, because our remaining travel time -- the thing it has
+# to beat -- has gone to zero. Which is precisely what being denied *is*:
+# both robots stationary, one of them not scoring. Time spent failing is
+# the only signal that separates it from a spot merely busy for a moment.
+_STALL_PATIENCE_RATIO = 1.6
+_STALL_PATIENCE_MIN = 2.5
+
+# Not here, though it looks like it belongs here: a per-(region, action)
+# cooldown so that giving up on a target also means not immediately
+# re-picking it. The pathology it addresses is real and measurable -- a
+# robot denied at its best option ping-pongs between its top two, giving
+# up on A near A (where B now ranks best), driving to B, giving up on B
+# near B, and driving back, forever. Measured 1v1 against a blocker: 14
+# switches between the PROCESSOR and the NET, 55s holding one ALGAE, no
+# attempt completed.
+#
+# Both fixes for it measured *worse* than the ping-pong. A cooldown plus
+# "contest the one you had when everything is on cooldown" scored 15.5 to
+# the ping-pong's 19.0 (1v1, block); on the 2v2 bench it cost ~4 points
+# in every defended row. The reason is that neither behavior can win:
+# with equal drive power and no contact model, a defender parked on a
+# scoring spot is an immovable wall, so patiently contesting it scores
+# exactly as little as thrashing does -- and thrashing at least keeps the
+# robot near a spot the defender may briefly leave.
+#
+# So this is a fidelity problem wearing a behavior problem's clothes, and
+# the tuning is blocked on a pushing/contact model. Revisit once robots
+# can displace each other; the numbers cannot tell good counter-defense
+# from bad while no counter-defense works.
+
 # How far past the halfway line a committed piece has to have rolled --
 # as a fraction of the distance between the two alliances' ends -- before
 # `opposing_side="last_resort"` gives up on chasing it (see
@@ -144,6 +203,29 @@ def _tiebreak_bias(match, robot) -> float:
         return match.robots.index(robot) * 1e-6
     except ValueError:
         return 0.0
+
+
+class _Throttle:
+    """Fires at most once per `period` of accumulated `dt`, for the
+    expensive re-evaluation a tactic wants on its replan cadence rather
+    than every physics tick (obstacle-routed ETAs, one per candidate).
+    The cheap per-tick checks around it still run every tick."""
+
+    __slots__ = ("period", "_elapsed")
+
+    def __init__(self, period: float):
+        self.period = period
+        self._elapsed = 0.0
+
+    def ready(self, dt: float) -> bool:
+        self._elapsed += dt
+        if self._elapsed < self.period:
+            return False
+        self._elapsed = 0.0
+        return True
+
+    def reset(self) -> None:
+        self._elapsed = 0.0
 
 
 class Tactic(Behavior):
@@ -229,14 +311,14 @@ class Collect(Tactic):
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
-        self._reconsider_timer = 0.0
+        self._reconsider = _Throttle(replan_period)
         self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
     def reset(self) -> None:
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
-        self._reconsider_timer = 0.0
+        self._reconsider.reset()
         self._nav.reset()
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
@@ -603,17 +685,6 @@ class Collect(Tactic):
         margin = max(_RETARGET_MARGIN_MIN, current_eta * _RETARGET_MARGIN_RATIO)
         return best_eta + margin < current_eta
 
-    def _reconsider_now(self, ctx: BehaviorContext) -> bool:
-        """Throttle for the expensive re-evaluation checks (obstacle-
-        routed ETAs, one per candidate) to `replan_period`, same as
-        `_nav`'s own replanning cadence -- the cheap held/scored checks
-        in `tick` still run every physics tick regardless."""
-        self._reconsider_timer += ctx.dt
-        if self._reconsider_timer < self.replan_period:
-            return False
-        self._reconsider_timer = 0.0
-        return True
-
     def _pick_target(self, ctx: BehaviorContext) -> bool:
         # Field and station are both just supply the robot's intakes can
         # use (world_view already filters each to what the configured
@@ -661,7 +732,7 @@ class Collect(Tactic):
         # The expensive re-evaluation checks below (obstacle-routed ETAs)
         # only actually run once per replan_period; `reconsider` is False
         # on every other tick in between.
-        reconsider = self._reconsider_now(ctx)
+        reconsider = self._reconsider.ready(ctx.dt)
         target_lost = self._target_piece is not None and (
             self._target_piece.held_by is not None
             or self._target_piece.scored
@@ -702,17 +773,29 @@ class Score(Tactic):
         Param("action", kind="action", default=None, optional=True),
     )
 
-    def __init__(self, planner: ScorePlanner | None = None, region: str | None = None, action: str | None = None, replan_period: float = 0.1):
+    def __init__(
+        self,
+        planner: ScorePlanner | None = None,
+        region: str | None = None,
+        action: str | None = None,
+        replan_period: float = 0.1,
+    ):
         self.planner = planner or GreedyRatePlanner()
         self.region = region
         self.action = action
         self.replan_period = replan_period
 
         self._current = None  # planning.ScoringOption
+        self._committed_elapsed = 0.0
+        self._patience = _STALL_PATIENCE_MIN
+        self._evade_hold = 0.0
+        self._reconsider = _Throttle(replan_period)
         self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
     def reset(self) -> None:
-        self._current = None
+        self._commit(None)
+        self._evade_hold = 0.0
+        self._reconsider.reset()
         self._nav.reset()
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
@@ -761,18 +844,18 @@ class Score(Tactic):
             if self.action is not None:
                 legal = [o for o in legal if o.action == self.action]
             if not legal:
-                self._current = None
+                self._commit(None)
                 return False
-            self._current = self._best_uncrowded(ctx, legal) or self._best_valued(ctx, legal)
+            self._commit(self._best_uncrowded(ctx, legal) or self._best_valued(ctx, legal))
             return True
 
         options = self.planner.plan(match, robot)
         if not options:
-            self._current = None
+            self._commit(None)
             return False
         best = options[0]
         if world_view.region_has_room(match, best.region, robot):
-            self._current = best
+            self._commit(best)
             return True
 
         # The planner ranks on value alone, so with identical regions to
@@ -785,8 +868,19 @@ class Score(Tactic):
         # when nothing has room: contesting a spot still eventually
         # scores, standing around holding the piece never does.
         legal = [o for o in world_view.scoring_options(match, robot) if o.piece is best.piece]
-        self._current = self._best_uncrowded(ctx, legal) or best
+        self._commit(self._best_uncrowded(ctx, legal) or best)
         return True
+
+    def _commit(self, option) -> None:
+        """Take `option` as the target and restart the patience clock. The
+        patience budget is priced off the option itself -- how long the
+        attempt *should* take -- so a far region is given the time to
+        drive to it and a region already underfoot is not."""
+        self._current = option
+        self._committed_elapsed = 0.0
+        self._patience = _STALL_PATIENCE_MIN if option is None else max(
+            _STALL_PATIENCE_MIN, _STALL_PATIENCE_RATIO * (option.travel_time + option.deposit_time),
+        )
 
     def _best_uncrowded(self, ctx: BehaviorContext, legal) -> object | None:
         roomy = [o for o in legal if world_view.region_has_room(ctx.match, o.region, ctx.robot)]
@@ -799,6 +893,37 @@ class Score(Tactic):
         built = [build_option(ctx.match, ctx.robot, o, pos) for o in legal]
         return max(built, key=lambda o: o.value_rate)
 
+    def _reconsider_target(self, ctx: BehaviorContext) -> None:
+        """Re-open the choice of what to score and where once the current
+        attempt has run past its patience budget without completing (see
+        `_STALL_PATIENCE_*`) -- whether it's a defender in the way, a
+        region that filled up, or a piece nothing on the field will
+        accept.
+
+        Locked out for `_EVADE_COMMIT_PERIOD` after each actual change of
+        target. A defender re-reads our published intent and follows, so
+        an unthrottled robot would abandon each new target the moment the
+        chaser closed on it and never arrive anywhere to deposit."""
+        if self._current is None:
+            return
+        self._committed_elapsed += ctx.dt
+        self._evade_hold = max(0.0, self._evade_hold - ctx.dt)
+        if self._evade_hold > 0.0 or not self._reconsider.ready(ctx.dt):
+            return
+        if self._committed_elapsed < self._patience:
+            return
+
+        previous = self._current
+        if not self._pick_option(ctx) or self._current is None:
+            # Nothing legal to switch to -- keep the target we had rather
+            # than dropping to no target at all, which would leave
+            # `_provide_target` with nothing to aim at this tick.
+            self._commit(previous)
+            return
+        if self._current.region.name != previous.region.name or self._current.piece is not previous.piece:
+            self._evade_hold = _EVADE_COMMIT_PERIOD
+            self._nav.reset()
+
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
         if not robot.held_pieces:
@@ -808,73 +933,216 @@ class Score(Tactic):
         if self._current is None or self._current.piece not in robot.held_pieces:
             if not self._pick_option(ctx):
                 return Status.RUNNING  # holding something with nowhere legal to put it (yet) -- keep waiting, not a failure
+        elif not self._deposit_ready(ctx):
+            # Don't shop for a different target while this one is already
+            # scorable from where we stand -- the patience clock stops
+            # too, so a deposit that has started always gets to finish.
+            self._reconsider_target(ctx)
+
+        if self._deposit_ready(ctx):
+            # Stop. `_provide_target` aims at a *nominal* point in the
+            # region, but any pose that satisfies `deposit_region_for` is
+            # already a scoring pose, and the deposit timer only survives
+            # while the pose stays legal. Driving on toward the aim point
+            # from a legal pose therefore cancels the very deposit it was
+            # trying to set up -- invisible on a region whose legal area
+            # is barely bigger than the aim tolerance, fatal on a large
+            # one. REEFSCAPE's NET is 80x285in: a robot entered it,
+            # latched the deposit, drove ~40in further to the aim point
+            # and left the far side still holding the ALGAE, over and
+            # over. Nearest-legal-pose-wins is also what makes a large
+            # region hard to defend, which is the point of a large
+            # region: the defender has to deny the whole area, not one
+            # spot in it.
+            robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
+            robot.set_deposit_active(True, action=self._current.action)
+            return Status.RUNNING
 
         self._nav.tick(ctx)
-
-        ready_region = ctx.match.deposit_region_for(robot, self._current.piece)
-        if ready_region is not None and ready_region.name == self._current.region.name:
-            robot.set_deposit_active(True, action=self._current.action)
-        else:
-            robot.set_deposit_active(False, action=self._current.action)
-
+        robot.set_deposit_active(False, action=self._current.action)
         return Status.RUNNING
+
+    def _deposit_ready(self, ctx: BehaviorContext) -> bool:
+        """Whether a deposit finishing on this tick would score in the
+        committed region. Publishes the action first because
+        `Match.deposit_region_for` resolves against the action the robot
+        has latched, so asking before setting it answers for the
+        *previous* target's action."""
+        if self._current is None:
+            return False
+        robot = ctx.robot
+        robot.set_deposit_active(robot.deposit_active, action=self._current.action)
+        region = ctx.match.deposit_region_for(robot, self._current.piece)
+        return region is not None and region.name == self._current.region.name
+
+
+# How long a defender stays on the opponent it has marked before it will
+# consider swapping, and how much better (in the `_threat` key's own ETA
+# units) another opponent has to look to be worth swapping to.
+#
+# A defender picking the nearest opponent fresh every tick trades marks
+# every time two of them cross, and ends up escorting the midpoint of the
+# pair rather than denying either. Both robots then cycle almost freely
+# while the defender looks busy. Committing to one mark is most of what
+# makes a defender worth a robot at all.
+_MARK_DWELL = 2.0
+_MARK_SWAP_MARGIN = 1.5
 
 
 class Defend(Tactic):
-    """Resolves a region to deny -- an explicit name, or (when
-    `target == "opponent_intent"`) the nearest opponent's own published
-    `intent.target_region`. Holds the blocking pose on the segment
-    between that opponent and the region centroid, at `standoff` from
-    the region, facing the opponent. Never terminates on its own --
-    day-one denial is purely positional (parking in the way); there's
-    no pushing-power/contact-penalty model yet."""
+    """Denies an opponent the thing it is trying to do, positionally.
+    Never terminates on its own -- denial here is purely about parking in
+    the way; there's no pushing-power or contact-penalty model yet.
+
+    Which opponent: the most threatening one within `engage_range` (see
+    `_threat`), held for `_MARK_DWELL` so the mark doesn't change every
+    time two opponents cross. With nobody in range, the defender falls
+    back to lurking on the opponents' scoring end rather than standing
+    where it happens to be -- an idle defender parked at our own wall
+    denies nothing and is a long way from where it will next be needed.
+
+    Which spot: `target` names a region to deny outright, or
+    "opponent_intent" reads it from the mark's own published intent, or
+    -- when the mark hasn't declared one (it's off collecting) --
+    `world_view.likely_scoring_region` guesses where it will go.
+    Guessing beats waiting: a defender that only engages once its mark
+    has committed to a region arrives after it does, every time.
+
+    `mode` picks what to do with that spot. "block" takes the segment
+    between mark and region and sits `standoff` back from the region --
+    goalkeeping, best when the region is the scarce thing. "shadow" sits
+    `standoff` off the *mark* on the side facing the region -- man
+    coverage, which stays with an opponent that hasn't committed yet and
+    denies whatever it eventually picks."""
 
     PARAM_SCHEMA = (
         Param("target", kind="str", default="opponent_intent"),
+        Param("mode", kind="choice", choices=("block", "shadow"), default="block"),
         Param("standoff", kind="float", default=24.0, min=0, suffix=" in"),
         Param("engage_range", kind="float", default=200.0, min=0, suffix=" in"),
     )
 
-    def __init__(self, target: str = "opponent_intent", standoff: float = 24.0, engage_range: float = 200.0, replan_period: float = 0.1):
+    def __init__(
+        self,
+        target: str = "opponent_intent",
+        mode: Literal["block", "shadow"] = "block",
+        standoff: float = 24.0,
+        engage_range: float = 200.0,
+        replan_period: float = 0.1,
+    ):
         self.target = target
+        self.mode = mode
         self.standoff = standoff
         self.engage_range = engage_range
         self.replan_period = replan_period
         self.target_region_name: str | None = None
+        # Published on the robot's Intent so the robot being denied can
+        # tell it's the one being denied -- see world_view.defenders_against.
+        self.marked_robot = None
+        self._mark_elapsed = 0.0
+        self._repick = _Throttle(replan_period)
         self._nav = NavigateTo(
             self._provide_target, heading_mode="face_target", replan_period=replan_period, avoid_robots=False
         )
 
     def reset(self) -> None:
         self.target_region_name = None
+        self.marked_robot = None
+        self._mark_elapsed = 0.0
+        self._repick.reset()
         self._nav.reset()
 
-    def _resolve_region_name(self, ctx: BehaviorContext, opponent) -> str | None:
+    def _region_for(self, ctx: BehaviorContext, opponent):
+        """The region this defender is denying `opponent`. An explicit
+        `target` name wins; otherwise the opponent's own declared region,
+        falling back to a guess at where it will go."""
         if self.target != "opponent_intent":
-            return self.target
-        intent = getattr(opponent, "intent", None)
-        return getattr(intent, "target_region", None) if intent is not None else None
+            return world_view.region_by_name(ctx.match, self.target)
+        return world_view.likely_scoring_region(ctx.match, opponent)
+
+    def _threat(self, ctx: BehaviorContext, opponent) -> tuple[int, float]:
+        """How much `opponent` is worth marking, smallest first: one
+        already holding a piece can score the moment it's left alone and
+        outranks one still hunting for something to carry, and among
+        equals the one we can actually get to soonest wins. Obstacle-
+        routed, like every other ETA a tactic compares, so a mark on the
+        far side of the REEF isn't mistaken for the reachable one."""
+        eta = estimate_travel_time(
+            ctx.match.field, (ctx.robot.pose.x, ctx.robot.pose.y),
+            (opponent.pose.x, opponent.pose.y), ctx.robot.characteristics,
+        )
+        return (0 if opponent.held_pieces else 1, eta)
+
+    def _in_range(self, ctx: BehaviorContext, opponent) -> bool:
+        origin = ctx.robot.pose.translation
+        return origin.get_distance(opponent.pose.translation) <= self.engage_range
 
     def _pick_opponent(self, ctx: BehaviorContext):
-        opponents = world_view.opponents(ctx.match, ctx.robot.alliance)
-        opponents = [o for o in opponents if self._resolve_region_name(ctx, o) is not None]
-        if not opponents:
+        """The opponent to mark, sticky for `_MARK_DWELL` and only handed
+        over to a rival that is better by `_MARK_SWAP_MARGIN`."""
+        candidates = [
+            o for o in world_view.opponents(ctx.match, ctx.robot.alliance)
+            if self._in_range(ctx, o) and self._region_for(ctx, o) is not None
+        ]
+        if not candidates:
             return None
-        origin = ctx.robot.pose.translation
-        return min(opponents, key=lambda o: origin.get_distance(o.pose.translation))
+
+        best = min(candidates, key=lambda o: self._threat(ctx, o))
+        incumbent = self.marked_robot
+        if incumbent is None or incumbent not in candidates:
+            return best
+        if self._mark_elapsed < _MARK_DWELL:
+            return incumbent
+
+        best_key, incumbent_key = self._threat(ctx, best), self._threat(ctx, incumbent)
+        if best_key[0] < incumbent_key[0] or best_key[1] + _MARK_SWAP_MARGIN < incumbent_key[1]:
+            return best
+        return incumbent
+
+    def _lurk_pose(self, ctx: BehaviorContext) -> Pose2d:
+        """Where to wait with no opponent in range: the nearest region
+        the opponents score in. That is where they have to come back to,
+        so waiting there is both the shortest trip to the next
+        engagement and, in itself, a spot they'd rather we weren't."""
+        robot = ctx.robot
+        opposing = next(
+            (o.alliance for o in world_view.opponents(ctx.match, robot.alliance)), None,
+        )
+        regions = world_view.alliance_scoring_regions(ctx.match, opposing) if opposing else []
+        if not regions:
+            return robot.pose
+        origin = (robot.pose.x, robot.pose.y)
+        region = min(
+            regions,
+            key=lambda r: math.hypot(
+                world_view.region_centroid(r)[0] - origin[0], world_view.region_centroid(r)[1] - origin[1]
+            ),
+        )
+        self.target_region_name = region.name
+        cx, cy = world_view.region_centroid(region)
+        return Pose2d(cx, cy, math.atan2(cy - origin[1], cx - origin[0]))
+
+    def _update_mark(self, ctx: BehaviorContext) -> None:
+        """Re-run the (obstacle-routed, so not free) mark selection and
+        restart the dwell clock if it came back with someone new. Driven
+        from `tick` on the replan cadence rather than from
+        `_provide_target`, which runs every physics tick."""
+        opponent = self._pick_opponent(ctx)
+        if opponent is not self.marked_robot:
+            self._mark_elapsed = 0.0
+            self.marked_robot = opponent
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         robot = ctx.robot
-        opponent = self._pick_opponent(ctx)
+        opponent = self.marked_robot
         if opponent is None:
             self.target_region_name = None
-            return robot.pose
+            return self._lurk_pose(ctx)
 
-        region_name = self._resolve_region_name(ctx, opponent)
-        region = world_view.region_by_name(ctx.match, region_name) if region_name else None
+        region = self._region_for(ctx, opponent)
         if region is None:
             self.target_region_name = None
-            return robot.pose
+            return self._lurk_pose(ctx)
         self.target_region_name = region.name
 
         rx, ry = world_view.region_centroid(region)
@@ -883,6 +1151,12 @@ class Defend(Tactic):
         dist = math.hypot(dx, dy)
         if dist < 1e-6:
             block_x, block_y = rx, ry
+        elif self.mode == "shadow":
+            # `standoff` out from the mark toward the region: stays with
+            # an opponent wherever it goes, and is already on the correct
+            # side of it when it finally commits.
+            t = min(1.0, self.standoff / dist)
+            block_x, block_y = ox + dx * t, oy + dy * t
         else:
             t = min(1.0, self.standoff / dist)  # fraction of the segment back from the region
             block_x, block_y = rx - dx * t, ry - dy * t
@@ -891,5 +1165,8 @@ class Defend(Tactic):
         return Pose2d(block_x, block_y, heading)
 
     def tick(self, ctx: BehaviorContext) -> Status:
+        self._mark_elapsed += ctx.dt
+        if self.marked_robot is None or self._repick.ready(ctx.dt):
+            self._update_mark(ctx)
         self._nav.tick(ctx)
         return Status.RUNNING

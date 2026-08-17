@@ -1,0 +1,26 @@
+{
+  "name": "full_defense",
+  "rules": [
+    {
+      "name": "defend",
+      "trigger": {
+        "type": "Always",
+        "for_duration": null
+      },
+      "tactic": {
+        "type": "Defend",
+        "target": "opponent_intent",
+        "mode": "block",
+        "standoff": 24.0,
+        "engage_range": 200.0
+      },
+      "priority": 100,
+      "min_duration": 1.0,
+      "cooldown": 0.0,
+      "once": false
+    }
+  ],
+  "fallback": {
+    "type": "Idle"
+  }
+}

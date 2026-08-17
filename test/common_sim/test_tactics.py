@@ -446,6 +446,31 @@ def test_score_shares_a_region_with_room_for_both():
     assert target.distance_to(partner.pose) >= 28.0
 
 
+def test_score_stops_once_the_pose_already_scores():
+    """Entering a big region is arriving. A robot whose current pose
+    already resolves to the target region must hold it and deposit, not
+    keep driving to the nominal aim point -- leaving the region cancels
+    the deposit it just started, so on a region much larger than the aim
+    tolerance the robot drives in one side and out the other forever."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    # Just inside the goal's near edge (x=80), far from its centroid.
+    robot = match.add_robot(make_characteristics(), Pose2d(95, 100, 0))
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "goal"
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    aim = tactic._provide_target(ctx)
+    assert aim.distance_to(robot.pose) > 20.0  # it would otherwise drive on
+
+    for _ in range(30):
+        tactic.tick(ctx)
+        match.step(ctx.dt)
+        ctx.elapsed += ctx.dt
+
+    assert robot.pose.distance_to(Pose2d(95, 100, 0)) < 2.0
+    assert not robot.held_pieces  # deposited where it stood
+
+
 def test_score_contests_a_full_region_rather_than_stalling():
     # Every region taken -- doubling up still eventually scores; waiting
     # forever holding the piece never does.
@@ -868,3 +893,139 @@ def test_collect_gives_up_a_piece_that_rolls_well_onto_the_opposing_half():
     for _ in range(20):
         tactic.tick(ctx)
     assert tactic._target_piece is stationary
+
+
+class _DefenseIntent:
+    def __init__(self, *, defending=True, marking=None, target_region=None):
+        self.defending = defending
+        self.marking = marking
+        self.target_region = target_region
+        self.target_piece = None
+
+
+class _DefenseController:
+    def __init__(self, intent):
+        self.intent = intent
+
+    def tick(self, ctx):
+        pass
+
+
+def _drive(match, tactic, robot, ticks, dt=1.0 / 60.0):
+    ctx = BehaviorContext(robot=robot, dt=dt, match=match)
+    for _ in range(ticks):
+        tactic.tick(ctx)
+        match.step(dt)
+        ctx.elapsed += dt
+    return ctx
+
+
+def test_defend_publishes_the_robot_it_marked():
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    opponent.controller = _FakeController(target_region="goal")
+
+    tactic = tactics.Defend(target="opponent_intent")
+    _drive(match, tactic, defender, 60)
+
+    assert tactic.marked_robot is opponent
+    assert tactic.target_region_name == "goal"
+
+
+def test_defend_holds_its_mark_rather_than_chasing_whoever_is_nearest():
+    """A defender that re-picks the nearest opponent every tick escorts
+    the midpoint of the pair instead of denying either of them."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    far = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    near = match.add_robot(make_characteristics(), Pose2d(140, 100, 0), alliance="red")
+    for opponent in (far, near):
+        opponent.controller = _FakeController(target_region="goal")
+
+    tactic = tactics.Defend(target="opponent_intent")
+    ctx = BehaviorContext(robot=defender, dt=1.0 / 60.0, match=match)
+    tactic.tick(ctx)
+    assert tactic.marked_robot is near  # nothing held yet: closest wins
+
+    # Hand the far robot a piece: it becomes the bigger threat, but the
+    # dwell window has to expire before the mark is allowed to move.
+    far.held_pieces.append(match.spawn_piece(WIDGET, (20, 100)))
+    for _ in range(30):  # 0.5s, inside _MARK_DWELL
+        tactic.tick(ctx)
+        match.step(ctx.dt)
+    assert tactic.marked_robot is near
+
+    for _ in range(180):  # past the dwell
+        tactic.tick(ctx)
+        match.step(ctx.dt)
+    assert tactic.marked_robot is far
+
+
+def test_defend_ignores_opponents_beyond_engage_range():
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(280, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    opponent.controller = _FakeController(target_region="goal")
+
+    tactic = tactics.Defend(target="opponent_intent", engage_range=50.0)
+    _drive(match, tactic, defender, 60)
+    assert tactic.marked_robot is None
+
+    # With the range wide enough, the same robot is marked.
+    reachable = tactics.Defend(target="opponent_intent", engage_range=400.0)
+    _drive(match, reachable, defender, 60)
+    assert reachable.marked_robot is opponent
+
+
+def test_defend_shadow_mode_sits_on_the_mark_not_on_the_region():
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    opponent.controller = _FakeController(target_region="goal")
+
+    tactic = tactics.Defend(target="opponent_intent", mode="shadow", standoff=30.0)
+    _drive(match, tactic, defender, 900)
+
+    # "goal" centroid is (165, 100); the mark sits way back at x=20, so
+    # block mode would park near the region and shadow parks by the mark.
+    assert defender.pose.distance_to(Pose2d(20, 100, 0)) < 60.0
+    assert defender.pose.x < 100.0
+
+
+def test_defend_guesses_a_region_when_the_mark_has_declared_none():
+    """A defender that waits for its mark to commit arrives after it."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+
+    tactic = tactics.Defend(target="opponent_intent")
+    _drive(match, tactic, defender, 60)
+
+    assert tactic.marked_robot is opponent
+    assert tactic.target_region_name == "goal"
+
+
+def test_score_re_picks_when_its_target_never_completes():
+    """The stall escape: a Score committed to something it cannot finish
+    must not hold the robot for the rest of the match."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    # Outside the goal on purpose: a robot that is *already* in a scoring
+    # pose is supposed to stay in it (see test_score_stops_once_the_pose
+    # _already_scores), so the stall escape can only be exercised from
+    # somewhere the deposit doesn't resolve.
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 180, 0))
+    robot.held_pieces.append(match.spawn_piece(WIDGET, (20, 180)))
+
+    tactic = tactics.Score()
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic.tick(ctx)
+    assert tactic._current is not None
+    committed = tactic._current
+
+    # Freeze the robot where it is and let the patience budget run out;
+    # the target should be re-priced rather than left untouched forever.
+    for _ in range(600):
+        tactic.tick(ctx)
+        ctx.elapsed += ctx.dt
+    assert tactic._current is not committed

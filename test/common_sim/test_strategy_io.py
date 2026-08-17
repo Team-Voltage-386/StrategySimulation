@@ -67,3 +67,40 @@ def test_registry_covers_every_trigger_and_tactic_used():
     assert "MatchTime" in strategy_io.REGISTRY
     assert "PiecesHeld" in strategy_io.REGISTRY
     assert "AtCapacity" in strategy_io.REGISTRY
+
+
+def test_defense_surface_round_trips():
+    """The defense/counter-defense additions have to survive the same
+    save/load path everything else does -- a Defend `mode` that silently
+    reverted to the default on load would be invisible in a sweep."""
+    from common_sim.control import tactics, triggers
+
+    strategy = Strategy(
+        name="defense",
+        rules=[
+            Rule(
+                name="respond",
+                trigger=triggers.AllOf(
+                    for_duration=2.0,
+                    triggers=(triggers.AtCapacity(piece_type="coral"),
+                              triggers.BeingDefended(within=120.0, region="blue_reef_face_0")),
+                ),
+                tactic=tactics.Score(action="l1"),
+                priority=20,
+            ),
+            Rule(
+                name="deny",
+                trigger=triggers.Always(),
+                tactic=tactics.Defend(mode="shadow", standoff=30.0, engage_range=180.0),
+            ),
+        ],
+    )
+
+    restored = strategy_io.from_dict(strategy_io.to_dict(strategy))
+    assert strategy_io.to_dict(restored) == strategy_io.to_dict(strategy)
+
+    defend = restored.rules[1].tactic
+    assert (defend.mode, defend.standoff, defend.engage_range) == ("shadow", 30.0, 180.0)
+    being_defended = restored.rules[0].trigger.triggers[1]
+    assert (being_defended.within, being_defended.region) == (120.0, "blue_reef_face_0")
+    assert restored.rules[0].trigger.for_duration == 2.0

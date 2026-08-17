@@ -141,7 +141,68 @@ def test_describe_does_not_crash():
         trg.Always(), trg.PiecesAvailable(piece_type=WIDGET, min_count=1),
         trg.MatchTime(phase="auto"), trg.PiecesHeld(min_count=1), trg.AtCapacity(),
         trg.ScoringAvailable(min_value=1.0), trg.OpponentNear(region="goal"),
+        trg.BeingDefended(region="goal", within=60.0), trg.BeingDefended(),
         trg.AllOf(triggers=(trg.Always(),)), trg.AnyOf(triggers=(trg.Always(),)),
         trg.Not(trigger=trg.Always()),
     ):
         assert isinstance(trigger.describe(), str)
+
+
+class _DefenseIntent:
+    def __init__(self, *, defending=True, marking=None, target_region=None):
+        self.defending = defending
+        self.marking = marking
+        self.target_region = target_region
+        self.target_piece = None
+
+
+class _DefenseController:
+    def __init__(self, intent):
+        self.intent = intent
+
+    def tick(self, ctx):
+        pass
+
+
+def test_being_defended_needs_declared_intent_not_mere_proximity():
+    match, robot = make_match_and_robot()
+    opponent = match.add_robot(make_characteristics(), Pose2d(160, 100, 0), alliance="red")
+    ctx = ctx_for(match, robot)
+
+    # Right on top of us, but not there to deny us.
+    assert not trg.BeingDefended().evaluate(ctx)
+    assert trg.OpponentNear(within=20).evaluate(ctx)
+
+    opponent.controller = _DefenseController(_DefenseIntent(marking=robot, target_region="goal"))
+    assert trg.BeingDefended().evaluate(ctx)
+
+
+def test_being_defended_filters_on_range_and_region():
+    match, robot = make_match_and_robot()
+    opponent = match.add_robot(make_characteristics(), Pose2d(160, 100, 0), alliance="red")
+    opponent.controller = _DefenseController(_DefenseIntent(marking=robot, target_region="goal"))
+    ctx = ctx_for(match, robot)
+
+    assert trg.BeingDefended(within=20).evaluate(ctx)
+    assert not trg.BeingDefended(within=5).evaluate(ctx)
+    assert trg.BeingDefended(region="goal").evaluate(ctx)
+    assert not trg.BeingDefended(region="elsewhere").evaluate(ctx)
+
+
+def test_being_defended_ignores_a_defender_marking_a_teammate():
+    match, robot = make_match_and_robot()
+    teammate = match.add_robot(make_characteristics(), Pose2d(150, 140, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(160, 100, 0), alliance="red")
+    opponent.controller = _DefenseController(_DefenseIntent(marking=teammate))
+
+    assert not trg.BeingDefended().evaluate(ctx_for(match, robot))
+    assert trg.BeingDefended().evaluate(ctx_for(match, teammate))
+
+
+def test_children_exposes_the_tree_for_composites_only():
+    leaf = trg.Always()
+    assert leaf.children() == ()
+    assert trg.AllOf(triggers=(leaf,)).children() == (leaf,)
+    assert trg.AnyOf(triggers=(leaf,)).children() == (leaf,)
+    assert trg.Not(trigger=leaf).children() == (leaf,)
+    assert trg.Not().children() == ()

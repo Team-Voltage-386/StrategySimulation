@@ -95,6 +95,18 @@ def test_extract_metrics_counts_events_and_cycle_times():
     assert metrics.mean_cycle_time > 0
 
 
+def test_extract_metrics_splits_production_by_alliance():
+    """Whole-match totals cannot show a defender's effect -- it lands
+    entirely on the *other* alliance's rate, and a figure that sums both
+    alliances hides it."""
+    match = build_trial_match({"deposit_time": 0.1, "piece_capacity": 3, "match_duration": 2.0})
+    metrics = extract_metrics(match)
+
+    assert metrics.pieces_scored_by_alliance == {"blue": 3}
+    assert sum(metrics.pieces_scored_by_alliance.values()) == metrics.pieces_scored
+    assert metrics.mean_cycle_time_by_alliance["blue"] == metrics.mean_cycle_time
+
+
 # -- run_monte_carlo -----------------------------------------------------
 
 

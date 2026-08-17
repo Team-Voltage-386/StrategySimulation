@@ -277,3 +277,94 @@ def test_own_side_test_passes_everything_when_the_field_has_no_split():
     match = make_match()   # unowned goal + feeder
     test = world_view.own_side_test(match, "blue")
     assert test(0, 0) and test(300, 200)
+
+
+class _DefenseIntent:
+    """Just the attributes world_view reads off a live strategy.Intent."""
+
+    def __init__(self, *, defending=False, marking=None, target_region=None):
+        self.defending = defending
+        self.marking = marking
+        self.target_region = target_region
+        self.target_piece = None
+
+
+class _DefenseController:
+    def __init__(self, intent):
+        self.intent = intent
+
+    def tick(self, ctx):
+        pass
+
+
+def _declare(robot, **intent_kwargs):
+    robot.controller = _DefenseController(_DefenseIntent(**intent_kwargs))
+    return robot
+
+
+def test_defenders_only_counts_declared_defensive_intent():
+    match = make_match()
+    ours = match.add_robot(make_characteristics(), Pose2d(0, 0, 0), alliance="blue")
+    defender = _declare(
+        match.add_robot(make_characteristics(), Pose2d(100, 0, 0), alliance="red"),
+        defending=True, marking=ours, target_region="goal",
+    )
+    # An opponent going about its own business is not a defender, however
+    # squarely it happens to be standing in the way.
+    _declare(match.add_robot(make_characteristics(), Pose2d(50, 0, 0), alliance="red"), target_region="goal")
+
+    assert world_view.defenders(match, "blue") == [defender]
+    assert world_view.defenders(match, "red") == []
+
+
+def test_defenders_against_excludes_one_marking_a_teammate():
+    match = make_match()
+    ours = match.add_robot(make_characteristics(), Pose2d(0, 0, 0), alliance="blue")
+    teammate = match.add_robot(make_characteristics(), Pose2d(0, 40, 0), alliance="blue")
+
+    on_us = _declare(
+        match.add_robot(make_characteristics(), Pose2d(100, 0, 0), alliance="red"),
+        defending=True, marking=ours,
+    )
+    unassigned = _declare(
+        match.add_robot(make_characteristics(), Pose2d(120, 0, 0), alliance="red"), defending=True, marking=None,
+    )
+    _declare(
+        match.add_robot(make_characteristics(), Pose2d(140, 0, 0), alliance="red"),
+        defending=True, marking=teammate,
+    )
+
+    assert world_view.defenders_against(match, ours) == [on_us, unassigned]
+
+
+def test_region_denied_by_matches_declared_region_only():
+    match = make_match()
+    match.add_robot(make_characteristics(), Pose2d(0, 0, 0), alliance="blue")
+    on_goal = _declare(
+        match.add_robot(make_characteristics(), Pose2d(100, 0, 0), alliance="red"),
+        defending=True, target_region="goal",
+    )
+    _declare(
+        match.add_robot(make_characteristics(), Pose2d(120, 0, 0), alliance="red"),
+        defending=True, target_region="elsewhere",
+    )
+
+    assert world_view.region_denied_by(match, "goal", "blue") == [on_goal]
+    assert world_view.region_denied_by(match, "elsewhere", "red") == []
+
+
+def test_likely_scoring_region_prefers_declared_then_falls_back_to_nearest():
+    match = make_match()
+    robot = _declare(match.add_robot(make_characteristics(), Pose2d(0, 0, 0)), target_region="goal")
+    assert world_view.likely_scoring_region(match, robot).name == "goal"
+
+    # No declaration -- a defender still has to guess somewhere, and the
+    # only region on this field is the one it should guess.
+    robot.controller = None
+    assert world_view.likely_scoring_region(match, robot).name == "goal"
+
+
+def test_alliance_scoring_regions_includes_unowned_regions():
+    match = make_match()
+    names = [r.name for r in world_view.alliance_scoring_regions(match, "blue")]
+    assert names == ["goal"]  # the synthetic field's region has alliance=None

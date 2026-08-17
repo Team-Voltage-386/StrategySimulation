@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
 from common_sim.control.strategy import Rule, Strategy, StrategyController
+from common_sim.control.tactics import Idle
 from common_sim.control.triggers import Trigger
 from common_sim.match.events import EventLog
 
@@ -206,3 +207,41 @@ def test_switch_logs_behavior_change_event():
     assert len(events) == 1
     assert events[0].data["from"] == "fallback"
     assert events[0].data["to"] == "r"
+
+
+def test_nested_for_duration_is_rejected_rather_than_silently_ignored():
+    """`for_duration` is applied by this controller to a rule's own
+    trigger. A composite evaluates its children with plain `evaluate()`,
+    so a duration nested inside one does nothing at all -- the rule fires
+    on the first tick the condition is true, which is the opposite of
+    what the strategy says. Build-time failure beats a strategy that
+    quietly doesn't mean what it reads."""
+    import pytest
+
+    from common_sim.control import triggers as trg
+
+    rule = Rule(
+        name="under_pressure",
+        trigger=trg.AllOf(triggers=(trg.Always(), trg.BeingDefended(for_duration=2.0))),
+        tactic=Idle(),
+    )
+    with pytest.raises(ValueError, match="for_duration"):
+        StrategyController(Strategy(name="s", rules=[rule]), robot=None)
+
+    # Lifted onto the outermost trigger it is honoured, so it builds.
+    lifted = Rule(
+        name="under_pressure",
+        trigger=trg.AllOf(for_duration=2.0, triggers=(trg.Always(), trg.BeingDefended())),
+        tactic=Idle(),
+    )
+    StrategyController(Strategy(name="s", rules=[lifted]), robot=None)
+
+
+def test_nested_for_duration_check_reaches_arbitrary_depth():
+    import pytest
+
+    from common_sim.control import triggers as trg
+
+    deep = trg.AnyOf(triggers=(trg.Not(trigger=trg.AllOf(triggers=(trg.Always(for_duration=1.0),))),))
+    with pytest.raises(ValueError, match="for_duration"):
+        StrategyController(Strategy(name="s", rules=[Rule(name="r", trigger=deep, tactic=Idle())]), robot=None)

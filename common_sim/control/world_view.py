@@ -224,6 +224,85 @@ def partners(match, alliance: str) -> list[Robot]:
     return [r for r in match.robots if r.alliance == alliance]
 
 
+def defenders(match, alliance: str) -> list[Robot]:
+    """Opposing robots currently publishing a *defensive* intent (see
+    strategy.Intent.defending) -- i.e. ones whose declared target is
+    something they intend to take away rather than something they intend
+    to produce with. A robot that merely happens to be standing in the
+    way isn't one: it will move on when its own job is done, and
+    treating it as a defender would have the whole alliance re-routing
+    around ordinary traffic."""
+    return [
+        r for r in opponents(match, alliance)
+        if getattr(getattr(r, "intent", None), "defending", False)
+    ]
+
+
+def defenders_against(match, robot: Robot) -> list[Robot]:
+    """The subset of `defenders` aimed at `robot` specifically -- either
+    marking it by name, or (for a defender that hasn't resolved a robot
+    to mark) not aimed at anyone in particular and therefore potentially
+    aimed at us. A defender explicitly marking a *teammate* is excluded:
+    it's committed elsewhere, and reacting to it would have an entire
+    alliance evade a defender that only ever had the bandwidth to deny
+    one of them."""
+    result = []
+    for other in defenders(match, robot.alliance):
+        marking = getattr(other.intent, "marking", None)
+        if marking is robot or marking is None:
+            result.append(other)
+    return result
+
+
+def region_denied_by(match, region_name: str, alliance: str) -> list[Robot]:
+    """Opposing defenders declaring `region_name` as the thing they're
+    denying. Distinct from `region_occupants`, which counts anybody
+    claiming the region for any reason -- a caller deciding whether to
+    *wait* wants occupants, one deciding whether to *give up on the
+    region entirely* wants this."""
+    return [
+        r for r in defenders(match, alliance)
+        if getattr(r.intent, "target_region", None) == region_name
+    ]
+
+
+def alliance_scoring_regions(match, alliance: str) -> list[ScoringRegion]:
+    """Scoring regions `alliance` owns. A region owned by nobody
+    (`alliance is None`) belongs to both and is included for either."""
+    return [
+        r for r in match.field.scoring_regions
+        if r.alliance is None or r.alliance == alliance
+    ]
+
+
+def likely_scoring_region(match, robot: Robot) -> ScoringRegion | None:
+    """Where `robot` would most plausibly go to score next, for a caller
+    that has to guess -- a defender deciding which side of its mark to
+    sit on before that mark has declared anything.
+
+    Its own published intent when it has one, otherwise the nearest
+    region its alliance can score in. Deliberately a guess and not a
+    prediction: getting it roughly right is enough to be on the correct
+    side of an opponent, and nothing here needs more than that."""
+    intent = getattr(robot, "intent", None)
+    named = getattr(intent, "target_region", None) if intent is not None else None
+    if named is not None:
+        region = region_by_name(match, named)
+        if region is not None:
+            return region
+
+    regions = alliance_scoring_regions(match, robot.alliance)
+    if not regions:
+        return None
+    origin = (robot.pose.x, robot.pose.y)
+    return min(
+        regions,
+        key=lambda r: math.hypot(
+            polygon_centroid(r.vertices)[0] - origin[0], polygon_centroid(r.vertices)[1] - origin[1]
+        ),
+    )
+
+
 def region_by_name(match, name: str) -> ScoringRegion | None:
     for region in match.field.scoring_regions:
         if region.name == name:
@@ -295,7 +374,17 @@ def region_approach_point(region: ScoringRegion, robot: Robot, occupants: list[R
     rather than the single farthest one (which would send it to a far
     corner of a big zone for no benefit). Without this, two robots
     sharing a region big enough for both would still aim at the identical
-    centroid and shove each other over it."""
+    centroid and shove each other over it.
+
+    Deliberately *not* alliance-aware, though it looks like it should be.
+    Maximizing distance from an opposing occupant instead of settling for
+    "enough" reads as the obvious way to use the far end of a big zone
+    against a defender parked in the middle of it, and measured as a
+    large loss: 1v1 against a full-time blocker, ALGAE production fell
+    from 19.0 to 6.0 points. A defender follows, so the far corner is not
+    open by the time you arrive -- all the extra distance buys is a
+    longer drive spent being chased, while the near-but-adequate point
+    gets the deposit off before the defender re-settles."""
     centroid = polygon_centroid(region.vertices)
     others = [(r.pose.x, r.pose.y) for r in occupants]
     if not others:

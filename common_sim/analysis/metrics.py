@@ -20,6 +20,14 @@ class MatchMetrics:
     misses: int              # deposits that did not result in a score
     cycle_times: list        # seconds between consecutive scores
     mean_cycle_time: float | None
+    # Same two figures split by alliance. Whole-match totals answer
+    # "how productive was this configuration"; only the split answers
+    # "what did one alliance do to the other", which is the entire
+    # question when anything on the field is playing defense -- a
+    # defender's effect shows up as the *opponent's* rate falling, and
+    # is invisible in a number that adds both alliances together.
+    pieces_scored_by_alliance: dict
+    mean_cycle_time_by_alliance: dict
 
 
 def extract_metrics(match: Match) -> MatchMetrics:
@@ -31,6 +39,10 @@ def extract_metrics(match: Match) -> MatchMetrics:
     cycle_times = [b - a for a, b in zip(times, times[1:])]
     mean_cycle_time = sum(cycle_times) / len(cycle_times) if cycle_times else None
 
+    by_alliance: dict[str, list[float]] = {}
+    for event in score_events:
+        by_alliance.setdefault(event.data.get("alliance", "unknown"), []).append(event.timestamp)
+
     return MatchMetrics(
         final_scores=dict(match.scores),
         pieces_scored=len(score_events),
@@ -39,4 +51,9 @@ def extract_metrics(match: Match) -> MatchMetrics:
         misses=len(deposit_events) - len(score_events),
         cycle_times=cycle_times,
         mean_cycle_time=mean_cycle_time,
+        pieces_scored_by_alliance={a: len(t) for a, t in by_alliance.items()},
+        mean_cycle_time_by_alliance={
+            alliance: (sum(b - a for a, b in zip(stamps, stamps[1:])) / (len(stamps) - 1))
+            for alliance, stamps in by_alliance.items() if len(stamps) > 1
+        },
     )

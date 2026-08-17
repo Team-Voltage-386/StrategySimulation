@@ -35,6 +35,24 @@ def _side_intake_poly(half_l: float, half_w: float, reach: float, side: str) -> 
     raise ValueError(f"unknown side {side!r}")
 
 
+def _closest_boundary_point(point: tuple[float, float], vertices) -> tuple[float, float]:
+    """The point on the polygon's boundary nearest `point` -- the part of
+    a scoring zone a robot outside it is actually up against."""
+    px, py = point
+    best, best_d2 = vertices[0], float("inf")
+    for i in range(len(vertices)):
+        ax, ay = vertices[i]
+        bx, by = vertices[(i + 1) % len(vertices)]
+        dx, dy = bx - ax, by - ay
+        length2 = dx * dx + dy * dy
+        t = 0.0 if length2 < 1e-12 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length2))
+        qx, qy = ax + t * dx, ay + t * dy
+        d2 = (px - qx) ** 2 + (py - qy) ** 2
+        if d2 < best_d2:
+            best, best_d2 = (qx, qy), d2
+    return best
+
+
 class Robot:
     # Forward push applied to a piece on deposit release, on top of chassis
     # velocity -- separates it from the chassis footprint so it can reach an
@@ -171,6 +189,13 @@ class Robot:
     @property
     def deposit_action(self) -> str | None:
         return self._deposit_action
+
+    @property
+    def deposit_active(self) -> bool:
+        """Whether a deposit is currently commanded. Readable so a caller
+        can re-publish the action (see set_deposit_active) without having
+        to know, or accidentally change, whether the trigger is held."""
+        return self._commanded_deposit
 
     def drive_field_relative(self, dt: float, vx: float, vy: float, omega: float) -> None:
         self.chassis.drive_field_relative(dt, vx, vy, omega)
@@ -386,9 +411,23 @@ class Robot:
         the chassis center (not the bumper edge) because the target
         usually lies *behind* the bumper line -- between the structure
         and the robot -- so a bumper-relative bearing doesn't
-        discriminate, while a center-relative one does."""
-        cx, cy = polygon_centroid(vertices)
+        discriminate, while a center-relative one does.
+
+        The bearing is taken to the nearest point of the zone, not to its
+        centroid. For a zone sized to a structure's face the two are the
+        same direction, but a centroid is only a stand-in for "where the
+        zone is" while the zone is small compared to the robot. Against
+        REEFSCAPE's 80x285in NET it was badly wrong: a robot squared up
+        to the near edge with its manipulator inside the zone read as not
+        facing it, because the centroid was 77in off its nose. It parked
+        in a legal scoring pose and never scored. A robot whose center is
+        inside the zone faces it from any heading -- there is no bearing
+        to speak of, and a zone that large models an area you score from
+        rather than a face you square up to."""
         center = self.chassis.body.position
+        if point_in_polygon((center.x, center.y), vertices):
+            return True
+        cx, cy = _closest_boundary_point((center.x, center.y), vertices)
         dx, dy = cx - center.x, cy - center.y
         distance = math.hypot(dx, dy)
         if distance < 1e-6:

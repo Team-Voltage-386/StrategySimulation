@@ -62,10 +62,10 @@ common_sim/
     behavior.py             Behavior-tree-lite: Sequence/Parallel/DriveToPose/RunIntake/Wait/Branch nodes
     vision.py                 Simulated AprilTag pose estimation + piece detection, tunable noise/FOV/dropout
     param.py                 Param dataclass: shared PARAM_SCHEMA element for Trigger/Tactic GUI forms
-    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents
+    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents, defenders
     navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
     planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
-    triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, AllOf/AnyOf/Not, ...)
+    triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
     tactics.py                   Collect/Score/Defend/RunScript/Idle -- Behaviors that replan their own target
     strategy.py                   Rule/Strategy/StrategyController: priority arbiter over Trigger->Tactic rules
     strategy_io.py                 Strategy <-> JSON (REGISTRY-driven, round-trips through the GUI editor)
@@ -117,6 +117,9 @@ apps/
   sweep_tab.py               SWEEP tab wiring: owns its own roster (independent of MATCH), builds
                                 TrialJobs, drives SweepRunController, wires replay back into MATCH
   run_strategy_sweep.py    Headless Monte Carlo sweep with "strategy" as just another swept param
+  run_defense_bench.py      Head-to-head (red plan x blue plan) grid measuring what a full-time defender
+                               costs the alliance it defends -- the one thing a one-sided strategy sweep
+                               structurally cannot show, since a defender scores nothing itself
 
 test/                     (existing) unit tests per package
 ```
@@ -166,6 +169,44 @@ whole tree to/from JSON (`REGISTRY`-driven, so adding a Trigger/Tactic
 needs no serialization code), which is what makes a strategy a GUI-
 editable, file-saveable, Monte-Carlo-sweepable *thing* rather than a
 one-off Python script.
+
+**Intent is a published channel, and defense declares itself on it.**
+Each `StrategyController` republishes an `Intent` every tick (active
+tactic, target piece/region) and every robot on the field — either
+alliance — may read it. That is what stops two teammates converging on
+one piece, and it is also the whole defense/counter-defense mechanism:
+a `Defend` tactic additionally sets `Intent.defending` and
+`Intent.marking`, so a robot can distinguish *"an opponent is standing
+where I want to be"* (ordinary traffic; wait) from *"an opponent has
+declared it is here to take this away from me"* (won't resolve itself;
+do something else). `world_view.defenders`/`defenders_against`/
+`region_denied_by` are the query surface over that, and the
+`BeingDefended` trigger is the strategy-level hook onto it, so a
+response is authored as data in a strategy file rather than hardcoded
+in a tactic.
+
+Note that the counterplay a defender's declaration enables is *not*
+mostly about re-choosing a target — `world_view.region_occupants`
+already treats a declared claim as occupancy, so picking somewhere else
+happens without any defense-specific code. What actually matters is
+that a robot notices it is *failing*: `Score` re-opens its choice of
+what to score and where once an attempt runs past the time it should
+have taken (`_STALL_PATIENCE_*`), which is what keeps a denied — or
+merely unlucky — robot from committing to one impossible target for the
+rest of the match. Measured on a 2v2 with one full-time defender, that
+alone is the difference between blue scoring 54 and 151 points, at no
+cost when undefended. `apps/run_defense_bench.py` is the harness those
+numbers come from; a plain strategy sweep cannot produce them, because
+a defender scores nothing itself and its effect is only visible in the
+*other* alliance's per-alliance metrics.
+
+**`for_duration` belongs to the rule's outermost trigger.** Hysteresis
+is bookkept by `StrategyController`, not by the `Trigger` (which stays a
+pure, serializable function of state). A composite (`AllOf`/`AnyOf`/
+`Not`) evaluates its children directly, so a `for_duration` nested
+inside one is never consulted. `StrategyController.__init__` walks the
+trigger tree and refuses to build rather than run a strategy whose text
+says "for two seconds" and whose behavior says "immediately".
 
 **Vision is a swappable pose-estimation strategy, not a camera sim.**
 Each `Robot` holds a `PoseEstimator`. Default `PerfectPoseEstimator`

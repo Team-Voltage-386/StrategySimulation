@@ -35,6 +35,12 @@ class Trigger(ABC):
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         raise NotImplementedError
 
+    def children(self) -> tuple["Trigger", ...]:
+        """Sub-triggers this one composes, for a caller that has to walk
+        the tree (StrategyController's `for_duration` check). Empty for
+        every leaf trigger, which is most of them."""
+        return ()
+
     def describe(self) -> str:
         return self.__class__.__name__
 
@@ -253,6 +259,56 @@ class OpponentNear(Trigger):
 
 
 @dataclass
+class BeingDefended(Trigger):
+    """True while an opponent has a *registered* defensive intent aimed
+    at this robot -- see world_view.defenders_against and
+    strategy.Intent.defending.
+
+    The counterpart to OpponentNear, and worth having separately: an
+    opponent near us might be cycling past on its own business, and
+    reorganising the whole match plan around ordinary traffic is how a
+    strategy ends up doing nothing. A robot that has *declared* it is
+    there to deny us is a different fact, and one that stays true --
+    which is what makes it worth reacting to at strategy level (drop to
+    a cheaper scoring target, go feed instead of cycling, pull the
+    defender away from a teammate) rather than inside a tactic.
+
+    Pair with `for_duration` for "has been on me for N seconds", which is
+    usually what you want: a defender takes a moment to commit, and a
+    rule that fires the instant one glances at us will chatter.
+
+    `within` requires the defender to actually be close enough to be
+    doing something about it; `region` narrows to defenders denying one
+    specific region."""
+    within: float | None = None   # inches from us; None = anywhere on field
+    region: str | None = None
+
+    PARAM_SCHEMA = (
+        Param("within", kind="float", default=None, optional=True, min=0, suffix=" in"),
+        Param("region", kind="region_name", default=None, optional=True),
+    )
+
+    def evaluate(self, ctx: "BehaviorContext") -> bool:
+        robot = ctx.robot
+        origin = robot.pose.translation
+        for defender in world_view.defenders_against(ctx.match, robot):
+            if self.within is not None and origin.get_distance(defender.pose.translation) > self.within:
+                continue
+            if self.region is not None and getattr(defender.intent, "target_region", None) != self.region:
+                continue
+            return True
+        return False
+
+    def describe(self) -> str:
+        parts = ["being defended"]
+        if self.region is not None:
+            parts.append(f"at {self.region}")
+        if self.within is not None:
+            parts.append(f"within {self.within}in")
+        return " ".join(parts)
+
+
+@dataclass
 class AllOf(Trigger):
     triggers: tuple[Trigger, ...] = field(default_factory=tuple)
 
@@ -262,6 +318,9 @@ class AllOf(Trigger):
 
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         return all(t.evaluate(ctx) for t in self.triggers)
+
+    def children(self) -> tuple[Trigger, ...]:
+        return tuple(self.triggers)
 
     def describe(self) -> str:
         return " AND ".join(t.describe() for t in self.triggers) or "always"
@@ -278,6 +337,9 @@ class AnyOf(Trigger):
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         return any(t.evaluate(ctx) for t in self.triggers)
 
+    def children(self) -> tuple[Trigger, ...]:
+        return tuple(self.triggers)
+
     def describe(self) -> str:
         return " OR ".join(t.describe() for t in self.triggers) or "never"
 
@@ -293,6 +355,9 @@ class Not(Trigger):
     def evaluate(self, ctx: "BehaviorContext") -> bool:
         assert self.trigger is not None
         return not self.trigger.evaluate(ctx)
+
+    def children(self) -> tuple[Trigger, ...]:
+        return (self.trigger,) if self.trigger is not None else ()
 
     def describe(self) -> str:
         return f"NOT ({self.trigger.describe() if self.trigger else '?'})"
