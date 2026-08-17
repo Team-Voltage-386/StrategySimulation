@@ -138,7 +138,12 @@ def main() -> None:
 
     print(f"{args.per_side}v{args.per_side}, {args.defenders} full-time red defender(s), "
           f"{args.seeds} seeds, {len(outcomes)} matches")
-    print(f"{'red plan':<10} {'blue plan':<22} {'blue pts':>9} {'blue pcs':>9} {'blue cyc':>9} {'red pts':>9}")
+    # "red foul" is protected-zone contact by red, counted per call (see
+    # field_config.ProtectedZone). Without it a defender that simply
+    # parks on top of a protected scorer looks like it is denying, when
+    # what it is actually doing is donating.
+    print(f"{'red plan':<10} {'blue plan':<22} {'blue pts':>9} {'blue pcs':>9} "
+          f"{'blue cyc':>9} {'red pts':>9} {'red foul':>9}")
     for red in RED_PLANS:
         for blue in BLUE_PLANS:
             runs = grouped.get((red, blue))
@@ -149,7 +154,8 @@ def main() -> None:
                 f"{_mean(m.final_scores.get('blue', 0.0) for m in runs):>9.1f} "
                 f"{_mean(m.pieces_scored_by_alliance.get('blue', 0) for m in runs):>9.1f} "
                 f"{_mean(m.mean_cycle_time_by_alliance.get('blue') for m in runs):>9.2f} "
-                f"{_mean(m.final_scores.get('red', 0.0) for m in runs):>9.1f}"
+                f"{_mean(m.final_scores.get('red', 0.0) for m in runs):>9.1f} "
+                f"{_mean(m.protection_fouls_by_alliance.get('red', 0) for m in runs):>9.1f}"
             )
 
 

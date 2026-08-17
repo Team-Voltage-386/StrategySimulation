@@ -338,6 +338,27 @@ class Robot:
             dt, self._commanded_intake, location, capacity_available, self.characteristics.station_intake_time,
         )
 
+    def footprint(self, margin: float = 0.0) -> tuple[tuple[float, float], ...]:
+        """World-frame bumper corners at the current pose -- the outline
+        rules reason about, since a robot is "in" a zone when any part of
+        its BUMPERS is. Read off the physics shape rather than rebuilt
+        from width/length so it can never disagree with what actually
+        collides.
+
+        `margin` grows the outline outward by that much on every side,
+        for a caller asking "near enough to count as touching" rather
+        than "strictly overlapping". Each corner moves away from the
+        chassis center along both body axes, which is the correct offset
+        for the centered rectangle a bumper shape always is."""
+        body = self.chassis.body
+        points = []
+        for v in self.chassis.bumper_shape.get_vertices():
+            if margin:
+                v = pymunk.Vec2d(v.x + math.copysign(margin, v.x), v.y + math.copysign(margin, v.y))
+            world = body.local_to_world(v)
+            points.append((world.x, world.y))
+        return tuple(points)
+
     def side_bumper_point(self, side: str) -> tuple[float, float]:
         """World-frame location of `side`'s bumper-edge center, given the
         robot's current pose."""

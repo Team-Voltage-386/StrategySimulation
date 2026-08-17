@@ -28,6 +28,11 @@ class MatchMetrics:
     # is invisible in a number that adds both alliances together.
     pieces_scored_by_alliance: dict
     mean_cycle_time_by_alliance: dict
+    # alliance -> protected-zone contact violations its robots committed
+    # (see field_config.ProtectedZone). A defense tuning that only reads
+    # the opponent's score can't tell denial from fouling, since both
+    # look like a defender standing on top of somebody.
+    protection_fouls_by_alliance: dict
 
 
 def extract_metrics(match: Match) -> MatchMetrics:
@@ -56,4 +61,5 @@ def extract_metrics(match: Match) -> MatchMetrics:
             alliance: (sum(b - a for a, b in zip(stamps, stamps[1:])) / (len(stamps) - 1))
             for alliance, stamps in by_alliance.items() if len(stamps) > 1
         },
+        protection_fouls_by_alliance=dict(match.protection_fouls),
     )

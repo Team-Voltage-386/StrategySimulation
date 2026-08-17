@@ -14,7 +14,9 @@ from enum import Enum
 import pymunk
 
 from common_sim.control.behavior import BehaviorContext
-from common_sim.field.field_config import FieldConfig, point_in_polygon, polygon_centroid
+from common_sim.field.field_config import (
+    FieldConfig, ProtectedZone, point_in_polygon, polygon_centroid, polygons_intersect,
+)
 from common_sim.field.game_piece import GamePiece, piece_spec
 from common_sim.match.events import EventLog
 from common_sim.match.scoring import ScoringRules
@@ -22,6 +24,12 @@ from common_sim.physics.engine import DEFAULT_SUBSTEP, SimEngine
 from common_sim.robot.characteristics import RobotCharacteristics
 from common_sim.robot.robot import Robot
 from common_sim.geometry import Pose2d
+
+
+# How close two bumpers count as touching (in). Not zero: the solver
+# leaves a small gap between resting bodies, and a rule about contact
+# should not hinge on a sub-millimeter numerical artifact.
+_CONTACT_TOLERANCE = 0.25
 
 
 class Phase(Enum):
@@ -102,6 +110,13 @@ class Match:
         # region name -> action -> count of pieces scored there, e.g. for a
         # GUI to show per-location/per-level piece counts.
         self.region_scores: dict[str, dict[str, int]] = {}
+        # alliance -> how many protected-zone contact violations its
+        # robots committed (see _step_protection). Points from those
+        # violations land in `scores` under the *other* alliance.
+        self.protection_fouls: dict[str, int] = {}
+        # (offender id, protected id) -> seconds left before a contact
+        # that never breaks counts as a second foul.
+        self._foul_cooldown: dict[tuple[int, int], float] = {}
         self.events = EventLog()
 
         self.elapsed = 0.0
@@ -431,6 +446,65 @@ class Match:
                 return region
         return None
 
+    # -- protected zones ---------------------------------------------------
+
+    def protecting_zone(self, robot: Robot) -> ProtectedZone | None:
+        """The ProtectedZone currently shielding `robot` from opponent
+        contact, or None. Any overlap counts -- "BUMPERS in the zone"
+        means partially in, so a robot straddling the boundary is as
+        protected as one parked in the middle."""
+        for zone in self.field.protected_zones:
+            if zone.alliance is not None and zone.alliance != robot.alliance:
+                continue
+            if polygons_intersect(robot.footprint(), zone.vertices):
+                return zone
+        return None
+
+    def robots_in_contact(self, a: Robot, b: Robot) -> bool:
+        """Whether two robots' bumpers are touching. One outline is grown
+        by _CONTACT_TOLERANCE before the overlap test, so the moment of
+        contact counts: two rigid bodies at rest against each other touch
+        without overlapping, and a strict area test would call that no
+        contact at all."""
+        return polygons_intersect(a.footprint(_CONTACT_TOLERANCE), b.footprint())
+
+    def _step_protection(self, dt: float) -> None:
+        """Charge a foul for each opponent touching a protected robot.
+
+        The cooldown is per offender/victim pair and lives across ticks,
+        so an offender that parks against a protected robot is charged
+        once per zone.foul_period rather than once per physics tick --
+        a referee calls a foul, then keeps watching, and a longer
+        violation costs more than a brief one without costing 60x more
+        per second. Pairs are directional: two robots shoving each other
+        inside overlapping zones each owe the other."""
+        for key in list(self._foul_cooldown):
+            self._foul_cooldown[key] -= dt
+            if self._foul_cooldown[key] <= 0.0:
+                del self._foul_cooldown[key]
+
+        if not self.field.protected_zones:
+            return
+
+        protected = [(r, self.protecting_zone(r)) for r in self.robots]
+        for victim, zone in protected:
+            if zone is None:
+                continue
+            for offender in self.robots:
+                if offender is victim or offender.alliance == victim.alliance:
+                    continue
+                key = (id(offender), id(victim))
+                if key in self._foul_cooldown or not self.robots_in_contact(offender, victim):
+                    continue
+                self._foul_cooldown[key] = zone.foul_period
+                self.protection_fouls[offender.alliance] = self.protection_fouls.get(offender.alliance, 0) + 1
+                if zone.foul_points:
+                    self.scores[victim.alliance] = self.scores.get(victim.alliance, 0.0) + zone.foul_points
+                self.events.log(self.elapsed, "protection_foul", {
+                    "zone": zone.name, "alliance": offender.alliance,
+                    "against": victim.alliance, "points": zone.foul_points,
+                })
+
     # -- emitters ----------------------------------------------------------
 
     def emitter_capacity_remaining(self, emitter) -> int | None:
@@ -548,6 +622,9 @@ class Match:
             self._step_emitters(dt)
 
         self.engine.step(dt)
+        # After the solver, so contact is judged on where the robots
+        # actually ended up this tick rather than where they were aiming.
+        self._step_protection(dt)
 
         if any(p.scored for p in self.active_pieces):
             still_active, scored = [], []

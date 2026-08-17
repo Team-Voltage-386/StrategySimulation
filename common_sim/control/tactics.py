@@ -128,16 +128,15 @@ _STALL_PATIENCE_MIN = 2.5
 # Both fixes for it measured *worse* than the ping-pong. A cooldown plus
 # "contest the one you had when everything is on cooldown" scored 15.5 to
 # the ping-pong's 19.0 (1v1, block); on the 2v2 bench it cost ~4 points
-# in every defended row. The reason is that neither behavior can win:
-# with equal drive power and no contact model, a defender parked on a
-# scoring spot is an immovable wall, so patiently contesting it scores
-# exactly as little as thrashing does -- and thrashing at least keeps the
-# robot near a spot the defender may briefly leave.
+# in every defended row.
 #
-# So this is a fidelity problem wearing a behavior problem's clothes, and
-# the tuning is blocked on a pushing/contact model. Revisit once robots
-# can displace each other; the numbers cannot tell good counter-defense
-# from bad while no counter-defense works.
+# Treat that as untested rather than refuted. It was measured on top of a
+# Score that could not convert even when it got somewhere free: it drove
+# through large scoring regions without stopping, and read itself as not
+# facing a region whose centroid was off its nose. Nothing downstream of
+# "pick a better target" could show a gain while arriving at the better
+# target scored nothing either. Both bugs are fixed; re-run this arm
+# before believing the numbers above.
 
 # How far past the halfway line a committed piece has to have rolled --
 # as a fraction of the distance between the two alliances' ends -- before
@@ -988,6 +987,13 @@ class Score(Tactic):
 _MARK_DWELL = 2.0
 _MARK_SWAP_MARGIN = 1.5
 
+# How close a mark may get to a zone that would protect it before a
+# defender stops pressing and holds a no-contact standoff instead (see
+# Defend._respect_protection). Roughly a robot length: the distance a
+# leaned-on robot carries its leaner over the line before either can
+# react.
+_PROTECTION_RELEASE_MARGIN = 12.0
+
 
 class Defend(Tactic):
     """Denies an opponent the thing it is trying to do, positionally.
@@ -1060,18 +1066,25 @@ class Defend(Tactic):
             return world_view.region_by_name(ctx.match, self.target)
         return world_view.likely_scoring_region(ctx.match, opponent)
 
-    def _threat(self, ctx: BehaviorContext, opponent) -> tuple[int, float]:
+    def _threat(self, ctx: BehaviorContext, opponent) -> tuple[int, int, float]:
         """How much `opponent` is worth marking, smallest first: one
         already holding a piece can score the moment it's left alone and
         outranks one still hunting for something to carry, and among
         equals the one we can actually get to soonest wins. Obstacle-
         routed, like every other ETA a tactic compares, so a mark on the
-        far side of the REEF isn't mistaken for the reachable one."""
+        far side of the REEF isn't mistaken for the reachable one.
+
+        An opponent already inside a protected zone sorts behind every
+        opponent that isn't, whatever it's carrying. There is nothing
+        left to deny it -- it has arrived somewhere we may not touch it
+        -- so marking it spends the one defender we have on the one
+        opponent we can no longer affect."""
         eta = estimate_travel_time(
             ctx.match.field, (ctx.robot.pose.x, ctx.robot.pose.y),
             (opponent.pose.x, opponent.pose.y), ctx.robot.characteristics,
         )
-        return (0 if opponent.held_pieces else 1, eta)
+        protected = 1 if world_view.is_protected(ctx.match, opponent) else 0
+        return (protected, 0 if opponent.held_pieces else 1, eta)
 
     def _in_range(self, ctx: BehaviorContext, opponent) -> bool:
         origin = ctx.robot.pose.translation
@@ -1095,7 +1108,10 @@ class Defend(Tactic):
             return incumbent
 
         best_key, incumbent_key = self._threat(ctx, best), self._threat(ctx, incumbent)
-        if best_key[0] < incumbent_key[0] or best_key[1] + _MARK_SWAP_MARGIN < incumbent_key[1]:
+        # Any tier improvement (the mark became untouchable, or a rival
+        # picked a piece up) hands the mark over immediately; a merely
+        # closer opponent has to beat the incumbent by _MARK_SWAP_MARGIN.
+        if best_key[:-1] < incumbent_key[:-1] or best_key[-1] + _MARK_SWAP_MARGIN < incumbent_key[-1]:
             return best
         return incumbent
 
@@ -1161,8 +1177,44 @@ class Defend(Tactic):
             t = min(1.0, self.standoff / dist)  # fraction of the segment back from the region
             block_x, block_y = rx - dx * t, ry - dy * t
 
+        block_x, block_y = self._respect_protection(ctx, opponent, block_x, block_y)
         heading = math.atan2(oy - block_y, ox - block_x)
         return Pose2d(block_x, block_y, heading)
+
+    def _respect_protection(self, ctx: BehaviorContext, opponent, x: float, y: float) -> tuple[float, float]:
+        """Back the block point off a mark standing in a zone where we
+        may not touch it (see field_config.ProtectedZone), pushing
+        straight out along the line we were closing on so the defender
+        still shows the same face from the same side -- it holds the
+        approach, one robot-length further out, instead of pressing into
+        a contact that would hand the opponent points.
+
+        Released a robot-length early (`_PROTECTION_RELEASE_MARGIN`)
+        rather than at the boundary, because a defender leaning on a mark
+        is carried across the line by it: measured on the 2v2 bench,
+        11 of 13 fouls in a match were contact that predated the
+        victim's protection by at least a tick. Waiting for the mark to
+        actually be inside means always being late, and late is the foul.
+
+        Backing off is not the same as giving up -- protection is
+        positional, so the mark loses it the moment it leaves, and the
+        defender is waiting right there when it does."""
+        if world_view.protection_distance(ctx.match, opponent) > _PROTECTION_RELEASE_MARGIN:
+            return (x, y)
+        keepout = world_view.protection_keepout(ctx.robot, opponent)
+        dx, dy = x - opponent.pose.x, y - opponent.pose.y
+        distance = math.hypot(dx, dy)
+        if distance >= keepout:
+            return (x, y)
+        if distance < 1e-6:
+            # Standing on top of the mark: no line to back off along, so
+            # retreat toward where we came from.
+            dx, dy = ctx.robot.pose.x - opponent.pose.x, ctx.robot.pose.y - opponent.pose.y
+            distance = math.hypot(dx, dy)
+            if distance < 1e-6:
+                return (x, y)
+        scale = keepout / distance
+        return (opponent.pose.x + dx * scale, opponent.pose.y + dy * scale)
 
     def tick(self, ctx: BehaviorContext) -> Status:
         self._mark_elapsed += ctx.dt

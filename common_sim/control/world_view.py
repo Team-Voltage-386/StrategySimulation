@@ -19,6 +19,7 @@ from common_sim.field.field_config import (
     polygon_area,
     polygon_centroid,
 )
+from common_sim.control.navigation import polygon_distance
 from common_sim.field.game_piece import GamePiece
 from common_sim.robot.characteristics import SIDES
 from common_sim.robot.robot import Robot
@@ -252,6 +253,41 @@ def defenders_against(match, robot: Robot) -> list[Robot]:
         if marking is robot or marking is None:
             result.append(other)
     return result
+
+
+def is_protected(match, robot: Robot) -> bool:
+    """Whether `robot` is standing somewhere opponents may not touch it
+    (see field_config.ProtectedZone). Offense reads this to know it can
+    finish an alignment unmolested; defense reads it to know that
+    pressing any harder only donates points."""
+    return match.protecting_zone(robot) is not None
+
+
+def protection_distance(match, robot: Robot) -> float:
+    """How far `robot` is from the nearest zone that would protect it:
+    0.0 once any part of it is inside, and infinity on a field with no
+    such zone. Lets a defender disengage *before* its mark crosses the
+    line rather than at the moment it does -- a robot being leaned on
+    carries the leaner in with it, and by then the foul has happened."""
+    best = math.inf
+    footprint = robot.footprint()
+    for zone in getattr(match.field, "protected_zones", ()):
+        if zone.alliance is not None and zone.alliance != robot.alliance:
+            continue
+        best = min(best, min(polygon_distance(p, zone.vertices) for p in footprint))
+    return best
+
+
+def protection_keepout(defender: Robot, protected: Robot, margin: float = 2.0) -> float:
+    """How far a defender's *center* must stay from a protected robot's
+    center to be sure of not touching it. Half-diagonals sum, so it holds
+    at every relative heading rather than only the square-on one -- a
+    conservative circle around a rectangle, which is the right way to be
+    wrong about a rule that costs points to break."""
+    def half_diagonal(robot: Robot) -> float:
+        return math.hypot(robot.characteristics.width, robot.characteristics.length) / 2.0
+
+    return half_diagonal(defender) + half_diagonal(protected) + margin
 
 
 def region_denied_by(match, region_name: str, alliance: str) -> list[Robot]:

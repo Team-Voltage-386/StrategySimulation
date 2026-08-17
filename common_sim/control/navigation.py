@@ -631,6 +631,24 @@ def _robot_radius(characteristics) -> float:
     return math.hypot(characteristics.length / 2.0, characteristics.width / 2.0)
 
 
+def _is_untouchable(match, robot, other) -> bool:
+    """Whether `other` is an opponent currently standing somewhere
+    `robot` may not touch it (see field_config.ProtectedZone).
+
+    Routed around even by a tactic that has opted out of robot avoidance
+    entirely. Opting out means "I am willing to make contact" -- Defend
+    holds a blocking pose, which is contact by design -- but a robot in
+    a safe zone is the one place where willingness isn't the question:
+    contact there is a rules violation whatever the tactic wanted, and a
+    plan that drives through it is a plan to concede points. Blocking
+    the *approach* is untouched, since a robot that hasn't reached the
+    zone yet is not protected."""
+    if getattr(other, "alliance", None) == getattr(robot, "alliance", None):
+        return False
+    protecting = getattr(match, "protecting_zone", None)
+    return protecting is not None and protecting(other) is not None
+
+
 def _robot_velocity(robot) -> tuple[float, float] | None:
     """Field-frame velocity of a robot, or None for anything that isn't
     backed by a physics body (test doubles, mostly)."""
@@ -801,7 +819,7 @@ class NavigateTo(Behavior):
         destination unreachable. The snapshot at the robot's actual
         position is the hard constraint; this one only buys an earlier,
         cheaper detour."""
-        if not self.avoid_robots or match is None:
+        if match is None:
             return []
         others = getattr(match, "robots", None)
         if not others:
@@ -810,6 +828,8 @@ class NavigateTo(Behavior):
         obstacles = []
         for other in others:
             if other is robot:
+                continue
+            if not self.avoid_robots and not _is_untouchable(match, robot, other):
                 continue
             other_pos = (other.pose.x, other.pose.y)
             contact_radius = own_radius + _robot_radius(other.characteristics)

@@ -51,7 +51,8 @@ common_sim/
     swerve.py            SwerveDriveModel: (vx, vy, omega) -> module states -> forces on chassis body
     tank_drive.py         (optional second drivetrain model, same interface as swerve)
   field/
-    field_config.py      FieldConfig dataclass: dims, obstacles, ScoringRegion list, PieceSpawnRegion list
+    field_config.py      FieldConfig dataclass: dims, obstacles, ScoringRegion / PieceSpawnRegion /
+                          IntakeLocation / EmitterRegion / ProtectedZone lists
     game_piece.py         GamePiece base: pymunk body/shape + type tag
   robot/
     characteristics.py    RobotCharacteristics dataclass: speed, accel, size, capacity, intake/deposit time...
@@ -259,6 +260,7 @@ machines/pymunk builds.
 | Monte Carlo runner, metrics, DOE | Game-specific metrics, if any beyond score/cycle-time |
 | GUI shell, theme, overlay chrome, field canvas | — |
 | Strategy/tactic/trigger layer, arbiter, JSON I/O, GUI editor+graph | Example `Strategy` JSON files; which region/action/piece-type strings exist |
+| No-contact safe zones + foul accounting (`ProtectedZone`) | Where this year's safe zones are and what a violation costs |
 
 ## Sequencing (not committing to code yet)
 

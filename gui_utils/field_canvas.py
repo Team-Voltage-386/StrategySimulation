@@ -40,6 +40,9 @@ INTAKE_FILL = QtGui.QColor(190, 110, 240, 30)
 # taken.
 EMITTER_OUTLINE = QtGui.QColor(255, 200, 60)
 EMITTER_FILL = QtGui.QColor(255, 200, 60, 30)
+# Protected zones are drawn unfilled: they overlap scoring regions and
+# obstacles by design, and a fill would hide what's underneath.
+PROTECTED_OUTLINE = QtGui.QColor(200, 200, 210, 110)
 
 # Reef-face scoring regions offer several stacked levels (l1..l4) at one
 # physical zone -- l2-l4 are drawn as a small grid of per-branch squares
@@ -145,6 +148,7 @@ class FieldCanvas(QtWidgets.QWidget):
         self._draw_scoring_regions(painter, scale)
         self._draw_intake_locations(painter, scale)
         self._draw_emitter_regions(painter, scale)
+        self._draw_protected_zones(painter, scale)
         self._draw_obstacles(painter, scale)
         self._draw_region_piece_counts(painter, scale)
         self._draw_pieces(painter, scale)
@@ -292,6 +296,14 @@ class FieldCanvas(QtWidgets.QWidget):
             remaining = self.match.emitter_capacity_remaining(emitter)
             label = "∞" if remaining is None else str(remaining)
             self._draw_count_badge(painter, wx, wy, label)
+
+    def _draw_protected_zones(self, painter, scale: float) -> None:
+        for zone in getattr(self.match.field, "protected_zones", ()):
+            color = ALLIANCE_COLORS.get(zone.alliance, PROTECTED_OUTLINE) if zone.alliance else PROTECTED_OUTLINE
+            pen = QtGui.QPen(color, 1, Qt.DotLine)
+            painter.setPen(pen)
+            painter.setBrush(Qt.NoBrush)
+            painter.drawPolygon(self._polygon(zone.vertices, scale))
 
     def _draw_region_piece_counts(self, painter, scale: float) -> None:
         for region in self.match.field.scoring_regions:

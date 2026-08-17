@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import math
 
-from common_sim.field.field_config import EmitterRegion, FieldConfig, IntakeLocation, Obstacle, ScoringRegion
+from common_sim.field.field_config import (
+    EmitterRegion, FieldConfig, IntakeLocation, Obstacle, ProtectedZone, ScoringRegion,
+)
 from game_specific.reefscape.game_pieces import ALGAE_RADIUS, ALGAE_TYPE, CORAL_TYPE
 
 # Game Manual (V13) doesn't cap CORAL station supply -- 30 is a
@@ -90,6 +92,19 @@ REEF_LEVELS = frozenset({"l1", "l2", "l3", "l4"})
 # since scoring is timing/points-based here, not mechanism geometry.
 REEF_FACE_SCORING_DEPTH = 10.0
 REEF_FACE_SCORING_WIDTH = 22.0   # matches roughly one REEF face's width
+
+# REEF ZONE: the area within REEF_ZONE_MARGIN of the REEF, inside which
+# an opponent may not contact a robot of the REEF's own alliance. Since
+# the REEF is a regular hexagon, the zone is the same hexagon grown by
+# that margin on its apothem -- every face offset outward by exactly
+# REEF_ZONE_MARGIN, which is what "12 inches from the REEF on all sides"
+# describes.
+#
+# REEF_ZONE_FOUL_POINTS is one FOUL, the 2025 value. It is the price of
+# a single call, not of the whole shove: a defender that leans on a
+# protected robot is charged again every ProtectedZone.foul_period.
+REEF_ZONE_MARGIN = 12.0
+REEF_ZONE_FOUL_POINTS = 2.0
 
 # L2-L4 are individual branches -- one CORAL each, physically. L1 is a
 # trough that holds several; the Game Manual (V13) doesn't give an exact
@@ -244,6 +259,21 @@ def build_field() -> FieldConfig:
         Obstacle(name="red_reef", vertices=_hex_vertices(red_reef_center, REEF_HEX_APOTHEM)),
     )
 
+    # Each alliance's REEF ZONE protects *that* alliance's robots: blue
+    # may be blocked on its way to the blue REEF, but not bumped once it
+    # gets there. Note the zone swallows the REEF's own scoring regions
+    # (10in deep, well inside the 12in margin), which is the point --
+    # arriving at a face is arriving somewhere safe.
+    protected_zones = tuple(
+        ProtectedZone(
+            name=f"{alliance}_reef_zone",
+            vertices=_hex_vertices(reef_center(alliance), REEF_HEX_APOTHEM + REEF_ZONE_MARGIN),
+            alliance=alliance,
+            foul_points=REEF_ZONE_FOUL_POINTS,
+        )
+        for alliance in ("blue", "red")
+    )
+
     scoring_regions = (
         _reef_scoring_regions("blue_reef", blue_reef_center, "blue")
         + _reef_scoring_regions("red_reef", red_reef_center, "red")
@@ -322,7 +352,7 @@ def build_field() -> FieldConfig:
     return FieldConfig(
         width=FIELD_LENGTH, height=FIELD_WIDTH,
         obstacles=obstacles, scoring_regions=scoring_regions, intake_locations=intake_locations,
-        emitter_regions=emitter_regions,
+        emitter_regions=emitter_regions, protected_zones=protected_zones,
     )
 
 

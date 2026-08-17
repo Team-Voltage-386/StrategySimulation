@@ -65,6 +65,44 @@ class ScoringRegion:
 
 
 @dataclass(frozen=True)
+class ProtectedZone:
+    """An area where a robot is safe from opponent contact -- REEFSCAPE's
+    REEF ZONE, DEEP CAGE zones, older games' LOADING ZONE / protected
+    scoring areas. Nearly every FIRST game has at least one, because a
+    game needs somewhere a robot can complete a delicate alignment
+    without being shoved off it, so this is a generic primitive rather
+    than a REEFSCAPE detail.
+
+    The protection is on the *robot*, not the area: a robot with any part
+    of its footprint inside the zone may not be contacted by an opponent,
+    anywhere. An opponent may stand in the zone, drive through it, and
+    deny the approach to it -- it just may not touch the robot being
+    protected once that robot has arrived. That asymmetry is the whole
+    tactical point: defense can keep you out, but cannot dislodge you.
+
+    `alliance` names whose robots the zone protects ("red"/"blue"); None
+    protects whichever robot is inside it from every robot that isn't on
+    its alliance, which is how a neutral safe area works.
+
+    `foul_points` is what a single violation is worth to the protected
+    robot's alliance -- games price these differently (a FOUL vs. a TECH
+    FOUL vs. a warning), so the number lives with the zone rather than
+    being hardcoded. 0.0 (the default) makes the zone advisory: the
+    contact is still detected and logged, but costs nothing, which is
+    what a game wants when the real penalty is a card rather than points.
+
+    `foul_period` is how long one continuous contact goes before it
+    counts again. A referee calls a foul, not a foul per 1/60th of a
+    second, so without this a two-second shove would be scored 120 times.
+    """
+    name: str
+    vertices: tuple[tuple[float, float], ...]
+    alliance: str | None = None
+    foul_points: float = 0.0
+    foul_period: float = 1.0
+
+
+@dataclass(frozen=True)
 class IntakeLocation:
     """A zone with an unlimited, continuously-replenished supply of one
     piece type -- e.g. a human-player feeder/loading station. Unlike a
@@ -170,6 +208,7 @@ class FieldConfig:
     spawn_regions: tuple[PieceSpawnRegion, ...] = field(default_factory=tuple)
     intake_locations: tuple[IntakeLocation, ...] = field(default_factory=tuple)
     emitter_regions: tuple[EmitterRegion, ...] = field(default_factory=tuple)
+    protected_zones: tuple[ProtectedZone, ...] = field(default_factory=tuple)
 
 
 def polygon_centroid(vertices: tuple[tuple[float, float], ...]) -> tuple[float, float]:
@@ -190,6 +229,37 @@ def polygon_area(vertices: tuple[tuple[float, float], ...]) -> float:
         total += x1 * y2 - x2 * y1
         x1, y1 = x2, y2
     return abs(total) / 2.0
+
+
+def _segments_cross(p1, p2, p3, p4) -> bool:
+    """Whether segment p1-p2 crosses segment p3-p4. Collinear overlap
+    reads as no crossing, which is fine here: the callers below have
+    already tested both polygons' vertices for containment, and two
+    polygons whose edges merely lie along each other have a vertex of
+    one inside (or on) the other."""
+    def side(a, b, c):
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+
+    d1, d2 = side(p3, p4, p1), side(p3, p4, p2)
+    d3, d4 = side(p1, p2, p3), side(p1, p2, p4)
+    return ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0))
+
+
+def polygons_intersect(a: tuple[tuple[float, float], ...], b: tuple[tuple[float, float], ...]) -> bool:
+    """Whether two polygons share any area. Vertex-containment both ways
+    catches one polygon fully inside the other; the edge-crossing pass
+    catches the case neither containment test sees, two polygons
+    overlapping in a band with every vertex outside the other (a plus
+    sign). Works on concave polygons, unlike a separating-axis test --
+    a game is free to describe an L-shaped safe zone."""
+    if any(point_in_polygon(v, b) for v in a) or any(point_in_polygon(v, a) for v in b):
+        return True
+    for i in range(len(a)):
+        a1, a2 = a[i], a[(i + 1) % len(a)]
+        for j in range(len(b)):
+            if _segments_cross(a1, a2, b[j], b[(j + 1) % len(b)]):
+                return True
+    return False
 
 
 def point_in_polygon(point: tuple[float, float], vertices: tuple[tuple[float, float], ...]) -> bool:
