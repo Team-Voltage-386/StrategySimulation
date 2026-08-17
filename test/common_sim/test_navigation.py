@@ -300,12 +300,20 @@ def test_navigate_to_reaches_target_near_another_robot_without_deadlock():
     # contention the tactic layer avoids, not something navigation alone
     # can promise -- but getting close to one is a routine scoring
     # approach and must still succeed.)
+    #
+    # The goal is 42in from robot_b's center: inside the avoidance circle
+    # (two 19.8in circumscribed radii plus a 6in margin = 45.6) but clear
+    # of the 39.6in contact radius, which is the case this test is about.
+    # A goal *inside* the contact radius is not a navigation problem at
+    # all -- it only used to "succeed" because an unconditional velocity
+    # command could shove robot_b out of the way, and a traction-limited
+    # drivetrain cannot budge a robot that is braced and equally powered.
     field = FieldConfig(width=300, height=200)
     match = Match(field, TableScoringRules({}), MatchConfig(auto_duration=1000, teleop_duration=1000))
     robot_a = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
     robot_b = match.add_robot(make_characteristics(), Pose2d(160, 100, math.pi))
 
-    nav_a = NavigateTo(lambda ctx: Pose2d(150, 100, 0), replan_period=0.25)
+    nav_a = NavigateTo(lambda ctx: Pose2d(118, 100, 0), replan_period=0.25)
     ctx_a = BehaviorContext(robot=robot_a, dt=1.0 / 60.0, match=match)
 
     status_a = Status.RUNNING

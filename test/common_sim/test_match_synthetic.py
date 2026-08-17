@@ -22,7 +22,7 @@ def make_field() -> FieldConfig:
     # not precision navigation.
     region = ScoringRegion(
         name="goal",
-        vertices=((80, -60), (250, -60), (250, 60), (80, 60)),
+        vertices=((80, -60), (250, -60), (250, 160), (80, 160)),
         actions=frozenset({"score_widget"}),
         piece_types=frozenset({WIDGET}),
     )
@@ -63,8 +63,11 @@ def run_ticks(match: Match, n: int, dt: float = 1.0 / 60.0):
 def test_full_pickup_and_score_pipeline():
     field = make_field()
     match = Match(field, make_scoring_rules(), MatchConfig(auto_duration=1000, teleop_duration=1000))
-    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0), alliance="blue")
-    piece = match.spawn_piece(WIDGET, (60, 0))
+    # Started off the y=0 wall: a robot spawned half-inside the perimeter
+    # can no longer bulldoze its way out now that the drivetrain is
+    # traction-limited rather than an unconditional velocity source.
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    piece = match.spawn_piece(WIDGET, (60, 100))
 
     robot.set_intake_active(True)
     # Drive forward until the piece is captured (or give up after a while).
@@ -77,10 +80,13 @@ def test_full_pickup_and_score_pipeline():
     assert robot.held_pieces[0] is piece
     assert piece.held_by is robot
 
-    # Piece should be pinned to the chassis while held.
+    # Piece should be pinned to the chassis while held. Checked at rest:
+    # the pin is applied once per control tick, so a robot still moving
+    # carries the piece a step's worth of travel behind it.
     robot.set_intake_active(False)
-    robot.drive_field_relative(1.0 / 60.0, 0.0, 0.0, 0.0)
-    match.step(1.0 / 60.0)
+    for _ in range(60):
+        robot.drive_field_relative(1.0 / 60.0, 0.0, 0.0, 0.0)
+        match.step(1.0 / 60.0)
     assert math.isclose(piece.position.x, robot.chassis.body.position.x, abs_tol=1e-6)
 
     # Drive into the scoring zone first -- a deposit only spends its
@@ -153,9 +159,9 @@ def test_scoring_points_differ_between_auto_and_teleop():
 def test_piece_capacity_prevents_second_pickup():
     field = make_field()
     match = Match(field, make_scoring_rules(), MatchConfig(auto_duration=1000, teleop_duration=1000))
-    robot = match.add_robot(make_characteristics(piece_capacity=1), Pose2d(0, 0, 0))
-    first = match.spawn_piece(WIDGET, (60, 0))
-    second = match.spawn_piece(WIDGET, (60, 10))
+    robot = match.add_robot(make_characteristics(piece_capacity=1), Pose2d(20, 100, 0))
+    first = match.spawn_piece(WIDGET, (60, 100))
+    second = match.spawn_piece(WIDGET, (60, 110))
 
     robot.set_intake_active(True)
     for _ in range(600):

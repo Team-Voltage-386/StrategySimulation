@@ -72,6 +72,23 @@ class SwerveChassis:
 
         space.add(self.body, self.bumper_shape)
 
+        # The drivetrain is a *traction-limited* velocity source, and the
+        # limit is enforced per physics substep rather than per control
+        # tick. Both spellings accelerate identically in free space --
+        # `max_accel * dt` summed over a tick's substeps is the same
+        # `max_accel * tick` -- but they differ completely in contact.
+        # Slewing once per control tick lets a robot re-assert its
+        # commanded velocity only every 20ms, and does nothing at all in
+        # between, so contact impulses have 4-5 substeps of uncontested
+        # authority over a robot that is braced and trying to hold still.
+        # Enforcing it every substep means a robot pushes and resists
+        # with at most `mass * max_accel` of force at every instant,
+        # which is what makes a pushing match resolve on traction rather
+        # than on control-loop phase.
+        self._target_velocity = Vec2d(0.0, 0.0)
+        self._target_omega = 0.0
+        self.body.velocity_func = self._integrate_velocity
+
         # Nominal module positions inset slightly from the bumper corners.
         inset = 3.0
         self._module_offsets = [
@@ -88,19 +105,32 @@ class SwerveChassis:
 
     def drive_field_relative(self, dt: float, vx: float, vy: float, omega: float) -> None:
         """Command field-relative chassis velocity (in/s, in/s, rad/s).
-        Acceleration-limited toward the target each call, so callers can
-        set a raw joystick-derived target every frame without ramping it
-        themselves."""
+        Acceleration-limited toward the target, so callers can set a raw
+        joystick-derived target every frame without ramping it
+        themselves. The command latches: it stays in force until
+        superseded, and is applied by `_integrate_velocity` every physics
+        substep. `dt` is accepted for signature compatibility and is not
+        used -- the ramp is paced by the physics clock, not the caller's."""
         target = Vec2d(vx, vy)
         if target.length > self.limits.max_speed:
             target = target.scale_to_length(self.limits.max_speed)
-        omega = _clamp(omega, self.limits.max_angular_speed)
+        self._target_velocity = target
+        self._target_omega = _clamp(omega, self.limits.max_angular_speed)
 
-        current = Vec2d(*self.body.velocity)
-        self.body.velocity = _slew_vector(current, target, self.limits.max_accel, dt)
-        self.body.angular_velocity = _slew_scalar(
-            self.body.angular_velocity, omega, self.limits.max_angular_accel, dt
+    def _integrate_velocity(self, body, gravity, damping, dt) -> None:
+        """pymunk velocity_func: ramp toward the latched command under
+        the acceleration limit, then hand off to the default integrator
+        so externally applied forces and impulses still land. Running
+        before the contact solver each substep is what gives the
+        drivetrain finite authority -- the ramp caps what it can add,
+        and the solver then decides how much of that survives whatever
+        the robot is pressed against."""
+        current = Vec2d(*body.velocity)
+        body.velocity = _slew_vector(current, self._target_velocity, self.limits.max_accel, dt)
+        body.angular_velocity = _slew_scalar(
+            body.angular_velocity, self._target_omega, self.limits.max_angular_accel, dt
         )
+        pymunk.Body.update_velocity(body, gravity, damping, dt)
 
     def drive_robot_relative(self, dt: float, vx: float, vy: float, omega: float) -> None:
         """Command chassis velocity in the robot's own frame (e.g. from a

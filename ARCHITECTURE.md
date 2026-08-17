@@ -134,6 +134,36 @@ display; the Monte Carlo runner drives it in a tight loop with no
 timer/vsync at all, which is what makes "faster than real time"
 trivial rather than a separate code path.
 
+**The drivetrain is a traction-limited force, not a velocity write.**
+`drive_field_relative` latches a target; `SwerveChassis._integrate_velocity`
+(a pymunk `velocity_func`) ramps toward it under `max_accel` on *every
+physics substep*, before the contact solver runs. In free space this is
+indistinguishable from the old once-per-control-tick slew -- the same
+`max_accel * tick` gets applied either way, and the undefended benchmark
+is unchanged to the point. In contact it is a different simulation.
+Slewing per control tick let a robot re-assert its command only every
+20ms and do nothing in the 4-5 substeps between, so contact impulses had
+uncontested authority over a robot trying to hold still, and conversely a
+robot could bulldoze through anything by rewriting its velocity from
+scratch each tick.
+
+Per substep, each chassis can add or remove at most `mass * max_accel` of
+momentum, and the solver arbitrates the rest. Three consequences worth
+naming: commanding zero velocity is *braking*, not passivity, and spends
+the robot's whole traction budget holding position; two equally powered
+robots pressed square against each other therefore produce zero net force
+on the pair and neither can move the other; and a robot that spawns
+overlapping a wall can no longer shove its way out, so a start pose half
+outside the perimeter is now a real error rather than a slow start.
+
+Momentum from the *impact* is not dissipated -- there is no floor
+friction model -- so a pair that collides while closing at `v` slides on
+together at about `v/2` until someone disengages. That is correct rigid-
+body behavior for a frictionless floor and it is bounded by approach
+speed (bumper-to-bumper from rest, a braced robot gives up ~6in in 5s),
+but it does mean a defender who *rams* moves its victim further than one
+who arrives and leans.
+
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-
 level globals (`held_piece`, `score`). `Match` owns that instead:
