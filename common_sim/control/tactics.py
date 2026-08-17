@@ -116,27 +116,23 @@ _EVADE_COMMIT_PERIOD = 3.0
 _STALL_PATIENCE_RATIO = 1.6
 _STALL_PATIENCE_MIN = 2.5
 
-# Not here, though it looks like it belongs here: a per-(region, action)
-# cooldown so that giving up on a target also means not immediately
-# re-picking it. The pathology it addresses is real and measurable -- a
-# robot denied at its best option ping-pongs between its top two, giving
-# up on A near A (where B now ranks best), driving to B, giving up on B
-# near B, and driving back, forever. Measured 1v1 against a blocker: 14
-# switches between the PROCESSOR and the NET, 55s holding one ALGAE, no
-# attempt completed.
+# How long a target a robot gave up on stays out of the running, so that
+# giving up on it also means not immediately re-picking it (see
+# Score._allowed). Without this, a robot denied at its best option
+# ping-pongs between its top two: it gives up on A while standing at A
+# (where B now ranks best), drives to B, gives up on B at B, and drives
+# back, forever. Measured 1v1 against a blocker: 14 switches between the
+# PROCESSOR and the NET, 55s holding one ALGAE, no attempt completed.
 #
-# Both fixes for it measured *worse* than the ping-pong. A cooldown plus
-# "contest the one you had when everything is on cooldown" scored 15.5 to
-# the ping-pong's 19.0 (1v1, block); on the 2v2 bench it cost ~4 points
-# in every defended row.
-#
-# Treat that as untested rather than refuted. It was measured on top of a
-# Score that could not convert even when it got somewhere free: it drove
-# through large scoring regions without stopping, and read itself as not
-# facing a region whose centroid was off its nose. Nothing downstream of
-# "pick a better target" could show a gain while arriving at the better
-# target scored nothing either. Both bugs are fixed; re-run this arm
-# before believing the numbers above.
+# Worth reading as a cautionary tale about measurement, not just a
+# constant. This was implemented, measured *worse* than the ping-pong
+# (15.5 against 19.0), and deleted -- because it was benchmarked on a
+# Score that could not convert even when it did get somewhere free. On
+# the fixed code the same change is worth 48.9 -> 54.6 alone and
+# 71.0 -> 95.4 alongside alliance-aware aiming
+# (world_view.region_approach_point), and costs nothing undefended.
+# A behavior downstream of a broken one cannot be measured at all.
+_FAILED_TARGET_COOLDOWN = 8.0
 
 # How far past the halfway line a committed piece has to have rolled --
 # as a fraction of the distance between the two alliances' ends -- before
@@ -788,14 +784,42 @@ class Score(Tactic):
         self._committed_elapsed = 0.0
         self._patience = _STALL_PATIENCE_MIN
         self._evade_hold = 0.0
+        # (region name, action) -> seconds left before it may be chosen
+        # again, for targets this robot gave up on. See _allowed.
+        self._cooldowns: dict[tuple[str, str], float] = {}
         self._reconsider = _Throttle(replan_period)
         self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
     def reset(self) -> None:
+        # `_cooldowns` deliberately survives: "this region would not take
+        # my piece a moment ago" is knowledge about the field, not state
+        # belonging to one activation of this tactic. A strategy that
+        # alternates Collect and Score resets Score once per cycle, so
+        # clearing here would wipe every cooldown before it was ever
+        # consulted -- measured, that reduced the whole mechanism to a
+        # no-op (48.9 -> 48.9 against a blocker, against 54.6 with it).
         self._commit(None)
         self._evade_hold = 0.0
         self._reconsider.reset()
         self._nav.reset()
+
+    def _allowed(self, options: list) -> list:
+        """`options` minus the ones this robot recently gave up on --
+        unless that empties the list, in which case the whole list comes
+        back.
+
+        Without this a robot denied at its best option ping-pongs
+        between its top two: it gives up on A while standing at A (where
+        B now ranks best), drives to B, gives up on B at B, and drives
+        back, forever. Measured 1v1 against a blocker: 14 switches
+        between the PROCESSOR and the NET, 55s holding one ALGAE, no
+        attempt completed. Falling back to the unfiltered list when
+        everything is cooling is what keeps the cure from being worse:
+        contesting a spot still scores eventually, standing still
+        holding the piece never does."""
+        if not self._cooldowns:
+            return options
+        return [o for o in options if (o.region.name, o.action) not in self._cooldowns] or options
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         assert self._current is not None
@@ -845,10 +869,11 @@ class Score(Tactic):
             if not legal:
                 self._commit(None)
                 return False
+            legal = self._allowed(legal)
             self._commit(self._best_uncrowded(ctx, legal) or self._best_valued(ctx, legal))
             return True
 
-        options = self.planner.plan(match, robot)
+        options = self.planner.plan(match, robot, exclude=set(self._cooldowns))
         if not options:
             self._commit(None)
             return False
@@ -866,7 +891,7 @@ class Score(Tactic):
         # which piece to score first. Falls back to the crowded choice
         # when nothing has room: contesting a spot still eventually
         # scores, standing around holding the piece never does.
-        legal = [o for o in world_view.scoring_options(match, robot) if o.piece is best.piece]
+        legal = self._allowed([o for o in world_view.scoring_options(match, robot) if o.piece is best.piece])
         self._commit(self._best_uncrowded(ctx, legal) or best)
         return True
 
@@ -919,12 +944,22 @@ class Score(Tactic):
             # `_provide_target` with nothing to aim at this tick.
             self._commit(previous)
             return
+        if self._current.region.name != previous.region.name or self._current.action != previous.action:
+            # Only a target actually walked away from goes on cooldown --
+            # a re-pick that lands on the same place is the robot still
+            # trying, not giving up.
+            self._cooldowns[(previous.region.name, previous.action)] = _FAILED_TARGET_COOLDOWN
         if self._current.region.name != previous.region.name or self._current.piece is not previous.piece:
             self._evade_hold = _EVADE_COMMIT_PERIOD
             self._nav.reset()
 
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
+        for key in list(self._cooldowns):
+            self._cooldowns[key] -= ctx.dt
+            if self._cooldowns[key] <= 0.0:
+                del self._cooldowns[key]
+
         if not robot.held_pieces:
             robot.set_deposit_active(False)
             return Status.SUCCESS

@@ -229,6 +229,39 @@ def test_region_approach_point_clears_another_occupant():
     assert point_in_polygon(point, goal.vertices)
 
 
+def test_region_approach_point_weighs_a_teammate_and_an_opponent_differently():
+    """A teammate only has to be out of the way -- past a footprint
+    diagonal there is nothing more to gain, so the nearest adequate point
+    wins and the robot stops on the near side of the region.
+
+    An opponent is not something to merely clear. The whole value of a
+    large scoring region is that it cannot be denied at one spot, which
+    only pays if the robot actually uses the far end of it, so the same
+    occupant in the same place is worth driving much further from."""
+    match = make_match()
+    goal = match.field.scoring_regions[0]  # x 80..250, y -60..60
+    # Approaching from off the region's near (low-x) edge, with the
+    # occupant sitting just inside that same edge.
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0), alliance="blue")
+    occupied = Pose2d(100, 0, 0)
+    partner = match.add_robot(make_characteristics(), occupied, alliance="blue")
+    defender = match.add_robot(make_characteristics(), occupied, alliance="red")
+
+    friendly_point = world_view.region_approach_point(goal, robot, [partner])
+    hostile_point = world_view.region_approach_point(goal, robot, [defender])
+
+    def clearance(point):
+        return math.hypot(point[0] - occupied.x, point[1] - occupied.y)
+
+    for point in (friendly_point, hostile_point):
+        assert point_in_polygon(point, goal.vertices)
+        assert clearance(point) >= 28.0  # both at least get out of the way
+
+    assert clearance(hostile_point) > 2 * clearance(friendly_point)
+    assert friendly_point[0] < 130.0   # stays on the near side it came from
+    assert hostile_point[0] > 200.0    # crosses to the far end instead
+
+
 def _two_sided_match() -> Match:
     """Owned features at each end of the long axis, mirrored -- blue low,
     red high, so the halves come out split at x=150."""

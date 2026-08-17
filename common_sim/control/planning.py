@@ -35,11 +35,18 @@ class ScoringOption:
 
 class ScorePlanner(ABC):
     @abstractmethod
-    def plan(self, match, robot: "Robot") -> list[ScoringOption]:
+    def plan(self, match, robot: "Robot", exclude: set | None = None) -> list[ScoringOption]:
         """Ordered scoring options for every piece `robot` currently
         holds -- the tactic executes the head and replans after each
         deposit, so only the order (not that every option remains valid
-        forever) matters."""
+        forever) matters.
+
+        `exclude` is a set of (region name, action) pairs the caller has
+        reason not to pick again right now -- Score's failed-target
+        cooldown. It is a *preference*, not a filter: a piece whose every
+        option is excluded still gets its best one, because a robot
+        standing still holding a piece it refuses to place scores less
+        than one contesting a spot it probably can't have."""
         raise NotImplementedError
 
 
@@ -71,7 +78,7 @@ class GreedyRatePlanner(ScorePlanner):
     enter as an extra term in travel_time once navigation can report a
     blocked path, but that isn't modeled yet."""
 
-    def plan(self, match, robot: "Robot") -> list[ScoringOption]:
+    def plan(self, match, robot: "Robot", exclude: set | None = None) -> list[ScoringOption]:
         remaining_pieces = list(robot.held_pieces)
         pos = (robot.pose.x, robot.pose.y)
         ordered: list[ScoringOption] = []
@@ -84,7 +91,12 @@ class GreedyRatePlanner(ScorePlanner):
                 candidates.append(build_option(match, robot, legal, pos))
             if not candidates:
                 break
-            best = max(candidates, key=lambda o: o.value_rate)
+            # Applied per piece, not to the finished plan: a robot
+            # holding one piece has exactly one candidate per region, so
+            # filtering afterward would always hit the fallback and the
+            # exclusion would silently do nothing.
+            wanted = [o for o in candidates if (o.region.name, o.action) not in exclude] if exclude else []
+            best = max(wanted or candidates, key=lambda o: o.value_rate)
             ordered.append(best)
             remaining_pieces.remove(best.piece)
             pos = polygon_centroid(best.region.vertices)
@@ -97,5 +109,5 @@ class LookaheadPlanner(ScorePlanner):
     detour for a denser pickup before scoring) -- same interface as
     GreedyRatePlanner, so plugging it in later never touches Score."""
 
-    def plan(self, match, robot: "Robot") -> list[ScoringOption]:
+    def plan(self, match, robot: "Robot", exclude: set | None = None) -> list[ScoringOption]:
         raise NotImplementedError("LookaheadPlanner is a seam for future work, not implemented yet")

@@ -412,24 +412,31 @@ def region_approach_point(region: ScoringRegion, robot: Robot, occupants: list[R
     sharing a region big enough for both would still aim at the identical
     centroid and shove each other over it.
 
-    Deliberately *not* alliance-aware, though it looks like it should be.
-    Maximizing distance from an opposing occupant instead of settling for
-    "enough" reads as the obvious way to use the far end of a big zone
-    against a defender parked in the middle of it, and measured as a
-    large loss: 1v1 against a full-time blocker, ALGAE production fell
-    from 19.0 to 6.0 points. A defender follows, so the far corner is not
-    open by the time you arrive -- all the extra distance buys is a
-    longer drive spent being chased, while the near-but-adequate point
-    gets the deposit off before the defender re-settles."""
+    A teammate and an opponent are wanted at different distances, so the
+    two are weighed differently. A teammate only has to be clear of:
+    past a footprint diagonal there is nothing more to gain, and the
+    nearest adequate point saves the drive. An opponent should be as far
+    away as the region allows, uncapped, because the whole value of a
+    large scoring region is that it cannot be denied at one spot -- and
+    a defender parked in the middle of it denies the middle only.
+
+    This was tried once before and measured as a catastrophic loss (1v1
+    against a full-time blocker, ALGAE production fell 19.0 -> 6.0), and
+    the reading at the time was that a defender follows, so the far
+    corner isn't open by the time you get there. That reading was wrong:
+    the robot was not being followed to the far corner, it was arriving
+    and failing to score, because `Score` drove on past its legal pose
+    and the facing test measured against the region's centroid. On the
+    fixed code the same change is worth 48.9 -> 71.0 on that bench, and
+    71.0 -> 95.4 alongside Score's failed-target cooldown."""
     centroid = polygon_centroid(region.vertices)
-    others = [(r.pose.x, r.pose.y) for r in occupants]
-    if not others:
+    if not occupants:
         return centroid
 
+    friendly = [(r.pose.x, r.pose.y) for r in occupants if r.alliance == robot.alliance]
+    hostile = [(r.pose.x, r.pose.y) for r in occupants if r.alliance != robot.alliance]
+
     characteristics = robot.characteristics
-    # Past a full footprint diagonal of separation, more clearance buys
-    # nothing -- so treat everything beyond it as equally good and let
-    # "closest to the robot" pick between them.
     enough = math.hypot(characteristics.width, characteristics.length)
     origin = (robot.pose.x, robot.pose.y)
 
@@ -437,7 +444,7 @@ def region_approach_point(region: ScoringRegion, robot: Robot, occupants: list[R
     ys = [v[1] for v in region.vertices]
     min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
 
-    best, best_key = centroid, _spread_key(centroid, others, origin, enough)
+    best, best_key = centroid, _spread_key(centroid, friendly, hostile, origin, enough)
     for i in range(_APPROACH_SAMPLES):
         for j in range(_APPROACH_SAMPLES):
             point = (
@@ -446,12 +453,24 @@ def region_approach_point(region: ScoringRegion, robot: Robot, occupants: list[R
             )
             if not point_in_polygon(point, region.vertices):
                 continue
-            key = _spread_key(point, others, origin, enough)
+            key = _spread_key(point, friendly, hostile, origin, enough)
             if key > best_key:
                 best, best_key = point, key
     return best
 
 
-def _spread_key(point, others, origin, enough: float):
-    clearance = min(math.hypot(point[0] - o[0], point[1] - o[1]) for o in others)
-    return (min(clearance, enough), -math.hypot(point[0] - origin[0], point[1] - origin[1]))
+def _spread_key(point, friendly, hostile, origin, enough: float):
+    """Sort key for a candidate approach point, larger is better:
+    adequate clearance from teammates first, then distance from the
+    nearest opponent, then closeness to the robot. With no opponent in
+    the region the second term is constant and the tiebreak is the
+    shorter drive, which is the un-contested behavior."""
+    friendly_clear = min(
+        (math.hypot(point[0] - o[0], point[1] - o[1]) for o in friendly), default=enough,
+    )
+    hostile_clear = min(
+        (math.hypot(point[0] - o[0], point[1] - o[1]) for o in hostile), default=math.inf,
+    )
+    if hostile:
+        return (min(friendly_clear, enough), hostile_clear)
+    return (min(friendly_clear, enough), -math.hypot(point[0] - origin[0], point[1] - origin[1]))

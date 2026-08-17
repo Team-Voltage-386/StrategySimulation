@@ -1006,6 +1006,74 @@ def test_defend_guesses_a_region_when_the_mark_has_declared_none():
     assert tactic.target_region_name == "goal"
 
 
+def _stall(tactic, ctx, ticks=600):
+    """Let the patience budget run out without the robot moving or
+    scoring, which is what makes Score give up on its target."""
+    for _ in range(ticks):
+        tactic.tick(ctx)
+        ctx.elapsed += ctx.dt
+
+
+def test_score_does_not_immediately_re_pick_a_target_it_gave_up_on():
+    """Otherwise a denied robot ping-pongs between its top two options:
+    it gives up on A while standing at A (where B now ranks best), drives
+    to B, gives up on B at B, and drives straight back."""
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._current.region.name == "near"
+
+    # Someone parks in "near", so the next re-pick has to go elsewhere.
+    squatter = match.add_robot(make_characteristics(), Pose2d(110, 100, 0))
+    _stall(tactic, ctx, ticks=300)  # 5s: past the patience budget, well inside the cooldown
+    assert tactic._current.region.name == "far"
+    assert ("near", "score_widget") in tactic._cooldowns
+
+    # "near" is free again and ranks best on value, but it was just given
+    # up on, so the next re-pick does not send the robot straight back.
+    squatter.chassis.body.position = (20, 20)
+    _stall(tactic, ctx, ticks=180)
+    assert tactic._current.region.name == "far"
+
+
+def test_score_contests_a_cooled_down_target_rather_than_holding_the_piece():
+    """The cooldown is a preference, not a filter. With only one place to
+    put the piece, contesting it eventually scores; refusing to go back
+    never does."""
+    field = make_field(scoring_regions=(NEAR_REGION,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic._cooldowns[("near", "score_widget")] = 8.0
+
+    _stall(tactic, ctx, ticks=120)
+    assert tactic._current is not None
+    assert tactic._current.region.name == "near"
+
+
+def test_score_cooldowns_survive_a_reset():
+    """`reset` fires whenever the strategy arbiter switches rules, which
+    for a collect/score cycle is once per piece. Clearing cooldowns there
+    would wipe every one of them before it was ever consulted."""
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    tactic = _score_tactic_holding_piece(match, robot)
+    match.add_robot(make_characteristics(), Pose2d(110, 100, 0))  # takes "near"
+    _stall(tactic, BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert tactic._cooldowns
+
+    tactic.reset()
+    assert tactic._cooldowns
+    assert tactic._current is None  # everything else about the run is cleared
+
+
 def test_score_re_picks_when_its_target_never_completes():
     """The stall escape: a Score committed to something it cannot finish
     must not hold the robot for the rest of the match."""
