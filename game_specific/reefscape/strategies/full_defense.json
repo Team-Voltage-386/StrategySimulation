@@ -11,6 +11,7 @@
         "type": "Defend",
         "target": "opponent_intent",
         "mode": "block",
+        "deny": "supply",
         "standoff": 24.0,
         "engage_range": 200.0
       },

@@ -1006,6 +1006,66 @@ def test_defend_guesses_a_region_when_the_mark_has_declared_none():
     assert tactic.target_region_name == "goal"
 
 
+def _feeder_field():
+    return make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+
+
+def test_defend_can_deny_a_named_intake_location():
+    """A station is a polygon an opponent has to reach, exactly like a
+    scoring region -- and in a game that protects its scoring zones it is
+    the only one a defender may make contact at."""
+    match = make_match(_feeder_field(), auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    match.add_robot(make_characteristics(), Pose2d(20, 60, 0), alliance="red")
+
+    tactic = tactics.Defend(target="near_feeder", standoff=24.0)
+    _drive(match, tactic, defender, 900)
+
+    assert tactic.target_region_name == "near_feeder"
+    assert abs(defender.pose.distance_to(Pose2d(60, 100, 0)) - 24.0) < 10.0
+
+
+def test_defend_supply_mode_camps_the_feeder_an_empty_handed_mark_must_return_to():
+    match = make_match(_feeder_field(), auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+
+    tactic = tactics.Defend(target="opponent_intent", deny="supply")
+    _drive(match, tactic, defender, 60)
+
+    assert tactic.target_region_name == "near_feeder"
+
+
+def test_defend_scoring_mode_leaves_the_feeder_alone():
+    """`deny` is a filter on the guess as well as on the declaration --
+    a defender told to attack scoring must not be pulled to the feeder
+    just because that is where its mark said it was going."""
+    match = make_match(_feeder_field(), auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    opponent.controller = _FakeController(target_region="near_feeder")
+
+    tactic = tactics.Defend(target="opponent_intent", deny="scoring")
+    _drive(match, tactic, defender, 60)
+
+    assert tactic.target_region_name == "goal"
+
+
+def test_defend_any_mode_follows_the_mark_between_supply_and_scoring():
+    match = make_match(_feeder_field(), auto_duration=1000, teleop_duration=1000)
+    defender = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    opponent = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="red")
+    opponent.controller = _FakeController(target_region="near_feeder")
+
+    tactic = tactics.Defend(target="opponent_intent", deny="any")
+    _drive(match, tactic, defender, 60)
+    assert tactic.target_region_name == "near_feeder"
+
+    opponent.controller.intent.target_region = "goal"
+    _drive(match, tactic, defender, 60)
+    assert tactic.target_region_name == "goal"
+
+
 def _stall(tactic, ctx, ticks=600):
     """Let the patience budget run out without the robot moving or
     scoring, which is what makes Score give up on its target."""

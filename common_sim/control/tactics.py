@@ -1042,12 +1042,31 @@ class Defend(Tactic):
     where it happens to be -- an idle defender parked at our own wall
     denies nothing and is a long way from where it will next be needed.
 
-    Which spot: `target` names a region to deny outright, or
-    "opponent_intent" reads it from the mark's own published intent, or
-    -- when the mark hasn't declared one (it's off collecting) --
-    `world_view.likely_scoring_region` guesses where it will go.
+    Which spot: `target` names a region or intake location to deny
+    outright, or "opponent_intent" reads it from the mark's own published
+    intent, or -- when the mark hasn't declared one -- guesses from what
+    the mark is carrying (see `world_view.likely_denial_target`).
     Guessing beats waiting: a defender that only engages once its mark
     has committed to a region arrives after it does, every time.
+
+    `deny` limits which half of the opponent's cycle is fair game:
+    "scoring" for the regions it puts pieces into, "supply" for the
+    stations it takes them from, "any" for whichever it is currently
+    headed to. Which one is worth taking away is a property of the game,
+    not a preference: a game that protects its scoring locations from
+    contact (see field_config.ProtectedZone) but leaves its feeders open
+    makes supply the only place a defender is allowed to do anything at
+    all.
+
+    "any" is the default because following the mark is the answer that
+    needs to know nothing about the game -- but on REEFSCAPE it is not
+    the best one. Measured 2v2 against a full-time defender, blue's
+    points: 235.0 undefended, 234.1 denying scoring, 225.8 denying
+    whichever, 184.9 denying supply. Committing to the feeder beats
+    reacting because a defender that follows its mark to the REEF spends
+    that half of every cycle somewhere it may not touch anyone (14.8
+    fouls a match, against 2.5 for supply), while the feeder is a corner
+    with one way in that the mark has to come back to regardless.
 
     `mode` picks what to do with that spot. "block" takes the segment
     between mark and region and sits `standoff` back from the region --
@@ -1059,6 +1078,7 @@ class Defend(Tactic):
     PARAM_SCHEMA = (
         Param("target", kind="str", default="opponent_intent"),
         Param("mode", kind="choice", choices=("block", "shadow"), default="block"),
+        Param("deny", kind="choice", choices=("scoring", "supply", "any"), default="any"),
         Param("standoff", kind="float", default=24.0, min=0, suffix=" in"),
         Param("engage_range", kind="float", default=200.0, min=0, suffix=" in"),
     )
@@ -1067,12 +1087,14 @@ class Defend(Tactic):
         self,
         target: str = "opponent_intent",
         mode: Literal["block", "shadow"] = "block",
+        deny: Literal["scoring", "supply", "any"] = "any",
         standoff: float = 24.0,
         engage_range: float = 200.0,
         replan_period: float = 0.1,
     ):
         self.target = target
         self.mode = mode
+        self.deny = deny
         self.standoff = standoff
         self.engage_range = engage_range
         self.replan_period = replan_period
@@ -1093,13 +1115,19 @@ class Defend(Tactic):
         self._repick.reset()
         self._nav.reset()
 
+    @property
+    def _kinds(self) -> tuple[str, ...]:
+        return ("scoring", "supply") if self.deny == "any" else (self.deny,)
+
     def _region_for(self, ctx: BehaviorContext, opponent):
-        """The region this defender is denying `opponent`. An explicit
-        `target` name wins; otherwise the opponent's own declared region,
+        """The field feature this defender is denying `opponent` -- a
+        scoring region or an intake location, both of which are just a
+        `.name` and a `.vertices` to everything downstream. An explicit
+        `target` name wins; otherwise the opponent's own declaration,
         falling back to a guess at where it will go."""
         if self.target != "opponent_intent":
-            return world_view.region_by_name(ctx.match, self.target)
-        return world_view.likely_scoring_region(ctx.match, opponent)
+            return world_view.denial_target_by_name(ctx.match, self.target)
+        return world_view.likely_denial_target(ctx.match, opponent, self._kinds)
 
     def _threat(self, ctx: BehaviorContext, opponent) -> tuple[int, int, float]:
         """How much `opponent` is worth marking, smallest first: one
@@ -1151,15 +1179,24 @@ class Defend(Tactic):
         return incumbent
 
     def _lurk_pose(self, ctx: BehaviorContext) -> Pose2d:
-        """Where to wait with no opponent in range: the nearest region
-        the opponents score in. That is where they have to come back to,
-        so waiting there is both the shortest trip to the next
-        engagement and, in itself, a spot they'd rather we weren't."""
+        """Where to wait with no opponent in range: the nearest of the
+        features this defender is willing to deny. That is where the
+        opponents have to come back to, so waiting there is both the
+        shortest trip to the next engagement and, in itself, a spot
+        they'd rather we weren't. Filtered by `deny` for the same reason
+        the mark's target is -- a defender that only ever attacks the
+        feeder should be idling at the feeder, not at a REEF it will
+        never engage anyone at."""
         robot = ctx.robot
         opposing = next(
             (o.alliance for o in world_view.opponents(ctx.match, robot.alliance)), None,
         )
-        regions = world_view.alliance_scoring_regions(ctx.match, opposing) if opposing else []
+        regions = []
+        if opposing:
+            if "scoring" in self._kinds:
+                regions += world_view.alliance_scoring_regions(ctx.match, opposing)
+            if "supply" in self._kinds:
+                regions += world_view.alliance_intake_locations(ctx.match, opposing)
         if not regions:
             return robot.pose
         origin = (robot.pose.x, robot.pose.y)

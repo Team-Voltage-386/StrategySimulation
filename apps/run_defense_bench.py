@@ -53,7 +53,16 @@ VARIABILITY = VariabilityModel(
 # Red's plans. "none" is the control -- no defender at all -- and every
 # other row is read against it, since the only meaningful statement about
 # a defender is how far it moved blue off what blue does unopposed.
-RED_PLANS = ("none", "block", "shadow")
+#
+# A plan is "<mode>" or "<mode>/<deny>", the two axes of Defend that this
+# bench compares: where the defender stands relative to its mark, and
+# which half of the opponent's cycle -- scoring, supply, or whichever it
+# is currently headed for -- it is willing to attack.
+RED_PLANS = (
+    "none",
+    "block", "block/supply", "block/any",
+    "shadow", "shadow/supply", "shadow/any",
+)
 
 # Blue's plans, by strategy file. Both cycle CORAL; the evasive one adds
 # a BeingDefended rule on top (see the strategies directory).
@@ -66,20 +75,24 @@ def _load(name: str) -> dict:
     return strategy_io.to_dict(strategy_io.load_strategy(STRATEGIES_DIR / f"{name}.json"))
 
 
-def _full_time_defender(mode: str) -> dict:
-    """The `full_defense` strategy file with its Defend `mode` overridden
-    to `mode` -- a robot that does nothing but Defend, from the first
-    tick, as a bound on how much denial is even available.
+def _full_time_defender(plan_name: str) -> dict:
+    """The `full_defense` strategy file with its Defend `mode` (and
+    `deny`, if the plan names one) overridden -- a robot that does
+    nothing but Defend, from the first tick, as a bound on how much
+    denial is even available.
 
     Loaded from the file rather than built here so the plan these numbers
     are measured against is the same object you can open in the STRATEGY
-    tab and sweep by name. Only `mode` is overridden, because it is the
-    one axis this benchmark compares; edit the file to change anything
-    else and both the bench and the GUI see it."""
+    tab and sweep by name. Only the compared axes are overridden; edit
+    the file to change anything else and both the bench and the GUI see
+    it."""
+    mode, _, deny = plan_name.partition("/")
     plan = _load("full_defense")
     for rule in plan["rules"]:
         if rule["tactic"]["type"] == "Defend":
             rule["tactic"]["mode"] = mode
+            if deny:
+                rule["tactic"]["deny"] = deny
     return plan
 
 
@@ -142,7 +155,7 @@ def main() -> None:
     # field_config.ProtectedZone). Without it a defender that simply
     # parks on top of a protected scorer looks like it is denying, when
     # what it is actually doing is donating.
-    print(f"{'red plan':<10} {'blue plan':<22} {'blue pts':>9} {'blue pcs':>9} "
+    print(f"{'red plan':<14} {'blue plan':<22}{'blue pts':>9} {'blue pcs':>9} "
           f"{'blue cyc':>9} {'red pts':>9} {'red foul':>9}")
     for red in RED_PLANS:
         for blue in BLUE_PLANS:
@@ -150,7 +163,7 @@ def main() -> None:
             if not runs:
                 continue
             print(
-                f"{red:<10} {blue:<22} "
+                f"{red:<14} {blue:<22} "
                 f"{_mean(m.final_scores.get('blue', 0.0) for m in runs):>9.1f} "
                 f"{_mean(m.pieces_scored_by_alliance.get('blue', 0) for m in runs):>9.1f} "
                 f"{_mean(m.mean_cycle_time_by_alliance.get('blue') for m in runs):>9.2f} "

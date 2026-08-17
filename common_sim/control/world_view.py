@@ -311,6 +311,86 @@ def alliance_scoring_regions(match, alliance: str) -> list[ScoringRegion]:
     ]
 
 
+def alliance_intake_locations(match, alliance: str) -> list[IntakeLocation]:
+    """Intake locations `alliance` may use, by ownership alone -- the
+    mirror of `alliance_scoring_regions`. Unlike `station_options` this
+    asks nothing about a particular robot's intakes or the remaining
+    supply, because the caller is usually asking about an *opponent's*
+    station, whose configuration is not ours to reason about."""
+    return [
+        s for s in match.field.intake_locations
+        if s.alliance is None or s.alliance == alliance
+    ]
+
+
+def denial_target_by_name(match, name: str):
+    """The named field feature a defender could deny -- a scoring region
+    or an intake location, whichever carries the name.
+
+    Both are just polygons a robot has to reach to do its job, and
+    everything defense does with one (centroid, block segment, occupancy
+    claim) is duck-typed on `.name`/`.vertices`, so there is no reason
+    for the *lookup* to be the thing that decides which half of a cycle
+    can be attacked. Games differ on which half is worth taking away:
+    where scoring is protected but the feeder is not (REEFSCAPE), supply
+    is the softer target, and a defender that can only name scoring
+    regions is locked out of the only contact it is allowed to make."""
+    region = region_by_name(match, name)
+    if region is not None:
+        return region
+    for location in match.field.intake_locations:
+        if location.name == name:
+            return location
+    return None
+
+
+def denial_target_kind(match, feature) -> str:
+    """"scoring" or "supply", for a caller that has a feature and needs
+    to know which half of the opponent's cycle it belongs to."""
+    return "supply" if feature in match.field.intake_locations else "scoring"
+
+
+def likely_denial_target(match, robot: Robot, kinds: tuple[str, ...] = ("scoring", "supply")):
+    """Where `robot` is most plausibly headed next, restricted to the
+    `kinds` of feature the asking defender is willing to deny.
+
+    The published intent when there is one and it is of a wanted kind;
+    otherwise a guess from what the robot is carrying -- holding a piece
+    means it is going to score, empty-handed means it is going to load.
+    That guess is the whole point of the function: a defender that waits
+    for a declaration always arrives second, and an empty-handed
+    opponent guessed to be heading for a *scoring* region gets marked at
+    a place it has no reason to visit."""
+    intent = getattr(robot, "intent", None)
+    named = getattr(intent, "target_region", None) if intent is not None else None
+    if named is not None:
+        feature = denial_target_by_name(match, named)
+        if feature is not None and denial_target_kind(match, feature) in kinds:
+            return feature
+
+    if not robot.held_pieces and "supply" in kinds:
+        stations = station_options(match, robot)
+        if stations:
+            return _nearest_by_centroid(stations, robot)
+    if "scoring" in kinds:
+        return likely_scoring_region(match, robot)
+    if "supply" in kinds:
+        stations = alliance_intake_locations(match, robot.alliance)
+        if stations:
+            return _nearest_by_centroid(stations, robot)
+    return None
+
+
+def _nearest_by_centroid(features, robot: Robot):
+    origin = (robot.pose.x, robot.pose.y)
+    return min(
+        features,
+        key=lambda f: math.hypot(
+            polygon_centroid(f.vertices)[0] - origin[0], polygon_centroid(f.vertices)[1] - origin[1]
+        ),
+    )
+
+
 def likely_scoring_region(match, robot: Robot) -> ScoringRegion | None:
     """Where `robot` would most plausibly go to score next, for a caller
     that has to guess -- a defender deciding which side of its mark to

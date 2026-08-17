@@ -63,7 +63,7 @@ common_sim/
     behavior.py             Behavior-tree-lite: Sequence/Parallel/DriveToPose/RunIntake/Wait/Branch nodes
     vision.py                 Simulated AprilTag pose estimation + piece detection, tunable noise/FOV/dropout
     param.py                 Param dataclass: shared PARAM_SCHEMA element for Trigger/Tactic GUI forms
-    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents, defenders
+    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents, defenders, denial targets
     navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
     planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
@@ -200,6 +200,20 @@ cost when undefended. `apps/run_defense_bench.py` is the harness those
 numbers come from; a plain strategy sweep cannot produce them, because
 a defender scores nothing itself and its effect is only visible in the
 *other* alliance's per-alliance metrics.
+
+**Defense denies a *cycle*, not a scoring region.** A robot's job is a
+loop — go get a piece, go put it somewhere — and either half can be
+taken away, so `Defend` resolves its target through
+`world_view.denial_target_by_name` / `likely_denial_target`, which treat
+a `ScoringRegion` and an `IntakeLocation` as the same kind of thing: a
+polygon somebody has to reach. Everything downstream (block segment,
+centroid, occupancy claim) was already duck-typed on `.name`/
+`.vertices`, so the lookup was the only thing deciding which half could
+be attacked at all. The `deny` param picks which half, and *that* is
+where the game shows through: a game with no-contact zones around its
+scoring locations and none around its feeders has made supply the softer
+target by construction (see `ProtectedZone`), and on REEFSCAPE denying
+supply is worth roughly three times denying scoring.
 
 **`for_duration` belongs to the rule's outermost trigger.** Hysteresis
 is bookkept by `StrategyController`, not by the `Trigger` (which stays a

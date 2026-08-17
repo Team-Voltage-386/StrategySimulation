@@ -397,6 +397,41 @@ def test_likely_scoring_region_prefers_declared_then_falls_back_to_nearest():
     assert world_view.likely_scoring_region(match, robot).name == "goal"
 
 
+def test_denial_target_by_name_finds_stations_as_well_as_regions():
+    match = make_match()
+    assert world_view.denial_target_by_name(match, "goal").name == "goal"
+    assert world_view.denial_target_by_name(match, "feeder").name == "feeder"
+    assert world_view.denial_target_by_name(match, "nope") is None
+    assert world_view.denial_target_kind(match, world_view.denial_target_by_name(match, "feeder")) == "supply"
+
+
+def test_likely_denial_target_guesses_supply_for_an_empty_handed_mark():
+    """The old guess was always a scoring region, which put a defender in
+    front of a place its empty-handed mark had no reason to visit."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
+
+    assert world_view.likely_denial_target(match, robot).name == "feeder"
+
+    robot.held_pieces.append(match.spawn_piece(WIDGET, (0, 0)))
+    assert world_view.likely_denial_target(match, robot).name == "goal"
+
+
+def test_likely_denial_target_honors_the_kinds_it_is_allowed_to_deny():
+    match = make_match()
+    robot = _declare(match.add_robot(make_characteristics(), Pose2d(0, 0, 0)), target_region="feeder")
+
+    assert world_view.likely_denial_target(match, robot, ("scoring", "supply")).name == "feeder"
+    # Told to attack scoring only, a declared feeder is not an answer --
+    # falling through to the scoring guess beats marking nothing at all.
+    assert world_view.likely_denial_target(match, robot, ("scoring",)).name == "goal"
+
+
+def test_alliance_intake_locations_includes_unowned_stations():
+    match = make_match()
+    assert [s.name for s in world_view.alliance_intake_locations(match, "blue")] == ["feeder"]
+
+
 def test_alliance_scoring_regions_includes_unowned_regions():
     match = make_match()
     names = [r.name for r in world_view.alliance_scoring_regions(match, "blue")]
