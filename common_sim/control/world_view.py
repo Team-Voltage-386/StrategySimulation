@@ -278,6 +278,20 @@ def protection_distance(match, robot: Robot) -> float:
     return best
 
 
+def pin_pressure(match, defender: Robot, mark: Robot) -> float:
+    """How close `defender` is to fouling for pinning `mark`, as a
+    fraction of the rule's limit: 0.0 when nothing is accumulated, 1.0 at
+    the point a foul is charged. 0.0 on a field with no pin rule, so a
+    caller can read it unconditionally.
+
+    Expressed as a fraction rather than as seconds so a tactic can hold
+    one release threshold across games whose limits differ."""
+    rule = getattr(match.field, "pin_rule", None)
+    if rule is None or rule.max_seconds <= 0:
+        return 0.0
+    return match.pin_seconds(defender, mark) / rule.max_seconds
+
+
 def protection_keepout(defender: Robot, protected: Robot, margin: float = 2.0) -> float:
     """How far a defender's *center* must stay from a protected robot's
     center to be sure of not touching it. Half-diagonals sum, so it holds

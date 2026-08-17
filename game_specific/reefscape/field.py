@@ -18,7 +18,7 @@ from __future__ import annotations
 import math
 
 from common_sim.field.field_config import (
-    EmitterRegion, FieldConfig, IntakeLocation, Obstacle, ProtectedZone, ScoringRegion,
+    EmitterRegion, FieldConfig, IntakeLocation, Obstacle, PinRule, ProtectedZone, ScoringRegion,
 )
 from game_specific.reefscape.game_pieces import ALGAE_RADIUS, ALGAE_TYPE, CORAL_TYPE
 
@@ -105,6 +105,13 @@ REEF_FACE_SCORING_WIDTH = 22.0   # matches roughly one REEF face's width
 # protected robot is charged again every ProtectedZone.foul_period.
 REEF_ZONE_MARGIN = 12.0
 REEF_ZONE_FOUL_POINTS = 2.0
+
+# G211 in 2025: a robot may not pin an opponent for more than three
+# seconds, and must move away before the count restarts. The 2025 answer
+# is a TECH FOUL, worth 6 points to the pinned robot's alliance.
+PIN_MAX_SECONDS = 3.0
+PIN_RELEASE_SECONDS = 1.0
+PIN_FOUL_POINTS = 6.0
 
 # L2-L4 are individual branches -- one CORAL each, physically. L1 is a
 # trough that holds several; the Game Manual (V13) doesn't give an exact
@@ -353,6 +360,11 @@ def build_field() -> FieldConfig:
         width=FIELD_LENGTH, height=FIELD_WIDTH,
         obstacles=obstacles, scoring_regions=scoring_regions, intake_locations=intake_locations,
         emitter_regions=emitter_regions, protected_zones=protected_zones,
+        pin_rule=PinRule(
+            max_seconds=PIN_MAX_SECONDS,
+            release_seconds=PIN_RELEASE_SECONDS,
+            foul_points=PIN_FOUL_POINTS,
+        ),
     )
 
 

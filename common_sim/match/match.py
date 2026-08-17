@@ -8,6 +8,7 @@ into (Robot, ScoringRules, FieldConfig) stays game-agnostic on its own.
 """
 from __future__ import annotations
 
+import math
 import random
 from enum import Enum
 
@@ -30,6 +31,11 @@ from common_sim.geometry import Pose2d
 # leaves a small gap between resting bodies, and a rule about contact
 # should not hinge on a sub-millimeter numerical artifact.
 _CONTACT_TOLERANCE = 0.25
+
+# How far past a robot's circumscribed circle Match._trapped_behind looks
+# for whatever is backing it up (in). Slack on purpose: a robot being
+# driven into a wall has nowhere to go some inches before it arrives.
+_PIN_BACKSTOP_PROBE = 2.0
 
 
 class Phase(Enum):
@@ -117,6 +123,15 @@ class Match:
         # (offender id, protected id) -> seconds left before a contact
         # that never breaks counts as a second foul.
         self._foul_cooldown: dict[tuple[int, int], float] = {}
+        # alliance -> how many pin violations its robots committed (see
+        # _step_pins). Points, if the rule prices them, land under the
+        # pinned robot's alliance.
+        self.pin_fouls: dict[str, int] = {}
+        # (offender id, victim id) -> [seconds pinned so far, seconds of
+        # release credited since the pin last held]. Lives across ticks:
+        # a pin is a duration, and a defender that lets go for a frame
+        # has not released (see PinRule.release_seconds).
+        self._pin_timers: dict[tuple[int, int], list[float]] = {}
         self.events = EventLog()
 
         self.elapsed = 0.0
@@ -505,6 +520,117 @@ class Match:
                     "against": victim.alliance, "points": zone.foul_points,
                 })
 
+    # -- pinning -----------------------------------------------------------
+
+    def is_pinning(self, offender: Robot, victim: Robot) -> bool:
+        """Whether `offender` is, right now, preventing `victim` from
+        moving. Three things must hold at once, and each of them is
+        there to exclude a defense that is legal.
+
+        They are in contact, and `victim` is asking to go somewhere it
+        is not getting to. Blocking *access* is not pinning: a defender
+        parked across the one route a robot wanted has denied it a
+        destination, not its motion, and the victim's own commanded
+        speed reports that honestly -- a robot that has given up and
+        driven off is going somewhere. This half is only answerable
+        because the drivetrain is traction-limited (see
+        physics/swerve.py); while a velocity command was written
+        straight into the body, "commanded but not achieved" could not
+        be true for longer than a substep.
+
+        And the victim is trapped against something -- a wall, an
+        obstacle, a third robot -- on the far side of the push. This is
+        the official shape of the rule (2025's PIN is "impeding the
+        movement of an opponent ROBOT against a FIELD element or another
+        ROBOT"), and without it the sim charges a pin for every mutual
+        shoving match in open space, where by construction *both* robots
+        are stopped and commanding motion, so each pins the other and
+        both alliances collect fouls for the same collision. Two robots
+        leaning on each other in the open have not trapped anything:
+        either can back out whenever it stops pushing."""
+        rule = self.field.pin_rule
+        if rule is None:
+            return False
+        return (victim.commanded_speed > rule.stopped_speed
+                and victim.speed <= rule.stopped_speed
+                and self.robots_in_contact(offender, victim)
+                and self._trapped_behind(victim, offender))
+
+    def _trapped_behind(self, victim: Robot, offender: Robot) -> bool:
+        """Whether something is backing `victim` up on the far side of
+        the line `offender` is pushing along.
+
+        Probes one point just past the victim's circumscribed circle,
+        directly away from the offender. That is deliberately coarse:
+        the question is whether the victim has a wall at its back, not
+        exactly where its bumper ends, and a circumscribed probe gives
+        the answer at every relative heading without caring how the
+        victim is turned. It reads as trapped from a few inches out,
+        which is the right way to be wrong -- a robot being driven into
+        a wall is pinned before it touches it."""
+        dx, dy = victim.pose.x - offender.pose.x, victim.pose.y - offender.pose.y
+        distance = math.hypot(dx, dy)
+        if distance < 1e-6:
+            return True  # concentric: nowhere to go by any reading
+        c = victim.characteristics
+        reach = math.hypot(c.width, c.length) / 2.0 + _PIN_BACKSTOP_PROBE
+        point = (victim.pose.x + dx / distance * reach, victim.pose.y + dy / distance * reach)
+
+        if not (0.0 <= point[0] <= self.field.width and 0.0 <= point[1] <= self.field.height):
+            return True
+        if any(point_in_polygon(point, o.vertices) for o in self.field.obstacles):
+            return True
+        return any(point_in_polygon(point, other.footprint())
+                   for other in self.robots if other is not victim and other is not offender)
+
+    def pin_seconds(self, offender: Robot, victim: Robot) -> float:
+        """Seconds of unbroken pin `offender` has accumulated against
+        `victim`. A defender reads this to let go before it fouls."""
+        timer = self._pin_timers.get((id(offender), id(victim)))
+        return timer[0] if timer else 0.0
+
+    def _step_pins(self, dt: float) -> None:
+        rule = self.field.pin_rule
+        if rule is None:
+            return
+
+        for offender in self.robots:
+            for victim in self.robots:
+                if offender is victim or offender.alliance == victim.alliance:
+                    continue
+                key = (id(offender), id(victim))
+                timer = self._pin_timers.get(key)
+
+                if self.is_pinning(offender, victim):
+                    if timer is None:
+                        timer = [0.0, 0.0]
+                        self._pin_timers[key] = timer
+                    timer[0] += dt
+                    timer[1] = 0.0
+                    if timer[0] >= rule.max_seconds:
+                        # Reset rather than delete: a pin that simply
+                        # continues is a fresh violation every
+                        # max_seconds, the same way ProtectedZone
+                        # re-charges a shove that never breaks.
+                        timer[0] = 0.0
+                        self._charge_pin(offender, victim, rule)
+                    continue
+
+                if timer is None:
+                    continue
+                timer[1] += dt
+                if timer[1] >= rule.release_seconds:
+                    del self._pin_timers[key]
+
+    def _charge_pin(self, offender: Robot, victim: Robot, rule) -> None:
+        self.pin_fouls[offender.alliance] = self.pin_fouls.get(offender.alliance, 0) + 1
+        if rule.foul_points:
+            self.scores[victim.alliance] = self.scores.get(victim.alliance, 0.0) + rule.foul_points
+        self.events.log(self.elapsed, "pin_foul", {
+            "alliance": offender.alliance, "against": victim.alliance,
+            "seconds": rule.max_seconds, "points": rule.foul_points,
+        })
+
     # -- emitters ----------------------------------------------------------
 
     def emitter_capacity_remaining(self, emitter) -> int | None:
@@ -625,6 +751,7 @@ class Match:
         # After the solver, so contact is judged on where the robots
         # actually ended up this tick rather than where they were aiming.
         self._step_protection(dt)
+        self._step_pins(dt)
 
         if any(p.scored for p in self.active_pieces):
             still_active, scored = [], []

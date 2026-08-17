@@ -1040,11 +1040,30 @@ _MARK_SWAP_MARGIN = 1.5
 # react.
 _PROTECTION_RELEASE_MARGIN = 12.0
 
+# What fraction of field_config.PinRule.max_seconds a defender lets run
+# before it releases a mark it is holding still (see
+# Defend._respect_pin_limit). Short of 1.0 because the retreat takes
+# time, and a foul charged mid-retreat costs full price.
+#
+# Swept 0.5/0.7/0.85/0.95 against 1.0 (never release) on the 2v2 bench:
+# the value does not matter, the release does. Every fraction in that
+# range measured the same to within noise, while 1.0 differed sharply and
+# in opposite directions per plan -- block/supply gave away 2.8 pins a
+# match (a TECH FOUL each) for 12 points of extra denial, shadow/any gave
+# away 0.5 for 13. So obeying the rule is a clear win where the geometry
+# pins constantly and a clear loss where it barely does, and the sim
+# cannot see the difference that decides it: it prices a single foul, not
+# the card that follows a defender committing three a match.
+_PIN_RELEASE_FRACTION = 0.7
+
 
 class Defend(Tactic):
     """Denies an opponent the thing it is trying to do, positionally.
-    Never terminates on its own -- denial here is purely about parking in
-    the way; there's no pushing-power or contact-penalty model yet.
+    Never terminates on its own. Denial is mostly about parking in the
+    way, but contact is real: the drivetrain is traction-limited (see
+    physics/swerve.py), so a defender square on an equally powered mark
+    genuinely stops it, and the pin rule then limits how long it may
+    (see `_respect_pin_limit`).
 
     Which opponent: the most threatening one within `engage_range` (see
     `_threat`), held for `_MARK_DWELL` so the mark doesn't change every
@@ -1072,10 +1091,10 @@ class Defend(Tactic):
     "any" is the default because following the mark is the answer that
     needs to know nothing about the game. Measured 2v2 against a
     full-time defender, blue's points (which include fouls won) and red's
-    fouls per match, against 234.5 undefended:
+    protection fouls per match, against 234.5 undefended:
 
-        block   scoring 234.6 / 15.4   supply 207.0 / 0.8   any 225.9 / 15.0
-        shadow  scoring 199.0 /  8.4   supply 229.8 / 8.9   any 210.0 / 11.4
+        block   scoring 234.8 / 15.5   supply 209.5 / 0.8   any 217.9 / 11.9
+        shadow  scoring 191.5 /  8.1   supply 232.0 / 9.9   any 186.9 /  7.6
 
     `deny` and `mode` are not independent, which is why this is a
     per-tactic param rather than a defender-wide switch. Block denies
@@ -1267,8 +1286,30 @@ class Defend(Tactic):
             block_x, block_y = rx - dx * t, ry - dy * t
 
         block_x, block_y = self._respect_protection(ctx, opponent, block_x, block_y)
+        block_x, block_y = self._respect_pin_limit(ctx, opponent, block_x, block_y)
         heading = math.atan2(oy - block_y, ox - block_x)
         return Pose2d(block_x, block_y, heading)
+
+    def _respect_pin_limit(self, ctx: BehaviorContext, opponent, x: float, y: float) -> tuple[float, float]:
+        """Let a mark go before the pin clock runs out (see
+        field_config.PinRule). Same retreat as `_respect_protection` --
+        out along the closing line to a no-contact standoff -- for the
+        same reason: the defender keeps the side and the angle it earned,
+        and is still the nearest robot to the mark when it re-engages.
+
+        Released at `_PIN_RELEASE_FRACTION` of the limit rather than at
+        it, because backing off is not instantaneous: the defender has to
+        cover the standoff distance, and a foul charged while it was on
+        its way out costs exactly as much as one charged standing still.
+
+        The clock is only running at all when the mark is *held* --
+        pressing a robot that keeps driving where it wants accumulates
+        nothing, and neither does parking across a place it wanted to
+        reach. So this releases precisely the defense that was working,
+        which is the rule's whole intent."""
+        if world_view.pin_pressure(ctx.match, ctx.robot, opponent) < _PIN_RELEASE_FRACTION:
+            return (x, y)
+        return self._back_off_from(ctx, opponent, x, y)
 
     def _respect_protection(self, ctx: BehaviorContext, opponent, x: float, y: float) -> tuple[float, float]:
         """Back the block point off a mark standing in a zone where we
@@ -1290,6 +1331,13 @@ class Defend(Tactic):
         defender is waiting right there when it does."""
         if world_view.protection_distance(ctx.match, opponent) > _PROTECTION_RELEASE_MARGIN:
             return (x, y)
+        return self._back_off_from(ctx, opponent, x, y)
+
+    def _back_off_from(self, ctx: BehaviorContext, opponent, x: float, y: float) -> tuple[float, float]:
+        """Push a block point out to a distance where the two chassis
+        cannot touch at any relative heading, along the line it already
+        sat on. Shared by the two rules that require a defender to stop
+        making contact without giving up the mark."""
         keepout = world_view.protection_keepout(ctx.robot, opponent)
         dx, dy = x - opponent.pose.x, y - opponent.pose.y
         distance = math.hypot(dx, dy)

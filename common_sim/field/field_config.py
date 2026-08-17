@@ -103,6 +103,43 @@ class ProtectedZone:
 
 
 @dataclass(frozen=True)
+class PinRule:
+    """A limit on how long one robot may prevent another from moving.
+    REEFSCAPE's is three seconds; the rule is near-universal across FIRST
+    games because without it the strongest defense in any game is simply
+    to sit on the best opponent for the whole match.
+
+    What counts is *motion*, not access. A defender parked across a
+    feeder mouth, or squatting on the spot a robot wants to score from,
+    commits no pin however long it stays -- its victim can drive
+    anywhere it likes, it just cannot get to the one place it wanted.
+    Only sustained contact that leaves the victim unable to go anywhere
+    starts the clock, which in practice means shoving: `Match._step_pins`
+    asks whether a robot in contact with an opponent is commanding
+    motion and not achieving it. Under a traction-limited drivetrain
+    (see physics/swerve.py) that question has a real answer -- a victim
+    with anywhere to go gets there, and a victim held square by an
+    equally powered opponent does not.
+
+    `max_seconds` is how long a single unbroken pin may last.
+    `release_seconds` is how long the offender must let the victim move
+    before the clock resets: a defender that backs off for an instant
+    and immediately re-pins has not released, and real rules say so.
+    `foul_points` and the accounting behave exactly like ProtectedZone's
+    -- 0.0 makes the rule advisory (counted and logged, costing nothing),
+    which is what a game wants when the real answer is a card.
+
+    `stopped_speed` is the speed below which a robot counts as not
+    moving, and also the commanded speed above which it counts as
+    trying to. It is one number rather than two because the question is
+    symmetric: the victim asked for more than this and got less."""
+    max_seconds: float = 3.0
+    release_seconds: float = 1.0
+    foul_points: float = 0.0
+    stopped_speed: float = 6.0  # in/s
+
+
+@dataclass(frozen=True)
 class IntakeLocation:
     """A zone with an unlimited, continuously-replenished supply of one
     piece type -- e.g. a human-player feeder/loading station. Unlike a
@@ -209,6 +246,9 @@ class FieldConfig:
     intake_locations: tuple[IntakeLocation, ...] = field(default_factory=tuple)
     emitter_regions: tuple[EmitterRegion, ...] = field(default_factory=tuple)
     protected_zones: tuple[ProtectedZone, ...] = field(default_factory=tuple)
+    # None (the default) means the game has no pin rule and Match never
+    # runs the check at all -- pinning is then simply legal.
+    pin_rule: PinRule | None = None
 
 
 def polygon_centroid(vertices: tuple[tuple[float, float], ...]) -> tuple[float, float]:

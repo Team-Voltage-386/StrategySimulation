@@ -164,6 +164,33 @@ speed (bumper-to-bumper from rest, a braced robot gives up ~6in in 5s),
 but it does mean a defender who *rams* moves its victim further than one
 who arrives and leans.
 
+**A pin is about motion, not access.** `field_config.PinRule` is the
+generic form of "you may not prevent an opponent from moving for more
+than N seconds"; `Match._step_pins` keeps a per-(offender, victim) clock
+alongside the protected-zone one. Three conditions have to hold at once,
+and each excludes a defense that is legal. The victim must be in
+*contact*; it must be commanding motion it is not achieving, which is
+only a meaningful question now that the drivetrain is traction-limited;
+and it must be trapped against something on the far side of the push --
+a wall, an obstacle, a third robot. That last one is the official shape
+of the rule ("impeding the movement of an opponent ROBOT against a FIELD
+element or another ROBOT") and it is load-bearing: without it every
+mutual shove in open space charges *both* alliances with pinning each
+other, since by construction both robots are stopped and both are asking
+to move.
+
+The consequence worth knowing is that camping a feeder mouth or a
+scoring spot is never a pin, however long it lasts. The victim can drive
+anywhere it likes; it just cannot get to the one place it wanted, and
+its own commanded speed says so. Denial of access is unlimited, denial
+of motion is not, and the two are separated by a question the sim can
+actually answer.
+
+`Defend._respect_pin_limit` backs off at `_PIN_RELEASE_FRACTION` of the
+limit, using the same retreat as the protected-zone release. Whether to
+release at all is a real trade rather than a free win -- see the
+constant's comment for the swept numbers.
+
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-
 level globals (`held_piece`, `score`). `Match` owns that instead:

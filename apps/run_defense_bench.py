@@ -155,8 +155,12 @@ def main() -> None:
     # field_config.ProtectedZone). Without it a defender that simply
     # parks on top of a protected scorer looks like it is denying, when
     # what it is actually doing is donating.
+    # "red pin" is pin violations by red (see field_config.PinRule),
+    # which reads the opposite way to the column beside it: a protection
+    # foul means red touched somebody it may not touch at all, a pin
+    # foul means red's defense *worked* and it held on past the limit.
     print(f"{'red plan':<14} {'blue plan':<22}{'blue pts':>9} {'blue pcs':>9} "
-          f"{'blue cyc':>9} {'red pts':>9} {'red foul':>9}")
+          f"{'blue cyc':>9} {'red pts':>9} {'red foul':>9} {'red pin':>9}")
     for red in RED_PLANS:
         for blue in BLUE_PLANS:
             runs = grouped.get((red, blue))
@@ -168,7 +172,8 @@ def main() -> None:
                 f"{_mean(m.pieces_scored_by_alliance.get('blue', 0) for m in runs):>9.1f} "
                 f"{_mean(m.mean_cycle_time_by_alliance.get('blue') for m in runs):>9.2f} "
                 f"{_mean(m.final_scores.get('red', 0.0) for m in runs):>9.1f} "
-                f"{_mean(m.protection_fouls_by_alliance.get('red', 0) for m in runs):>9.1f}"
+                f"{_mean(m.protection_fouls_by_alliance.get('red', 0) for m in runs):>9.1f} "
+                f"{_mean(m.pin_fouls_by_alliance.get('red', 0) for m in runs):>9.1f}"
             )
 
 

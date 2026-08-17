@@ -33,6 +33,12 @@ class MatchMetrics:
     # the opponent's score can't tell denial from fouling, since both
     # look like a defender standing on top of somebody.
     protection_fouls_by_alliance: dict
+    # alliance -> pin violations its robots committed (see
+    # field_config.PinRule). Separate from the above because they measure
+    # opposite failures of the same defender: a protection foul is
+    # touching somebody where touching is forbidden, a pin foul is
+    # touching somebody too *long* where touching is fine.
+    pin_fouls_by_alliance: dict
 
 
 def extract_metrics(match: Match) -> MatchMetrics:
@@ -62,4 +68,5 @@ def extract_metrics(match: Match) -> MatchMetrics:
             for alliance, stamps in by_alliance.items() if len(stamps) > 1
         },
         protection_fouls_by_alliance=dict(match.protection_fouls),
+        pin_fouls_by_alliance=dict(match.pin_fouls),
     )

@@ -187,6 +187,17 @@ class Robot:
         return self.chassis.pose
 
     @property
+    def commanded_speed(self) -> float:
+        """How fast this robot is *asking* to go, in/s."""
+        return self.chassis.commanded_velocity.length
+
+    @property
+    def speed(self) -> float:
+        """How fast it is actually going, in/s."""
+        vx, vy = self.chassis.body.velocity
+        return math.hypot(vx, vy)
+
+    @property
     def deposit_action(self) -> str | None:
         return self._deposit_action
 

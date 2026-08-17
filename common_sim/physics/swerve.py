@@ -99,6 +99,13 @@ class SwerveChassis:
         ]
 
     @property
+    def commanded_velocity(self) -> Vec2d:
+        """The field-relative velocity currently being asked for, which
+        is not the velocity the chassis has -- the gap between the two is
+        what tells a rule (or a tactic) that this robot is being held."""
+        return self._target_velocity
+
+    @property
     def pose(self) -> Pose2d:
         p = self.body.position
         return Pose2d(p.x, p.y, wrap_angle(self.body.angle))
