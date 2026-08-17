@@ -369,16 +369,50 @@ def likely_denial_target(match, robot: Robot, kinds: tuple[str, ...] = ("scoring
             return feature
 
     if not robot.held_pieces and "supply" in kinds:
-        stations = station_options(match, robot)
-        if stations:
-            return _nearest_by_centroid(stations, robot)
+        guess = _supply_guess(match, robot)
+        if guess is not None:
+            return guess
     if "scoring" in kinds:
         return likely_scoring_region(match, robot)
     if "supply" in kinds:
-        stations = alliance_intake_locations(match, robot.alliance)
-        if stations:
-            return _nearest_by_centroid(stations, robot)
+        return _supply_guess(match, robot)
     return None
+
+
+def _supply_guess(match, robot: Robot):
+    """Which supply point `robot` will next go to, for a defender that
+    intends to be there first.
+
+    Nearest is the wrong answer on its own, and expensively so. A field
+    carries supply points of very different kinds -- REEFSCAPE has two
+    corner CORAL STATIONS a robot cycles all match, and six one-ALGAE
+    nooks tucked into the REEF itself -- and "nearest to where the mark
+    is standing right now" picks a nook every time, because the mark is
+    standing at the REEF. A defender then camps a pickup its mark has no
+    intention of using.
+
+    What it is carrying is the tell: a robot cycling CORAL is going back
+    for CORAL, not detouring to the nearest thing that happens to
+    dispense something. So prefer supply of a type the mark already
+    holds, and fall back to what it could take right now for an
+    empty-handed mark (which almost always has a declared target anyway,
+    and rarely reaches this code).
+
+    Note the base list is every station the mark's alliance owns, not
+    `station_options` -- that query answers "what can this robot load
+    from *now*", and a robot holding a CORAL is by definition full of
+    CORAL, so the very stations it is cycling are the ones missing from
+    it. Predicting where a robot goes next is not the same question as
+    what it can do this instant."""
+    stations = alliance_intake_locations(match, robot.alliance)
+    if not stations:
+        return None
+    held = {p.piece_type for p in robot.held_pieces}
+    wanted = (
+        [s for s in stations if s.piece_type in held] if held
+        else station_options(match, robot)
+    )
+    return _nearest_by_centroid(wanted or stations, robot)
 
 
 def _nearest_by_centroid(features, robot: Robot):

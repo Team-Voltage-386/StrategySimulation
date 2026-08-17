@@ -753,9 +753,34 @@ def test_collect_picks_another_station_when_the_nearest_is_taken():
     field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
     match = make_match(field, auto_duration=1000, teleop_duration=1000)
     robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
-    partner = match.add_robot(make_characteristics(), Pose2d(20, 130, 0))
-    partner.controller = _FakeController(target_region="near_feeder")
+    # Closer to the near feeder than we are, so it really does get there
+    # first -- following it in would just leave us queueing behind it.
+    rival = match.add_robot(make_characteristics(), Pose2d(40, 100, 0))
+    rival.controller = _FakeController(target_region="near_feeder")
 
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "far_feeder"
+
+
+def test_collect_races_a_claim_it_can_beat_rather_than_conceding_the_station():
+    """A declaration is not possession. A defender takes a station away
+    by *arriving* at it; if it announces one from across the field and we
+    are closer, conceding hands it a denial it never earned -- and on a
+    two-station field that is the difference between one defender
+    controlling both and controlling neither."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    denier = match.add_robot(make_characteristics(), Pose2d(250, 100, 0), alliance="red")
+    denier.controller = _FakeController(target_region="near_feeder")
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    # Once it has actually parked on the feeder, the race is over and
+    # there is nothing to win by driving into it.
+    denier.chassis.body.position = (60, 100)
+    tactic.reset()
     tactic = _collect_tactic_at_stations(match, robot)
     assert tactic._target_station.name == "far_feeder"
 

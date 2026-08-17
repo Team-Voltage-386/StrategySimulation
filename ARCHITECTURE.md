@@ -212,8 +212,19 @@ centroid, occupancy claim) was already duck-typed on `.name`/
 be attacked at all. The `deny` param picks which half, and *that* is
 where the game shows through: a game with no-contact zones around its
 scoring locations and none around its feeders has made supply the softer
-target by construction (see `ProtectedZone`), and on REEFSCAPE denying
-supply is worth roughly three times denying scoring.
+target by construction (see `ProtectedZone`): on REEFSCAPE, blocking a
+REEF face fouls away everything it denies (blue 234.6 against 234.5
+undefended, at 15.4 fouls a match), while blocking a CORAL STATION costs
+blue 27 points at 0.8 fouls.
+
+The counterpart on offense is that **a declared claim is not
+possession**. `Collect` yields a station only to a claimant that would
+actually reach it first (`_station_has_room_for`, the same ETA race two
+teammates use to break a deadlock over one feeder) rather than to
+anyone who merely names it -- otherwise a single defender takes both
+feeders off the list by announcing them, from anywhere on the field.
+Worth 234.5 against 221.8 undefended and 207.0 against 187.2 under
+supply denial.
 
 **`for_duration` belongs to the rule's outermost trigger.** Hysteresis
 is bookkept by `StrategyController`, not by the `Trigger` (which stays a

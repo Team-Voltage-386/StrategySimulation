@@ -471,7 +471,18 @@ class Collect(Tactic):
         # nearest is fine because _station_aim then queues outside it
         # rather than barging in; with every station busy, waiting for
         # the nearest is exactly the right thing to do.
-        roomy = [s for s in stations if world_view.region_has_room(match, s, robot)]
+        #
+        # `_station_has_room_for` rather than the plain occupancy count,
+        # so a claim only takes the station away from us if its owner
+        # would actually get there first. The two differ exactly when a
+        # rival has *declared* a station it has not reached, which is the
+        # normal state of an opponent moving to deny one: on a bare
+        # occupancy count a defender takes a station off the list by
+        # announcing it, from anywhere on the field, and offense concedes
+        # a race it was winning. Conceding is still right once the
+        # defender is physically there -- that reads as engaged, not as
+        # a claim, and no ETA beats it.
+        roomy = [s for s in stations if self._station_has_room_for(ctx, s)]
         candidates = roomy or stations
 
         # Obstacle-routed travel time, not straight-line distance -- a
@@ -1059,14 +1070,20 @@ class Defend(Tactic):
     all.
 
     "any" is the default because following the mark is the answer that
-    needs to know nothing about the game -- but on REEFSCAPE it is not
-    the best one. Measured 2v2 against a full-time defender, blue's
-    points: 235.0 undefended, 234.1 denying scoring, 225.8 denying
-    whichever, 184.9 denying supply. Committing to the feeder beats
-    reacting because a defender that follows its mark to the REEF spends
-    that half of every cycle somewhere it may not touch anyone (14.8
-    fouls a match, against 2.5 for supply), while the feeder is a corner
-    with one way in that the mark has to come back to regardless.
+    needs to know nothing about the game. Measured 2v2 against a
+    full-time defender, blue's points (which include fouls won) and red's
+    fouls per match, against 234.5 undefended:
+
+        block   scoring 234.6 / 15.4   supply 207.0 / 0.8   any 225.9 / 15.0
+        shadow  scoring 199.0 /  8.4   supply 229.8 / 8.9   any 210.0 / 11.4
+
+    `deny` and `mode` are not independent, which is why this is a
+    per-tactic param rather than a defender-wide switch. Block denies
+    supply well and scoring not at all -- goalkeeping a REEF face means
+    standing where contact is forbidden, so it fouls away everything it
+    denies. Shadow is the reverse: it positions relative to the *mark*,
+    so pointing it at a station the mark is not currently driving to
+    just parks it on the wrong side of the robot.
 
     `mode` picks what to do with that spot. "block" takes the segment
     between mark and region and sits `standoff` back from the region --

@@ -417,6 +417,33 @@ def test_likely_denial_target_guesses_supply_for_an_empty_handed_mark():
     assert world_view.likely_denial_target(match, robot).name == "goal"
 
 
+def test_likely_denial_target_guesses_supply_for_the_type_the_mark_is_cycling():
+    """A field mixes supply points of very different kinds. Guessing
+    "nearest" alone sends a defender to whichever one happens to be
+    underfoot -- on REEFSCAPE, a one-ALGAE nook tucked into the REEF the
+    mark is currently scoring at, rather than the CORAL STATION it will
+    actually drive back to. Measured, that mistake was worth 68 points a
+    match, in the defender's favour and entirely by accident."""
+    nook = IntakeLocation(
+        name="nook", vertices=((150, -10), (170, -10), (170, 10), (150, 10)),
+        piece_type=GADGET, starting_pieces=1,
+    )
+    field = make_field()
+    field = FieldConfig(
+        width=field.width, height=field.height, scoring_regions=field.scoring_regions,
+        intake_locations=(*field.intake_locations, nook),
+    )
+    match = Match(field, TableScoringRules({("score_widget", "auto"): 3.0}), MatchConfig())
+    robot = match.add_robot(
+        make_characteristics(accepted_piece_types=frozenset({WIDGET, GADGET})), Pose2d(160, 0, 0),
+    )
+    robot.held_pieces.append(match.spawn_piece(WIDGET, (160, 0)))
+
+    # The nook is right under it and the feeder is 160in away, but it is
+    # carrying a widget, so the widget feeder is where it is headed.
+    assert world_view.likely_denial_target(match, robot, ("supply",)).name == "feeder"
+
+
 def test_likely_denial_target_honors_the_kinds_it_is_allowed_to_deny():
     match = make_match()
     robot = _declare(match.add_robot(make_characteristics(), Pose2d(0, 0, 0)), target_region="feeder")

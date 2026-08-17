@@ -60,8 +60,8 @@ VARIABILITY = VariabilityModel(
 # is currently headed for -- it is willing to attack.
 RED_PLANS = (
     "none",
-    "block", "block/supply", "block/any",
-    "shadow", "shadow/supply", "shadow/any",
+    "block/scoring", "block/supply", "block/any",
+    "shadow/scoring", "shadow/supply", "shadow/any",
 )
 
 # Blue's plans, by strategy file. Both cycle CORAL; the evasive one adds
