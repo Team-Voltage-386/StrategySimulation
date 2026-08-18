@@ -190,6 +190,7 @@ class MatchView(QtWidgets.QWidget):
     roster_changed = QtCore.Signal()
     match_reset = QtCore.Signal(object)  # Match
     tick_completed = QtCore.Signal()
+    fullscreen_changed = QtCore.Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -201,11 +202,11 @@ class MatchView(QtWidgets.QWidget):
         self.roster_config.roster_panel.fast_forward_check.toggled.connect(self._update_timer_interval)
         self.primary_config_tab = self.roster_config.primary_config_tab
 
-        left_column = QtWidgets.QScrollArea()
-        left_column.setWidget(self.roster_config)
-        left_column.setWidgetResizable(True)
-        left_column.setFixedWidth(280)
-        left_column.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.left_column = QtWidgets.QScrollArea()
+        self.left_column.setWidget(self.roster_config)
+        self.left_column.setWidgetResizable(True)
+        self.left_column.setFixedWidth(280)
+        self.left_column.setFrameShape(QtWidgets.QFrame.NoFrame)
 
         self.canvas = FieldCanvas(None)  # match assigned by _reset_match()
         self.piece_count_label = QtWidgets.QLabel()
@@ -215,6 +216,8 @@ class MatchView(QtWidgets.QWidget):
         self.show_intent_check = QtWidgets.QCheckBox("Show AI Intent")
         self.show_intent_check.setChecked(True)
         self.show_intent_check.toggled.connect(self._on_show_intent_toggled)
+        self.fullscreen_check = QtWidgets.QCheckBox("Full Screen Field")
+        self.fullscreen_check.toggled.connect(self._set_fullscreen)
         self.console = ConsolePanel()
         self.transport_bar = TransportBar()
         self.transport_bar.play_pause_clicked.connect(self._toggle_paused)
@@ -225,30 +228,35 @@ class MatchView(QtWidgets.QWidget):
         center_layout = QtWidgets.QVBoxLayout(center_column)
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.addWidget(self.canvas, stretch=2)
-        piece_count_row = QtWidgets.QHBoxLayout()
+        self.piece_count_widget = QtWidgets.QWidget()
+        piece_count_row = QtWidgets.QHBoxLayout(self.piece_count_widget)
+        piece_count_row.setContentsMargins(0, 0, 0, 0)
         piece_count_row.addStretch(1)
         piece_count_row.addWidget(self.piece_count_label)
         piece_count_row.addStretch(1)
         piece_count_row.addWidget(self.show_intent_check)
-        center_layout.addLayout(piece_count_row)
+        piece_count_row.addWidget(self.fullscreen_check)
+        center_layout.addWidget(self.piece_count_widget)
         center_layout.addWidget(self.console, stretch=1)
         center_layout.addWidget(self.transport_bar)
+        self._center_column = center_column
 
         self.telemetry_panel = TelemetryPanel("TELEMETRY")
         self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
-        right_column = QtWidgets.QWidget()
-        right_layout = QtWidgets.QVBoxLayout(right_column)
+        self.right_column = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(self.right_column)
         right_layout.addWidget(self.telemetry_panel)
         right_layout.addWidget(self.match_settings_panel)
         right_layout.addWidget(self.controls_panel)
         right_layout.addStretch(1)
-        right_column.setFixedWidth(240)
+        self.right_column.setFixedWidth(240)
 
         central_layout = QtWidgets.QHBoxLayout(self)
-        central_layout.addWidget(left_column)
+        central_layout.addWidget(self.left_column)
         central_layout.addWidget(center_column, stretch=1)
-        central_layout.addWidget(right_column)
+        central_layout.addWidget(self.right_column)
+        self._fullscreen = False
 
         self._pressed_keys: set[int] = set()
         self._prev_pressed_keys: set[int] = set()
@@ -304,6 +312,7 @@ class MatchView(QtWidgets.QWidget):
     # -- match lifecycle -----------------------------------------------
 
     def _reset_match(self) -> None:
+        self._set_fullscreen(False)
         alliance = self.primary_config_tab.settings_panel.alliance()
         self.match = build_demo_match(
             self.match_settings_panel.disable_friendly_collisions(),
@@ -391,9 +400,32 @@ class MatchView(QtWidgets.QWidget):
             # jumping from wherever the user scrubbed to.
             self._exit_playback()
         self.paused = not self.paused
+        if not self.paused:
+            # Run just started (PLAY pressed) -- automatically expand
+            # the field to fill the window. Ending the match or hitting
+            # RESET contracts it back (see _tick / _reset_match).
+            self._set_fullscreen(True)
 
     def _on_show_intent_toggled(self, checked: bool) -> None:
         self.canvas.show_intent = checked
+
+    def _set_fullscreen(self, enabled: bool) -> None:
+        """Hides the roster/telemetry/console panels so the field
+        canvas can fill as much of a laptop screen as possible. Kept
+        as an explicit toggle (rather than only the auto-trigger in
+        _toggle_paused/_tick/_reset_match) so the user can also flip
+        it by hand via the checkbox."""
+        if enabled == self._fullscreen:
+            return
+        self._fullscreen = enabled
+        self.left_column.setVisible(not enabled)
+        self.right_column.setVisible(not enabled)
+        self.console.setVisible(not enabled)
+        if self.fullscreen_check.isChecked() != enabled:
+            self.fullscreen_check.blockSignals(True)
+            self.fullscreen_check.setChecked(enabled)
+            self.fullscreen_check.blockSignals(False)
+        self.fullscreen_changed.emit(enabled)
 
     # -- playback/scrub ----------------------------------------------------
 
@@ -583,6 +615,7 @@ class MatchView(QtWidgets.QWidget):
             # stopped advancing.
             if self.match.ended:
                 self.paused = True
+                self._set_fullscreen(False)
 
         # sync_slider=False while scrubbing: the slider already reflects
         # where the user dragged it (see _enter_playback_at_fraction),
@@ -744,6 +777,7 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.match_view.roster_changed.connect(self._sync_strategy_robots)
         self.match_view.match_reset.connect(self._on_match_reset)
         self.match_view.tick_completed.connect(self._on_tick_completed)
+        self.match_view.fullscreen_changed.connect(self._on_fullscreen_changed)
         self.strategy_editor.changed.connect(self._refresh_strategy_graph)
         self.strategy_editor.robot_combo.currentTextChanged.connect(lambda *_: self._refresh_strategy_graph())
         self.strategy_graph.node_clicked.connect(self.strategy_editor.select_rule)
@@ -765,6 +799,12 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(self.windowTitle() + (" [gamepad]" if self.match_view.gamepad_available else " [keyboard]"))
         self._sync_strategy_robots()
         self._on_match_reset(self.match_view.match)
+
+    def _on_fullscreen_changed(self, enabled: bool) -> None:
+        # Hides the MATCH/STRATEGY/SWEEP tab bar too, so the field
+        # canvas gets the whole window rather than just the space
+        # inside its own tab.
+        self.tabs.tabBar().setVisible(not enabled)
 
     def _on_replay_requested(self, job) -> None:
         # SWEEP keeps its own roster, independent of MATCH by design -- an
