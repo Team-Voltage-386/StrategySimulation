@@ -106,3 +106,16 @@ another named param in the sweep, no special-casing needed.
 ```
 pytest
 ```
+
+## Distributing to teammates (no Python required)
+
+```
+packaging\build_release.bat
+```
+
+Builds a standalone `dist\SparkySim\SparkySim.exe` via PyInstaller (from
+an isolated `.build_venv`, not your everyday environment, so unrelated
+packages don't bloat the build) and zips it to `dist\SparkySim_<timestamp>.zip`.
+Send that zip to a teammate; they unzip it anywhere and run
+`SparkySim.exe` -- no Python install needed. It only packages the
+`run_reefscape.py` viewer. See [packaging/README.md](packaging/README.md).

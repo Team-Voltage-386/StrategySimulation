@@ -2,3 +2,6 @@ references/*
 Prompts.md
 **/__pycache__/
 *.pyc
+.build_venv/
+build/
+dist/
