@@ -134,6 +134,66 @@ _STALL_PATIENCE_MIN = 2.5
 # A behavior downstream of a broken one cannot be measured at all.
 _FAILED_TARGET_COOLDOWN = 8.0
 
+# The same escape hatch as `_STALL_PATIENCE_*` above, for a robot on its
+# way to a collection station rather than to a scoring region. Priced the
+# same way (this multiple of what the trip should have taken, floored),
+# and it exists because commitment to a station is otherwise permanent by
+# construction: `_better_station_exists` only fires when the station is
+# *full*, and full means an opponent physically standing on the feed or
+# out-racing us to it. A defender denying a station does neither. It
+# parks in the approach -- outside the polygon, so it never reads as
+# engaged -- and then simply leans on whoever arrives. Time spent failing
+# is the only signal that separates that from a station busy for a
+# moment, exactly as it is for Score.
+#
+# The floor is the whole mechanism in REEFSCAPE and the ratio never binds
+# here: a station trip costs ~1.6s and the priced ETA overestimates by 2x
+# (actual/priced measured at 0.50 median, 1.56 worst *under denial*), so
+# `ratio * eta` is always under the floor -- every firing observed was at
+# exactly 8.0/8.0. The ratio stays because it is the part that generalises:
+# on a longer field, or a game whose supply is a drive away rather than a
+# corner away, it is the term that keeps the budget proportionate.
+#
+# The floor has to be set high, which took measuring at two field sizes to
+# see. A low one fires constantly, on short trips, where the delay is a
+# queue rather than a defender: at 2v2 a 3s floor was worth -3.5 against
+# block/supply, -7.1 against shadow/supply and +9.2 against shadow/any,
+# which is noise in three directions. At 8s it is bit-identical to no
+# escape at all on 5 of the 7 defense plans, because 2v2 commitments are
+# short (median 0.7-2.0s) and never reach the budget.
+#
+# At 3v3 the long commitments appear -- 25% of blue's station time in
+# commitments of 10-17s with a defender parked ~23in off the station, a
+# 10x overrun on the same 1.6s trip -- and a floor high enough to be
+# silent at 2v2 still catches them.
+#
+# Be honest about what this bought: essentially nothing on the mean
+# (totals across the whole defense grid, 2v2 215.3 -> 215.5, 3v3 260.8 ->
+# 261.2). What it moved was the *spread*, on the one plan where those long
+# commitments live: 3v3 block/any went 269.8 +-25.9 to 276.5 +-12.4. That
+# is the shape of a failure mode being removed rather than an average
+# being nudged, and it is the reason this ships despite a flat mean.
+_STATION_PATIENCE_RATIO = 1.6
+_STATION_PATIENCE_MIN = 8.0
+
+# How long a station a robot gave up on stays out of the running. Without
+# it the robot re-picks the station it just abandoned the instant it
+# steps away from it (from a few feet back, the denied station is nearest
+# again), and the give-up does nothing but reset the clock.
+#
+# It has to be comfortably longer than the patience above, which is not
+# obvious and cost a measurable regression to learn: at 8s each -- the
+# two equal -- a robot abandoned feeder A, drove to feeder B, spent
+# exactly the patience there, and found A's cooldown had just expired.
+# One 3v3 seed spent 96 of 150s alternating 0,1,0,1,0,1 and lost 9
+# pieces. The give-up has to outlast the trip it sends you on.
+#
+# Kept on the tactic across `reset()` on purpose: Collect is re-entered
+# from scratch every cycle, so a cooldown cleared on reset would be wiped
+# before it was ever read -- the same trap that made Score's cooldown a
+# silent no-op the first time it was written.
+_FAILED_STATION_COOLDOWN = 20.0
+
 # How far past the halfway line a committed piece has to have rolled --
 # as a fraction of the distance between the two alliances' ends -- before
 # `opposing_side="last_resort"` gives up on chasing it (see
@@ -268,7 +328,15 @@ class Collect(Tactic):
     intaking side faces it, and holds intake active. SUCCESS when held
     count increases or capacity is reached; FAILURE when nothing is
     collectable. Re-targets every tick (not just on replan) if the
-    targeted piece is taken by someone else first."""
+    targeted piece is taken by someone else first.
+
+    A committed *station* is given up on three ways: it fills up and
+    another has room (`_better_station_exists`), an opponent is holding
+    it and some other feeder is only busy with a teammate
+    (`_held_by_opponent`), or the trip has simply overrun its budget
+    (`_station_stalled`). The last of those is the only one that can see
+    a defender denying a feeder from the approach, since standing in the
+    way makes a station neither full nor occupied."""
 
     PARAM_SCHEMA = (
         Param("piece_type", kind="piece_type", default=None, optional=True),
@@ -309,10 +377,19 @@ class Collect(Tactic):
         self._reconsider = _Throttle(replan_period)
         self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
 
+        # Stall escape for a committed station (see
+        # `_STATION_PATIENCE_*`). `_station_cooldowns` deliberately
+        # survives `reset()` -- it is the only piece of state here that
+        # has to outlive one collect cycle to mean anything.
+        self._station_elapsed = 0.0
+        self._station_patience = _STATION_PATIENCE_MIN
+        self._station_cooldowns: dict[str, float] = {}
+
     def reset(self) -> None:
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
+        self._station_elapsed = 0.0
         self._reconsider.reset()
         self._nav.reset()
 
@@ -453,6 +530,22 @@ class Collect(Tactic):
         )
         return faster < remaining
 
+    def _served_by_teammate(self, ctx: BehaviorContext, station: IntakeLocation) -> bool:
+        """Whether one of ours is on `station`'s feed right now -- so the
+        wait we are in is a queue rather than a denial."""
+        return any(other is not ctx.robot and other.alliance == ctx.robot.alliance
+                   and _robot_engaged_with_station(other, station)
+                   for other in ctx.match.robots)
+
+    def _held_by_opponent(self, ctx: BehaviorContext, station: IntakeLocation) -> bool:
+        """Whether an opponent is physically on `station`. Engagement
+        only, not a declared claim: a claim is a race we might win (see
+        `_station_has_room_for`), and treating one as possession hands a
+        defender both feeders for the price of announcing them."""
+        return any(other.alliance != ctx.robot.alliance
+                   and _robot_engaged_with_station(other, station)
+                   for other in ctx.match.robots)
+
     def _best_station(self, ctx: BehaviorContext) -> tuple[IntakeLocation | None, float]:
         match, robot = ctx.match, ctx.robot
         origin = robot.pose.translation
@@ -462,6 +555,13 @@ class Collect(Tactic):
             stations = [s for s in stations if s.piece_type == self.piece_type]
         if not stations:
             return None, math.inf
+
+        # Stations recently given up on drop out -- unless that leaves
+        # nothing, in which case every feeder is being denied at once and
+        # going back to the nearest one and waiting is the best available
+        # play. Falling back rather than failing also keeps this from
+        # ever being the reason a robot has no target at all.
+        stations = [s for s in stations if s.name not in self._station_cooldowns] or stations
 
         # Same rule Score._pick_option applies to scoring regions: take
         # one nobody is working before contesting one. Two robots both
@@ -483,7 +583,24 @@ class Collect(Tactic):
         # defender is physically there -- that reads as engaged, not as
         # a claim, and no ETA beats it.
         roomy = [s for s in stations if self._station_has_room_for(ctx, s)]
-        candidates = roomy or stations
+
+        # With nothing roomy, *who* has the room matters and the plain
+        # "wait at the nearest" fallback ignores it. Queueing behind a
+        # teammate costs the couple of seconds it takes them to load;
+        # queueing behind an opponent costs however long they feel like
+        # standing there, because being in the way is the entire reason
+        # they are at a feeder they cannot use. So a station an opponent
+        # is holding is a last resort among last resorts -- go stand
+        # behind the teammate, even if it is farther.
+        #
+        # The weaker of the two changes here, and worth saying so: it
+        # fires on ~2% of station picks, and it measured +8.3 on 2v2
+        # block/supply (spread 15.7 -> 12.4) but -2.7 on the *same plan*
+        # at 3v3. Opposite signs on one plan is not signal. It ships on
+        # the argument rather than the number, so treat it as untested
+        # rather than established, and re-measure it before building
+        # anything on top of it.
+        candidates = roomy or [s for s in stations if not self._held_by_opponent(ctx, s)] or stations
 
         # Obstacle-routed travel time, not straight-line distance -- a
         # station is stationary, but the *path* to it (around the REEF,
@@ -709,7 +826,7 @@ class Collect(Tactic):
         piece, piece_eta, piece_last_resort = self._best_piece(ctx)
 
         if station is not None and (piece_last_resort or station_eta <= piece_eta):
-            self._target_station, self._target_piece = station, None
+            self._commit_station(ctx, station, station_eta)
             return True
         if piece is not None:
             self._target_piece, self._target_station = piece, None
@@ -719,8 +836,69 @@ class Collect(Tactic):
         self._target_station = None
         return False
 
+    def _commit_station(self, ctx: BehaviorContext, station: IntakeLocation, eta: float) -> None:
+        """Take `station` as the target and restart its patience clock,
+        budgeted off what the trip should cost from here -- drive plus one
+        feed -- so a station across the field is given the time to reach
+        it and one already underfoot is not. Re-committing to the station
+        already held restarts nothing: the clock is there to measure how
+        long this attempt has been going, and a re-pick that lands where
+        it started is the same attempt continuing."""
+        if station is not self._target_station:
+            self._station_elapsed = 0.0
+            self._station_patience = max(
+                _STATION_PATIENCE_MIN,
+                _STATION_PATIENCE_RATIO * (eta + ctx.robot.characteristics.station_intake_time),
+            )
+        self._target_station, self._target_piece = station, None
+
+    def _station_stalled(self, ctx: BehaviorContext) -> bool:
+        """Whether the committed station has taken long enough without
+        delivering that it is worth trying the other one.
+
+        The clock stops once the robot is actually on the feed
+        (`_holds_station`): an intake already under way always gets to
+        finish, the same way Score never shops for a new region while the
+        deposit it has is legal. What it is timing is the part a defender
+        can actually deny -- getting there.
+
+        It also stops while a *teammate* is on the feed, which is the
+        distinction the whole mechanism turns on. A teammate ahead of us
+        is a queue that is moving: it will load and leave, and the wait
+        is priced in the trip we already chose. An opponent in the way is
+        not a queue at all. Without this the escape cannot tell them
+        apart, and at 3v3 -- three robots to two feeders -- it is almost
+        always the harmless one. Measured: one seed abandoned the same
+        feeder 19 times and gave up 9 pieces.
+
+        Giving up also requires somewhere to give up *to*. With every
+        other feeder already on cooldown, this trip is not going badly
+        relative to the alternatives -- it is the alternative -- and the
+        original fallback is right that waiting at the nearest crowded
+        station beats touring the field. The clock keeps running while it
+        waits, so the moment a cooldown lapses and a fresh option
+        reappears, the escape fires on the next tick."""
+        if self._target_station is None or self._holds_station(ctx.robot):
+            return False
+        if self._served_by_teammate(ctx, self._target_station):
+            return False
+        self._station_elapsed += ctx.dt
+        if self._station_elapsed < self._station_patience:
+            return False
+        return any(
+            station is not self._target_station
+            and station.name not in self._station_cooldowns
+            and (self.piece_type is None or station.piece_type == self.piece_type)
+            for station in world_view.station_options(ctx.match, ctx.robot)
+        )
+
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
+        for name in list(self._station_cooldowns):
+            self._station_cooldowns[name] -= ctx.dt
+            if self._station_cooldowns[name] <= 0.0:
+                del self._station_cooldowns[name]
+
         if self._start_held_count is None:
             self._start_held_count = len(robot.held_pieces)
 
@@ -748,12 +926,20 @@ class Collect(Tactic):
                 or self._better_piece_exists(ctx)
             ))
         )
-        # A station is committed to once and then queued for, so nothing
-        # would ever pull a robot off one an opponent has parked in --
-        # except a free station elsewhere, which is strictly better than
-        # waiting. Guarded on another station actually having room so
-        # this can't cycle between two equally crowded ones.
+        # Two ways off a committed station. The cheap one: it filled up
+        # and another has room, which is strictly better than waiting.
+        # Guarded on the other station actually having room so this can't
+        # cycle between two equally crowded ones.
         if self._target_station is not None and reconsider and self._better_station_exists(ctx):
+            target_lost = True
+        # The one that catches a defender: the trip has simply taken too
+        # long. A station being denied never reads as full -- the defender
+        # is in the approach, not on the feed -- so without this the
+        # commitment is permanent and both robots queue behind a trip that
+        # is not happening. Elapsed time is the only signal that sees it.
+        elif self._station_stalled(ctx):
+            self._station_cooldowns[self._target_station.name] = _FAILED_STATION_COOLDOWN
+            self._station_elapsed = 0.0
             target_lost = True
         need_target = self._target_piece is None and self._target_station is None
         if need_target or target_lost:

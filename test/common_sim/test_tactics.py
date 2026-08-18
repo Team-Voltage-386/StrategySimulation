@@ -892,6 +892,142 @@ def test_collect_leaves_a_blocked_station_for_a_free_one():
     assert tactic._target_station.name == "far_feeder"
 
 
+def test_collect_queues_behind_a_teammate_rather_than_behind_an_opponent():
+    """With every feeder crowded, who is crowding it decides where to
+    wait. A teammate on the feed leaves in a couple of seconds; an
+    opponent is at a feeder it cannot use precisely in order to stay
+    there. Nearest-of-the-crowded treats the two as the same thing."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    match.add_robot(make_characteristics(), Pose2d(60, 100, 0), alliance="red")   # on near_feeder
+    match.add_robot(make_characteristics(), Pose2d(60, 40, 0), alliance="blue")   # on far_feeder
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "far_feeder"
+
+
+def _run_collect(tactic, match, robot, seconds, dt=1.0 / 60.0):
+    ctx = BehaviorContext(robot=robot, dt=dt, match=match)
+    for _ in range(int(seconds / dt)):
+        tactic.tick(ctx)
+        ctx.elapsed += dt
+
+
+def test_collect_gives_up_a_station_that_never_delivers():
+    """A defender that denies a station by standing in the *approach* is
+    invisible to every instantaneous test: it is not on the feed, so the
+    station never reads as full, and `_better_station_exists` never
+    fires. Only elapsed time sees it -- and once the trip has overrun its
+    budget, the other feeder is worth trying however far off it is.
+
+    Staged by ticking the tactic without stepping physics, so the robot
+    stays where it is: from inside the tactic that is indistinguishable
+    from an approach it cannot make progress along, which is the whole
+    point -- the only thing it can see is that time is passing."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    # Parked between the robot and the feeder but clear of the polygon,
+    # the way a defender denying a station actually stands. Every
+    # instantaneous test still says the station is available.
+    match.add_robot(make_characteristics(), Pose2d(34, 100, 0), alliance="red")
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._station_has_room_for(ctx, NEAR_FEEDER)
+    assert not tactic._better_station_exists(ctx)
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN + 1.0)
+    assert tactic._target_station.name == "far_feeder"
+    assert "near_feeder" in tactic._station_cooldowns
+
+
+def test_collect_keeps_the_only_station_however_long_it_takes():
+    """Giving up needs somewhere to give up to. With one feeder there is
+    no alternative, so the escape must not fire and must not leave the
+    robot with no target at all."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN + 1.0)
+    assert tactic._target_station is not None
+    assert not tactic._station_cooldowns
+
+
+def test_collect_does_not_ping_pong_between_two_denied_stations():
+    """Having given up on one feeder for the other, a robot must not give
+    up on that one straight back again. The cooldown has to outlast the
+    trip it sent us on, or the two clocks line up and the robot spends
+    the match alternating -- measured at 96 of 150s on one seed."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN + 1.0)
+    assert tactic._target_station.name == "far_feeder"
+
+    # Just as denied at the second feeder, and for just as long. The
+    # first is still on cooldown, so there is nowhere fresh to go.
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN + 1.0)
+    assert tactic._target_station.name == "far_feeder"
+
+
+def test_collect_does_not_time_a_queue_behind_a_teammate():
+    """Waiting behind a teammate on the feed is a queue that is moving,
+    and it is priced into the trip already. At 3v3 -- three robots to two
+    feeders -- that wait is almost all of the waiting there is, so timing
+    it sends robots touring the field for nothing."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    match.add_robot(make_characteristics(), Pose2d(60, 100, 0))  # teammate, on the feed
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    for _ in range(int((tactics._STATION_PATIENCE_MIN + 5.0) * 60)):
+        assert not tactic._station_stalled(ctx)
+    assert tactic._station_elapsed == 0.0
+
+
+def test_collect_does_not_abandon_a_station_it_is_already_being_fed_by():
+    """The clock stops at the feed. An intake under way always gets to
+    finish -- the same rule Score follows for a deposit that is already
+    legal -- or a slow feed would look identical to a denied trip."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._holds_station(robot)
+    for _ in range(int((tactics._STATION_PATIENCE_MIN + 5.0) * 60)):
+        assert not tactic._station_stalled(ctx)
+
+
+def test_collect_station_cooldown_survives_the_reset_between_cycles():
+    """Collect is re-entered from scratch every cycle, so a cooldown
+    cleared by `reset()` would be wiped before it was ever read -- which
+    is exactly how Score's equivalent was a silent no-op the first time
+    it was written."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    match.add_robot(make_characteristics(), Pose2d(34, 100, 0), alliance="red")
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN + 1.0)
+    assert "near_feeder" in tactic._station_cooldowns
+    tactic.reset()
+    assert "near_feeder" in tactic._station_cooldowns
+
+
 def test_collect_gives_up_a_piece_that_rolls_well_onto_the_opposing_half():
     # Committed to the nearer of two pieces, which then gets knocked over
     # the line. Following it is the cross-field trip the gate exists to

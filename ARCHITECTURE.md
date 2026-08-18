@@ -191,6 +191,33 @@ limit, using the same retreat as the protected-zone release. Whether to
 release at all is a real trade rather than a free win -- see the
 constant's comment for the swept numbers.
 
+**Every commitment needs an expiry, and the expiry is elapsed time.**
+This is the same lesson in three places now, so it is worth stating as a
+rule rather than rediscovering it a fourth time. `Score` has
+`_STALL_PATIENCE_*`, `Collect` has `_STATION_PATIENCE_*` for a committed
+station, and both exist because the instantaneous tests a tactic can run
+-- is this region full, is that feeder occupied, would somebody beat me
+there -- are all blind to a defender that denies by *standing in the
+approach*. Such a defender is not in the region, not on the feed, and not
+racing us anywhere, so nothing it does makes the target read as
+unavailable. Only the fact that we have been failing for a while does.
+
+Two things generalise from getting this wrong repeatedly. The budget
+must be priced off what the attempt *should* cost and floored well above
+ordinary variance, or it fires on the everyday case (a teammate ahead of
+you in a queue) instead of the case it is for. And the cooldown on the
+target you abandoned has to outlast the trip that giving up sends you
+on, or the robot alternates between two targets on exactly the period of
+the patience clock -- measured once at 96 of 150 seconds spent
+oscillating between two feeders.
+
+The honest caveat, recorded so nobody re-derives it as a win: on this
+game these escapes are worth almost nothing on the mean. What they move
+is the spread, by removing the tail where a robot spends fifteen seconds
+achieving nothing. That is worth having in a baseline meant to survive a
+rules set nobody has seen yet, but it is not a scoring improvement and
+should not be quoted as one.
+
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-
 level globals (`held_piece`, `score`). `Match` owns that instead:
