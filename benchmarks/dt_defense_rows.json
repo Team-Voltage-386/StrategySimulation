@@ -1,0 +1,9376 @@
+[
+ {
+  "dt": 0.016666666666666666,
+  "seed": 0,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 1,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 2,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 3,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 157.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 4,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 5,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 6,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 7,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 8,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 9,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 10,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 11,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 12,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 13,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 14,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 15,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 16,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 17,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 18,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 19,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 20,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 21,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 22,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 23,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 24,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 25,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 26,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 27,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 240.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 6
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 28,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 29,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 30,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 240.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 68
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 31,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 32,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 33,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 29
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 34,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 35,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 36,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 37,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 38,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 39,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 220.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 40,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 41,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 236.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 42,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 128.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 43,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 44,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 45,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 151.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 46,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 236.0,
+  "red": 124.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 28
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 47,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 48,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 61
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 49,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 50,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 51,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 52,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 53,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 63
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 54,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 222.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 55,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 198.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 50
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 56,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 57,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 58,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 59,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 60,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 61,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 62,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 63,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 214.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 64,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 65,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 239.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 64
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 66,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 202.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 67,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 68,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 69,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 224.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 70,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 188.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 71,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 72,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 156.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 73,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 74,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 75,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 76,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 77,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 78,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 79,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 80,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 156.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 81,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 82,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 165.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 83,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 84,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 85,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 86,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 87,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 151.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 88,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 89,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 234.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 90,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 151.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 91,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 92,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 93,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 94,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 95,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 96,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 97,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 98,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 99,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 130.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 100,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 240.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 101,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 102,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 148.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 103,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 104,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 234.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 105,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 106,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 107,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 108,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 240.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 109,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 110,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 111,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 252.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 14
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 112,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 127.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 113,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 114,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 115,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 250.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 7
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 116,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 242.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 8
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 117,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 118,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 234.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 119,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 120,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 188.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 46
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 121,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 198.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 44
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 122,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 192.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 123,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 124,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 125,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 180.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 44
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 126,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 180.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 43
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 127,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 128,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 187.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 129,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 207.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 130,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 188.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 42
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 131,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 200.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 132,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 133,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 189.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 44
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 134,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 203.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 135,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 192.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 46
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 136,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 186.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 137,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 138,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 219.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 139,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 140,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 192.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 141,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 168.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 41
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 142,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 143,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 221.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 144,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 145,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 252.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 146,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 147,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "blue": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 148,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 149,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 150,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 151,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 252.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 152,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 153,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 154,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 155,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 156,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 157,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "red": 40,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 158,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 159,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 160,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 161,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 162,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 163,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 164,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 165,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 166,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 167,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 168,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 252.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 169,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 270.0,
+  "red": 122.0,
+  "pieces_scored_by_alliance": {
+   "red": 28,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 170,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 171,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 270.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 172,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 70,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 173,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 174,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 260.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 175,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 176,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 270.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 177,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 178,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 179,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 180,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 181,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 182,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 183,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 70,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 184,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 185,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 258.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 186,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 258.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 187,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 260.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 31
+  },
+  "protection_fouls": {
+   "blue": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 188,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 189,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 260.0,
+  "red": 127.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 29
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 190,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 69
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 191,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 192,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 193,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 194,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 195,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 194.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 41
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 196,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 234.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 197,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 198,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 228.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 48
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 199,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 200,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 237.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 201,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 248.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 202,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 203,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 244.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 204,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 207.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 205,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 206,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 248.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 207,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 208,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 230.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 209,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 224.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 210,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 211,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 234.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 212,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 231.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 213,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 214,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.016666666666666666,
+  "seed": 215,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 230.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 0,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 1,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 2,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 3,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 4,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 165.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 5,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 6,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 7,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 165.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 8,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 64,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 9,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "red": 39,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 10,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 11,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 12,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 173.0,
+  "pieces_scored_by_alliance": {
+   "red": 39,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 13,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 14,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 15,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 16,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 17,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 18,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 19,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 20,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 21,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 22,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 23,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 24,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 25,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 64
+  },
+  "protection_fouls": {
+   "red": 9
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 26,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 236.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 7
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 27,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 28,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 220.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 64
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 29,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 30,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 31,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 150.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 32,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 220.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 33,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 236.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 34,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 140.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 35,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 254.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 33
+  },
+  "protection_fouls": {
+   "red": 18
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 36,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 37,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 14
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 38,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 39,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 212.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 64
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 40,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 151.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 41,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 10
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 42,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 43,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 44,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 45,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 46,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 125.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 28
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 47,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 48,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 49,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 50,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 51,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 52,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 53,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 54,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 55,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 56,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 62
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 57,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 62
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 58,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 59,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 60,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 61,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 62,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 230.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 63,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 64,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 214.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 65,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 66,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 198.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 67,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 68,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 69,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 70,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 193.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 71,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 72,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 73,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 74,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 75,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 240.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 76,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 77,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 78,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 79,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 80,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 81,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 82,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 83,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 84,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 85,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 86,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 87,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 151.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 88,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 89,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 90,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 91,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 92,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 234.0,
+  "red": 156.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 93,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 94,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 95,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 96,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 238.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 97,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 144.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 98,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 99,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 130.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 100,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 238.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 101,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 102,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 148.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 103,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 104,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 105,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 106,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 107,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 108,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 220.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 109,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 135.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 110,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 111,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 144.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 112,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 126.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 113,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 114,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 115,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 116,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 117,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 64
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 118,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 119,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 254.0,
+  "red": 135.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 12
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 120,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 190.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 121,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 122,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 224.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 123,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 202.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 124,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 125,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 200.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 126,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 185.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 40
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 127,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 128,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 167.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 129,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 213.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 6
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 130,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 131,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 132,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 133,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 198.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 50
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 134,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 186.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 43
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 135,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 187.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 136,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 137,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 214.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 138,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 193.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 48
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 139,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 140,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 200.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 141,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 214.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 142,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 207.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 143,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 144,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 145,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 75
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 146,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 147,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 254.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 148,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 149,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 150,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 151,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 262.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 152,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 153,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 154,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 254.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 155,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 156.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 156,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 157,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 40
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 158,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 159,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 160,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 167.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 161,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 256.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 162,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 163,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 164,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 165,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 256.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 166,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 268.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 167,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "red": 34,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 168,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 68
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 169,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 179.0,
+  "red": 122.0,
+  "pieces_scored_by_alliance": {
+   "red": 28,
+   "blue": 38
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 170,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 171,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 172,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 274.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 173,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 69
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 174,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 175,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 176,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 177,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 70,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 178,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 250.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 179,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 180,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 34,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 181,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 182,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 128.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 29
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 183,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 184,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 185,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 272.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 186,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 187,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 266.0,
+  "red": 140.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 188,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 264.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 189,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 252.0,
+  "red": 127.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 190,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 280.0,
+  "red": 140.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 191,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 192,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 220.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 48
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 193,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 194,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 242.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 195,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 211.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 46
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 196,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 197,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 198,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 246.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 199,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 200,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 244.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 201,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 244.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 202,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 250.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 61
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 203,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 246.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 204,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 205,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 219.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 206,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 207,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 205.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 43
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 208,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 242.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 209,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 234.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 210,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 237.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 211,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 48
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 212,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 246.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 213,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 214,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.03333333333333333,
+  "seed": 215,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 180.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 0,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 1,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 2,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 3,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 4,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 5,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 6,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 7,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 8,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 9,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 10,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 11,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 12,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 13,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 14,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 236.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 15,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 16,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 17,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 18,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 166.0,
+  "pieces_scored_by_alliance": {
+   "red": 38,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 19,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 20,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "red": 39,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 21,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 22,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "red": 39,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 23,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 24,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 148.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 25,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 26,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 244.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 27,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 28,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 216.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 64
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 29,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 30,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 222.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 31,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 244.0,
+  "red": 148.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 11
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 32,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 33,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 34,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 35,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 36,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 37,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 38,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 220.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 39,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 40,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 236.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 7
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 41,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 246.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 70,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 42,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 216.0,
+  "red": 128.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 43,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 44,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 45,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 46,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 47,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 48,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 49,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 50,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 51,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 52,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 53,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 220.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 54,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 55,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 56,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 202.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 57,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 61
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 58,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 202.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 59,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 60,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 186.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 46
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 61,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 60
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 62,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 214.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 63,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 186.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 64,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 65,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 201.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 66,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 67,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 68,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 220.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 69,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 202.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 70,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 200.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 48
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 71,
+  "blue_strategy": "cycle_coral",
+  "red_strategy": "full_defense",
+  "blue": 204.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 72,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 170.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 73,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 74,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 216.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 75,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 76,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 77,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 78,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 79,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 80,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 81,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 82,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 83,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 84,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 85,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 86,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 87,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 157.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 88,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 230.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 89,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 90,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 218.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 91,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 92,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "red": 39,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 93,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 222.0,
+  "red": 156.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 94,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 228.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 95,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "cycle_coral",
+  "blue": 224.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 96,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 234.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 97,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 30
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 98,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 138.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 99,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 244.0,
+  "red": 130.0,
+  "pieces_scored_by_alliance": {
+   "blue": 68,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 100,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 101,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 102,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 148.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 33
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 103,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 232.0,
+  "red": 133.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 104,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 67
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 105,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 238.0,
+  "red": 131.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 106,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 107,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 234.0,
+  "red": 140.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 67
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 108,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 109,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 135.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 110,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 6
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 111,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 142.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 64
+  },
+  "protection_fouls": {
+   "red": 6
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 112,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 124.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 113,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 114,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 224.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 66
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 115,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 230.0,
+  "red": 139.0,
+  "pieces_scored_by_alliance": {
+   "blue": 67,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 116,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 126.0,
+  "pieces_scored_by_alliance": {
+   "blue": 65,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 117,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 226.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 65
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 118,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 218.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 119,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "endgame_defense",
+  "blue": 228.0,
+  "red": 135.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 66
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 120,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 192.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 121,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 199.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 122,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 123,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 232.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 5
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 124,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 218.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 125,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 59
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 126,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 201.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 127,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 128,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 203.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 129,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 207.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 130,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 131,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 132,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 133,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 178.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 40
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 134,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 190.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 135,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 182.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 136,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 137,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 216.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 138,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 139,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 212.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 140,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 141,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 206.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 142,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 196.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 143,
+  "blue_strategy": "cycle_coral_evasive",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 56
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 144,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 145,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 168.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 39
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 146,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 260.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 147,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 148,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 149.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 34
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 149,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 150,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 151,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 268.0,
+  "red": 160.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 75
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 152,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 262.0,
+  "red": 153.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 153,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "red": 35,
+   "blue": 74
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 154,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 155,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "red": 37,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "blue": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 156,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 75
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 157,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 172.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 41
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 158,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 159,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 268.0,
+  "red": 143.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 33
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 160,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 272.0,
+  "red": 161.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 161,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 254.0,
+  "red": 155.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 162,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 164.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 37
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 163,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 266.0,
+  "red": 162.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 38
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 164,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 152.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 35
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 165,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 264.0,
+  "red": 158.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 73
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 166,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 270.0,
+  "red": 154.0,
+  "pieces_scored_by_alliance": {
+   "blue": 74,
+   "red": 36
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 167,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "cycle_coral",
+  "blue": 258.0,
+  "red": 159.0,
+  "pieces_scored_by_alliance": {
+   "red": 36,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 168,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 134.0,
+  "pieces_scored_by_alliance": {
+   "red": 29,
+   "blue": 69
+  },
+  "protection_fouls": {
+   "blue": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 169,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 204.0,
+  "red": 122.0,
+  "pieces_scored_by_alliance": {
+   "red": 28,
+   "blue": 43
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 170,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 71
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 171,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 172,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 145.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 32
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 173,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 260.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 69
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 174,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 72,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 175,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 270.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 176,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 250.0,
+  "red": 134.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 65
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 177,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 272.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 178,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 68
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 179,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 258.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 71
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 180,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 33,
+   "blue": 73
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 181,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 137.0,
+  "pieces_scored_by_alliance": {
+   "red": 31,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 182,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 256.0,
+  "red": 128.0,
+  "pieces_scored_by_alliance": {
+   "blue": 66,
+   "red": 29
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 183,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 270.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "blue": 71,
+   "red": 30
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 184,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 72
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 185,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 274.0,
+  "red": 132.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 74
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 186,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 262.0,
+  "red": 146.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 3
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 187,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 73,
+   "red": 31
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 188,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 268.0,
+  "red": 136.0,
+  "pieces_scored_by_alliance": {
+   "red": 30,
+   "blue": 70
+  },
+  "protection_fouls": {
+   "red": 4
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 189,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 260.0,
+  "red": 127.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 29
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 190,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 258.0,
+  "red": 147.0,
+  "pieces_scored_by_alliance": {
+   "red": 32,
+   "blue": 72
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 191,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "endgame_defense",
+  "blue": 258.0,
+  "red": 141.0,
+  "pieces_scored_by_alliance": {
+   "blue": 69,
+   "red": 31
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 192,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 221.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 193,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 194,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 230.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 52
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 195,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 208.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 44
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 196,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 242.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 197,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 226.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 49
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 198,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 242.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 199,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 200,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 201,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 227.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 51
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 202,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 203,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 246.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 58
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 204,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 210.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 44
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 205,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 236.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 206,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 250.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 61
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 207,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 208,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 238.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 209,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 234.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 54
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 210,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 215.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 45
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 211,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 223.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 212,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 246.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 57
+  },
+  "protection_fouls": {
+   "red": 1
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 213,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 234.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 53
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 214,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 240.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 55
+  },
+  "protection_fouls": {
+   "red": 2
+  },
+  "pin_fouls": {}
+ },
+ {
+  "dt": 0.05,
+  "seed": 215,
+  "blue_strategy": "algae_processor",
+  "red_strategy": "full_defense",
+  "blue": 213.0,
+  "red": 0.0,
+  "pieces_scored_by_alliance": {
+   "blue": 47
+  },
+  "protection_fouls": {},
+  "pin_fouls": {}
+ }
+]
