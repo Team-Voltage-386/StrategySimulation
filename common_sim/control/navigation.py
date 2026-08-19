@@ -10,6 +10,7 @@ that depends on it.
 from __future__ import annotations
 
 import math
+from functools import lru_cache
 from typing import Callable, Union
 
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
@@ -21,11 +22,29 @@ Point = tuple[float, float]
 HeadingMode = Union[str, float]
 
 
+# Cache sizes below are measured, not guessed. Quadrupling them (16384 for
+# `_clearance_for_goal`, 32768 for `polygon_distance`) raises hit rate a
+# little and makes the sim *slower* -- 55.2s against 52.4s over the same
+# six matches -- because the bigger tables cost more locality than the
+# extra hits win back. These three functions are pure functions of static
+# field geometry and repeated query points, so every cache here is exact:
+# the whole point is that behaviour is bit-identical with them on or off,
+# which is how they were verified (same event-stream fingerprint across
+# six 3v3 matches with the variability model enabled).
+@lru_cache(maxsize=1024)
 def _inflate(vertices: tuple[Point, ...], radius: float) -> tuple[Point, ...]:
     """Offset a convex polygon outward by `radius` along its own edge
     normals -- the Minkowski sum with a disc of that radius, with each
     rounded corner left as the sharp intersection of its two adjacent
     offset edges (outside the true offset, so conservative).
+
+    Memoized because the inputs are static field geometry asked for over
+    and over: `plan_path` re-derives every obstacle's inflated outline on
+    every call, and `estimate_travel_time` calls `plan_path` once per
+    candidate scoring option per planner tick. A 3v3 match measured 51,651
+    calls carrying about a dozen distinct (polygon, radius) pairs between
+    them. Safe to share the result because it is an immutable tuple that
+    no caller mutates -- `plan_path` only enumerates and tests it.
 
     This used to scale the vertices radially away from the centroid
     instead, which only gives the full `radius` *at* the vertices: every
@@ -108,9 +127,19 @@ def _bounding_circle(vertices: tuple[Point, ...]) -> tuple[Point, float]:
     return (cx, cy), max(math.hypot(v[0] - cx, v[1] - cy) for v in vertices)
 
 
+@lru_cache(maxsize=8192)
 def polygon_distance(point: Point, vertices: tuple[Point, ...]) -> float:
     """Distance from `point` to a polygon's boundary, or 0.0 if `point`
-    is inside it."""
+    is inside it.
+
+    Memoized because `clear_standoff` runs it per obstacle on every call
+    just to decide which obstacles are near enough to matter, and the
+    points it asks about repeat: a scoring approach aims at the same
+    region face every tick it is held. That filter, not the standoff
+    search it guards, was the expensive half -- the docstring's "clears
+    the list entirely and returns on the first bearing" fast path still
+    pays for the distances that prove the list empty. Measured at 17% of
+    match wall time before caching."""
     if point_in_polygon(point, vertices):
         return 0.0
     n = len(vertices)
@@ -579,10 +608,19 @@ def plan_path(
 _GOAL_CLEARANCE = 1.0
 
 
+@lru_cache(maxsize=4096)
 def _clearance_for_goal(vertices: tuple[Point, ...], robot_radius: float, goal: Point) -> float | None:
     """How far to inflate one obstacle: `robot_radius`, capped so the
     inflated polygon never swallows `goal`. None means skip the obstacle
     entirely.
+
+    Memoized alongside `_inflate`, and for the same reason -- this runs
+    per obstacle per `plan_path`, and its `polygon_distance` call was the
+    largest single source of `_segment_distance` traffic (698,971 calls in
+    one 3v3 match). The key space is small in practice because goals
+    repeat: a planner ranks the same scoring-region centroids every tick.
+    Bounded by an LRU because `NavigateTo._replan` also routes to live
+    target poses, which do not repeat.
 
     Scoring targets sit right up against the structure being scored on
     (a REEF face's zone starts at the REEF wall), so a goal inside the
