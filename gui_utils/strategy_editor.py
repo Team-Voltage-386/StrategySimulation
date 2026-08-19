@@ -856,7 +856,18 @@ class StrategyEditor(QtWidgets.QWidget):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Load Strategy", "", "Strategy JSON (*.json)")
         if not path:
             return
-        strategy = strategy_io.load_strategy(path)
+        # A hand-edited strategy file is the expected way to get a load
+        # error, and this runs in a Qt slot -- an exception escaping here
+        # unwinds into the event loop, where the traceback goes to a
+        # console the user may not even have open. strategy_io's message
+        # already names the file, the location inside it, and the valid
+        # vocabulary, so showing it is the whole fix.
+        try:
+            strategy = strategy_io.load_strategy(path)
+        except strategy_io.StrategyLoadError as exc:
+            QtWidgets.QMessageBox.warning(self, "Could not load strategy", str(exc))
+            self.status_label.setText(f"Failed to load {path}")
+            return
         self._display_strategy(self._current_label, strategy)
         self.status_label.setText(f"Loaded {path}")
 

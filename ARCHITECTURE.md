@@ -24,6 +24,16 @@ If code in `common_sim` ever needs to branch on "which game is this,"
 that's a sign the abstraction is wrong — it belongs in a game-specific
 subclass instead.
 
+`test/test_import_contract.py` enforces the three lines above on every
+run, two ways: a static scan of every import statement in `common_sim/`
+and `gui_utils/` (which is how `gui_utils` gets checked without needing
+Qt on the box), and a subprocess that imports all of `common_sim` for
+real and inspects `sys.modules` — the only way to catch an *indirect*
+leak, where `common_sim` imports something else that imports a game.
+Until that test existed the contract held only because everyone
+remembered it, which is the kind of guarantee that expires on the
+afternoon of game reveal.
+
 ## Tech stack decision
 
 | Concern | Choice | Rejected alternative & why |

@@ -1,0 +1,43 @@
+name: Tests
+
+# Runs the pytest suite on every push and pull request. Until this
+# existed, every "validate" step in the roadmap was a human running
+# `pytest` locally and remembering the result -- including the import
+# contract in ARCHITECTURE.md's "Guiding constraint", which is the one
+# invariant the two-day new-game turnaround actually rests on.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  pytest:
+    # windows-latest, not the cheaper ubuntu runner, because
+    # multiprocessing's start method is part of what's under test.
+    # Windows uses `spawn`, which re-imports worker modules from scratch
+    # -- that's why game_specific/reefscape/sweep_trial.py must stay
+    # Qt-free and why test_run_all_parallel_matches_sequential is a
+    # meaningful test. On Linux the same test would run under `fork` and
+    # exercise a code path that never ships.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # No virtual display is needed despite PyQt5 being a dependency:
+      # test/gui_utils/test_sweep_plots.py pins matplotlib to Agg before
+      # importing anything, and no test constructs a QApplication. If a
+      # test ever does, it will need QT_QPA_PLATFORM=offscreen here.
+      - name: Run tests
+        run: python -m pytest -q
