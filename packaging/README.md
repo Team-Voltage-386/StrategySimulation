@@ -4,6 +4,22 @@ Builds `apps/run_reefscape.py` into a standalone Windows folder via
 [PyInstaller](https://pyinstaller.org/), so teammates can run the
 viewer with no Python install.
 
+## Automated releases
+
+Pushing a tag matching `v*.*.*` (e.g. `v1.2.0`) triggers
+[`.github/workflows/release.yml`](../.github/workflows/release.yml),
+which builds the same `packaging\sparky_sim.spec` on a Windows GitHub
+Actions runner and attaches the resulting zip to a new GitHub Release
+for that tag:
+
+```
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+The manual build below is still useful for local testing without
+cutting a release.
+
 ## Build
 
 ```

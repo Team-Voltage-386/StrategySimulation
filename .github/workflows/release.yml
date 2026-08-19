@@ -1,0 +1,46 @@
+name: Release
+
+# Builds the standalone Windows SparkySim package (see packaging/README.md)
+# and attaches it to a GitHub Release whenever a version tag is pushed.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Deliberately not the Anaconda env used locally -- a clean venv
+      # keeps the frozen app from sweeping in unrelated packages (see
+      # packaging/README.md).
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build SparkySim
+        run: pyinstaller --noconfirm --clean packaging\sparky_sim.spec
+
+      - name: Zip build output
+        id: zip
+        shell: pwsh
+        run: |
+          $zipName = "SparkySim_$($env:GITHUB_REF_NAME).zip"
+          Compress-Archive -Path "dist\SparkySim\*" -DestinationPath "dist\$zipName" -Force
+          echo "zip_path=dist\$zipName" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.zip.outputs.zip_path }}
+          generate_release_notes: true
