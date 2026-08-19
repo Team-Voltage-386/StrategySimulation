@@ -194,6 +194,79 @@ _STATION_PATIENCE_MIN = 8.0
 # silent no-op the first time it was written.
 _FAILED_STATION_COOLDOWN = 20.0
 
+# The same escape hatch again, for a committed loose PIECE rather than a
+# station or a scoring region. This is the third instance of one idea, and
+# the reason it needed a third is that a piece is the one target whose
+# commitment had no time-based release at all: `_losing_piece_race` and
+# `_better_piece_exists` are the only ways off one, and both ask "is
+# somebody else getting there first, or is something else closer?" -- not
+# "am I getting there?".
+#
+# Neither can see a blocked piece, for the same reason `_better_station_exists`
+# cannot see a blocked station. A defender denying a piece does not declare
+# it (it declares the *robot* it is marking), so there is no contention to
+# lose a race to; and `estimate_travel_time` routes around field geometry
+# only, never robots, so the ETA to a piece one foot behind a parked
+# opponent reads as one foot. Being close and stopped is exactly what
+# `_better_piece_exists` reads as success.
+#
+# The case it was measured on: a CORAL or ALGAE at rest inside a corner
+# CORAL STATION's polygon, with a `deny=supply` defender parked on that
+# station's mouth and backed against the two field walls. The piece is
+# behind it, unreachable, and 20in away. Over 8 seeds of
+# blue={algae_processor, cycle_coral} vs red={full_defense, cycle_coral},
+# eight commitments ran past 8s and totalled 132s of alliance time -- the
+# worst seed spent 88.6s of 150 on three of them and scored 210 against a
+# 228 mean. Every one was a corner piece with the nearest opponent 16-22in
+# from it.
+#
+# Priced like the station budget (that multiple of what the trip should
+# have cost, floored) and floored at the same value, for the same reason:
+# a low floor fires on trips that are merely slow rather than denied. A
+# piece differs from a station in being cheap to give up -- there are
+# usually several, and the station is always there as the fallback -- but
+# it is also cheap to give up *wrongly*, so the floor stays where the
+# station measurements put it rather than being tuned down on the argument
+# alone.
+_PIECE_PATIENCE_RATIO = 1.6
+_PIECE_PATIENCE_MIN = 8.0
+
+# How much closer to the piece the robot has to get for the trip to count
+# as still going, which resets the patience clock: the budget above is
+# spent on time making *no progress*, not on elapsed time.
+#
+# The station and region escapes do not need this and this one does,
+# because the two failure modes are not the same shape. A station is a
+# fixed spot and a station trip is short and stereotyped, so overrunning
+# its budget really does mean denial. A loose piece is wherever it came to
+# rest -- tucked under the REEF, out at a wall, behind field structure --
+# and reaching one legitimately takes anywhere from half a second to most
+# of a cycle, so plain elapsed time cannot tell "denied" from "far away
+# and awkward".
+#
+# Measured: with elapsed time alone at the same 8s floor, the mixed-blue
+# defense grid lost 14.9 points across the seven ALGAE-cycler rows and,
+# tellingly, 1.2 of them on the *undefended* control -- where nothing is
+# blocking anything, so every firing there was a legitimate trip thrown
+# away. Ratcheting on the closest approach so far fixes that by
+# construction: a trip that is still closing never spends budget, however
+# long it takes, and a robot held at 20in for 8s spends all of it.
+#
+# Compared against the *best* distance so far, not the last one, so a
+# detour that temporarily increases the distance (routing around the REEF)
+# is not mistaken for progress on the way back in. Sized just above the
+# noise a stationary robot shows against a piece that is still settling,
+# and well under the intake reach it is trying to close.
+_PIECE_PROGRESS_EPSILON = 3.0
+
+# How long a piece given up on stays out of the running -- longer than the
+# patience above, for the reason `_FAILED_STATION_COOLDOWN` spells out at
+# length: a give-up has to outlast the trip it sends you on, or the robot
+# arrives at its new target just as the old one becomes pickable again and
+# alternates between the two. Kept across `reset()` for the same reason
+# the station cooldowns are.
+_FAILED_PIECE_COOLDOWN = 20.0
+
 # How far past the halfway line a committed piece has to have rolled --
 # as a fraction of the distance between the two alliances' ends -- before
 # `opposing_side="last_resort"` gives up on chasing it (see
@@ -385,11 +458,23 @@ class Collect(Tactic):
         self._station_patience = _STATION_PATIENCE_MIN
         self._station_cooldowns: dict[str, float] = {}
 
+        # The same escape for a committed loose piece (see
+        # `_PIECE_PATIENCE_*`). `_piece_cooldowns` is keyed by the piece
+        # object, not an id() -- an id is reused once a piece is garbage
+        # collected, which would silently put a fresh piece on the cooldown
+        # of a dead one -- and it survives `reset()` like the station one.
+        self._piece_elapsed = 0.0
+        self._piece_patience = _PIECE_PATIENCE_MIN
+        self._piece_closest = math.inf
+        self._piece_cooldowns: dict[object, float] = {}
+
     def reset(self) -> None:
         self._target_piece = None
         self._target_station = None
         self._start_held_count = None
         self._station_elapsed = 0.0
+        self._piece_elapsed = 0.0
+        self._piece_closest = math.inf
         self._reconsider.reset()
         self._nav.reset()
 
@@ -692,6 +777,20 @@ class Collect(Tactic):
         pieces = world_view.collectable_pieces(match, piece_type=self.piece_type, robot=robot)
         if self.max_range is not None:
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.max_range]
+
+        # Pieces recently given up on drop out, with no "unless that
+        # leaves nothing" fallback -- and that is the one place this
+        # deliberately does NOT copy `_best_station`. A station given up on
+        # is still the only source of its piece type and regenerates
+        # supply, so going back and waiting on it beats touring the field.
+        # A piece is not: an unreachable piece is unreachable, and waiting
+        # on the last one on the field is precisely the 22s stall this
+        # cooldown exists to end. Leaving nothing here is the useful
+        # answer, because `_pick_target` then fails and Collect reports
+        # FAILURE, which is what lets the *strategy* switch jobs -- an
+        # algae cycler with no gettable algae going to cycle CORAL
+        # instead. No tactic can make that call from inside its own scope.
+        pieces = [p for p in pieces if p not in self._piece_cooldowns]
         if not pieces:
             return {}
 
@@ -829,7 +928,7 @@ class Collect(Tactic):
             self._commit_station(ctx, station, station_eta)
             return True
         if piece is not None:
-            self._target_piece, self._target_station = piece, None
+            self._commit_piece(ctx, piece, piece_eta)
             return True
 
         self._target_piece = None
@@ -851,6 +950,69 @@ class Collect(Tactic):
                 _STATION_PATIENCE_RATIO * (eta + ctx.robot.characteristics.station_intake_time),
             )
         self._target_station, self._target_piece = station, None
+
+    def _commit_piece(self, ctx: BehaviorContext, piece, eta: float) -> None:
+        """`_commit_station`'s counterpart for a loose piece: take it and
+        restart its patience clock, budgeted off drive plus one intake from
+        here. Re-committing to the piece already held restarts nothing --
+        a re-pick that lands where it started is the same attempt
+        continuing, and restarting there would make the clock unable to
+        ever expire, since `_pick_target` runs again the moment anything
+        else changes."""
+        if piece is not self._target_piece:
+            self._piece_elapsed = 0.0
+            self._piece_closest = math.inf
+            self._piece_patience = max(
+                _PIECE_PATIENCE_MIN,
+                _PIECE_PATIENCE_RATIO * (eta + ctx.robot.characteristics.intake_duration(piece.piece_type)),
+            )
+        self._target_piece, self._target_station = piece, None
+
+    def _piece_stalled(self, ctx: BehaviorContext) -> bool:
+        """Whether the committed piece has gone long enough without the
+        robot getting any closer to it that it is worth going somewhere
+        else.
+
+        What the budget is spent on is time making no progress, not elapsed
+        time -- see `_PIECE_PROGRESS_EPSILON` for why this escape needs that
+        and the station one does not. Every fresh closest approach restarts
+        the clock, so a slow trip that is still closing is never given up
+        on, however far the piece is or however awkwardly it is placed.
+
+        The clock also stops once the piece is in intake range and acceptable
+        (`robot.accepts`, the same test the physics uses to feed the intake
+        timer): an intake already under way always gets to finish, exactly
+        as `_station_stalled` exempts a robot already on the feed. What is
+        being timed is the part a defender can deny -- getting there.
+
+        There is no teammate exemption to match the station's, and that
+        asymmetry is the point. A teammate ahead of us at a feeder is a
+        queue that clears; a teammate ahead of us at a *piece* is not
+        queueing, it is taking it, and that is already `_losing_piece_race`
+        and `_piece_rank`'s first tier. The only thing left for a clock to
+        catch here is a trip that is not happening.
+
+        Unlike the station escape this does *not* require somewhere fresh
+        to give up to first, and that was the whole finding: on the
+        measured case there was nowhere, because the blocked piece was the
+        last ALGAE on the field and blue's REEF was empty. Requiring an
+        alternative makes the escape silent in exactly the situation that
+        hurts most -- one unreachable piece, and the robot's whole job
+        depending on it. Giving up with nothing in scope to give up to is
+        not a dead end, it is a FAILURE the strategy can act on."""
+        piece = self._target_piece
+        robot = ctx.robot
+        if piece is None or robot.accepts(piece):
+            return False
+
+        distance = math.hypot(piece.position.x - robot.pose.x, piece.position.y - robot.pose.y)
+        if distance < self._piece_closest - _PIECE_PROGRESS_EPSILON:
+            self._piece_closest = distance
+            self._piece_elapsed = 0.0
+            return False
+
+        self._piece_elapsed += ctx.dt
+        return self._piece_elapsed >= self._piece_patience
 
     def _station_stalled(self, ctx: BehaviorContext) -> bool:
         """Whether the committed station has taken long enough without
@@ -898,6 +1060,10 @@ class Collect(Tactic):
             self._station_cooldowns[name] -= ctx.dt
             if self._station_cooldowns[name] <= 0.0:
                 del self._station_cooldowns[name]
+        for piece in list(self._piece_cooldowns):
+            self._piece_cooldowns[piece] -= ctx.dt
+            if self._piece_cooldowns[piece] <= 0.0:
+                del self._piece_cooldowns[piece]
 
         if self._start_held_count is None:
             self._start_held_count = len(robot.held_pieces)
@@ -926,6 +1092,20 @@ class Collect(Tactic):
                 or self._better_piece_exists(ctx)
             ))
         )
+        # The piece counterpart of the station escape below, and the only
+        # release a committed piece has that does not depend on somebody
+        # else wanting it: the trip has taken too long. A piece sitting
+        # behind a parked defender -- typically one at rest in a corner
+        # station's polygon, with the defender denying that station backed
+        # up against it -- is uncontested (a defender declares the robot it
+        # marks, not the piece) and reads as a foot away, so every check
+        # above is satisfied while the robot goes nowhere. Guarded on
+        # nothing else having released the piece already, so a piece
+        # somebody else just took is not also put on cooldown.
+        if self._target_piece is not None and not target_lost and self._piece_stalled(ctx):
+            self._piece_cooldowns[self._target_piece] = _FAILED_PIECE_COOLDOWN
+            self._piece_elapsed = 0.0
+            target_lost = True
         # Two ways off a committed station. The cheap one: it filled up
         # and another has room, which is strictly better than waiting.
         # Guarded on the other station actually having room so this can't

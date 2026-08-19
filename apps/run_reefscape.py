@@ -205,7 +205,7 @@ class MatchView(QtWidgets.QWidget):
         self.left_column = QtWidgets.QScrollArea()
         self.left_column.setWidget(self.roster_config)
         self.left_column.setWidgetResizable(True)
-        self.left_column.setFixedWidth(280)
+        self.left_column.setMinimumWidth(240)
         self.left_column.setFrameShape(QtWidgets.QFrame.NoFrame)
 
         self.canvas = FieldCanvas(None)  # match assigned by _reset_match()
@@ -250,12 +250,19 @@ class MatchView(QtWidgets.QWidget):
         right_layout.addWidget(self.match_settings_panel)
         right_layout.addWidget(self.controls_panel)
         right_layout.addStretch(1)
-        self.right_column.setFixedWidth(240)
+        self.right_column.setMinimumWidth(220)
+
+        main_splitter = QtWidgets.QSplitter(Qt.Horizontal)
+        main_splitter.addWidget(self.left_column)
+        main_splitter.addWidget(center_column)
+        main_splitter.addWidget(self.right_column)
+        main_splitter.setStretchFactor(0, 0)
+        main_splitter.setStretchFactor(1, 1)
+        main_splitter.setStretchFactor(2, 0)
+        main_splitter.setSizes([360, 1000, 240])
 
         central_layout = QtWidgets.QHBoxLayout(self)
-        central_layout.addWidget(self.left_column)
-        central_layout.addWidget(center_column, stretch=1)
-        central_layout.addWidget(self.right_column)
+        central_layout.addWidget(main_splitter)
         self._fullscreen = False
 
         self._pressed_keys: set[int] = set()

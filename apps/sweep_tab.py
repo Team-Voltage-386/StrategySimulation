@@ -85,7 +85,7 @@ class SweepTab(QtWidgets.QWidget):
         left_column = QtWidgets.QScrollArea()
         left_column.setWidget(left_content)
         left_column.setWidgetResizable(True)
-        left_column.setFixedWidth(280)
+        left_column.setMinimumWidth(240)
         left_column.setFrameShape(QtWidgets.QFrame.NoFrame)
 
         self.variable_table = VariableTable(self._targets, self._field_descriptors)
@@ -120,7 +120,7 @@ class SweepTab(QtWidgets.QWidget):
         main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         main_splitter.addWidget(left_column)
         main_splitter.addWidget(right_splitter)
-        main_splitter.setSizes([280, 1000])
+        main_splitter.setSizes([360, 1000])
 
         layout = QtWidgets.QHBoxLayout(self)
         layout.addWidget(main_splitter)

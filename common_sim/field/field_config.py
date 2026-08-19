@@ -291,7 +291,24 @@ def polygons_intersect(a: tuple[tuple[float, float], ...], b: tuple[tuple[float,
     catches the case neither containment test sees, two polygons
     overlapping in a band with every vertex outside the other (a plus
     sign). Works on concave polygons, unlike a separating-axis test --
-    a game is free to describe an L-shaped safe zone."""
+    a game is free to describe an L-shaped safe zone.
+
+    Bounding boxes are compared first because the honest answer is almost
+    always "no": the hot callers are `Match.protecting_zone` (one robot
+    against every zone on the field) and `Match.robots_in_contact` (every
+    robot against every other), and on a 690x317in field a given pair is
+    nowhere near each other on the overwhelming majority of ticks. Two
+    boxes that don't overlap cannot share area, so the reject is exact,
+    and it costs four comparisons against a full pass that is O(n*m) in
+    edges plus n+m ray casts."""
+    ax = [v[0] for v in a]
+    bx = [v[0] for v in b]
+    if max(ax) < min(bx) or min(ax) > max(bx):
+        return False
+    ay = [v[1] for v in a]
+    by = [v[1] for v in b]
+    if max(ay) < min(by) or min(ay) > max(by):
+        return False
     if any(point_in_polygon(v, b) for v in a) or any(point_in_polygon(v, a) for v in b):
         return True
     for i in range(len(a)):

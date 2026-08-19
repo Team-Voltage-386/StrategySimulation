@@ -84,13 +84,45 @@ def _reject_nested_for_duration(rule: Rule) -> None:
         pending.extend(node.children())
 
 
+# How long a rule whose tactic reported FAILURE is held out of the running
+# so a lower-priority rule can have the robot.
+#
+# Without this a FAILURE is indistinguishable from a rule that never ran:
+# `_best_candidate` re-picks the highest-priority *satisfied* rule, status
+# is not consulted, so the rule that just declared it cannot do its job is
+# immediately handed the robot again -- and stays there for as long as its
+# trigger holds, which for a supply-availability trigger is the rest of the
+# match. There is no other edge in the arbiter by which "this job is not
+# working" can become "do the other job", and a tactic cannot make that
+# call from inside its own scope: a Collect(piece_type="algae") that cannot
+# reach any ALGAE has no way to know the strategy also has a CORAL rule.
+#
+# Measured on blue={algae_processor, cycle_coral} vs red={full_defense,
+# cycle_coral}: the ALGAE cycler committed to the last ALGAE on the field,
+# at rest inside a corner CORAL STATION with the defender denying that
+# station parked on top of it, and blue's REEF already stripped. The
+# trigger (`PiecesAvailable(algae) >= 1`) was true the whole time -- the
+# piece existed, it just could not be had -- so the robot held the job it
+# could not do for 22s while its CORAL rule sat one priority below,
+# satisfied and ready.
+#
+# Short on purpose. This is a yield, not a ban: long enough for the next
+# rule to be picked and commit to a target of its own, and it re-arms every
+# time the failure repeats, so a persistently blocked job stays yielded
+# while a transient one costs a single tick. Making it outlast the cause
+# instead (e.g. matching Collect's piece cooldown) would mean guessing here
+# at how long somebody else's give-up lasts.
+_FAILED_RULE_SUPPRESSION = 1.0
+
+
 class _RuleState:
-    __slots__ = ("duration_true", "cooldown_remaining", "fired_once")
+    __slots__ = ("duration_true", "cooldown_remaining", "fired_once", "failure_suppressed")
 
     def __init__(self):
         self.duration_true = 0.0
         self.cooldown_remaining = 0.0
         self.fired_once = False
+        self.failure_suppressed = 0.0
 
 
 class StrategyController:
@@ -130,6 +162,12 @@ class StrategyController:
 
             if state.cooldown_remaining > 0.0:
                 state.cooldown_remaining = max(0.0, state.cooldown_remaining - ctx.dt)
+                ok = False
+            # Decayed here rather than where it is charged, so it ticks down
+            # on every rule every tick exactly like the author's cooldown
+            # beside it (see `_FAILED_RULE_SUPPRESSION`).
+            if state.failure_suppressed > 0.0:
+                state.failure_suppressed = max(0.0, state.failure_suppressed - ctx.dt)
                 ok = False
             if rule.once and state.fired_once:
                 ok = False
@@ -181,6 +219,14 @@ class StrategyController:
             })
 
     def tick(self, ctx: BehaviorContext) -> None:
+        # Charged before the triggers are evaluated, because suppression has
+        # to be in place for the candidate scan that happens further down
+        # this same tick -- charge it at switch time instead and the rule
+        # that just failed wins that scan and is re-selected, which is the
+        # behavior this exists to prevent.
+        if self._active_rule is not None and self._last_status is Status.FAILURE:
+            self._states[self._active_rule.name].failure_suppressed = _FAILED_RULE_SUPPRESSION
+
         satisfied = self._evaluate_all(ctx)
         best = self._best_candidate(satisfied)
 

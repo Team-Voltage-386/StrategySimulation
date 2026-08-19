@@ -433,7 +433,22 @@ class Robot:
 
         facing alone accepts a robot squared up but out of range, or one
         whose mechanism is nowhere near the zone."""
-        if not any(point_in_polygon(p, vertices) for p in self.side_reach_points(side)):
+        points = self.side_reach_points(side)
+        # The reach points are collinear along one centerline, so the
+        # first and last bound all of them: if that box misses the
+        # polygon's box, no point is inside and there is nothing to ray
+        # cast. Worth the four comparisons because the hot callers
+        # (Match.deposit_region_for, Match.pickup_region_for) walk every
+        # region the field declares looking for the one a robot is at, and
+        # the answer is "not this one" for nearly all of them -- which
+        # otherwise costs a full ray cast per reach point per region.
+        (x1, y1), (x2, y2) = points[0], points[-1]
+        min_x, max_x = (x1, x2) if x1 <= x2 else (x2, x1)
+        min_y, max_y = (y1, y2) if y1 <= y2 else (y2, y1)
+        if (max(v[0] for v in vertices) < min_x or min(v[0] for v in vertices) > max_x
+                or max(v[1] for v in vertices) < min_y or min(v[1] for v in vertices) > max_y):
+            return False
+        if not any(point_in_polygon(p, vertices) for p in points):
             return False
         return self._side_faces_polygon(side, vertices)
 

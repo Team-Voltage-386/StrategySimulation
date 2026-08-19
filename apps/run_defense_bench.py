@@ -64,9 +64,24 @@ RED_PLANS = (
     "shadow/scoring", "shadow/supply", "shadow/any",
 )
 
-# Blue's plans, by strategy file. Both cycle CORAL; the evasive one adds
-# a BeingDefended rule on top (see the strategies directory).
-BLUE_PLANS = ("cycle_coral", "cycle_coral_evasive")
+# Blue's plans, as the strategy file each blue robot runs. A plan is a
+# *lineup*, not one strategy, because a defender's effect depends on what
+# the alliance it is defending is trying to do: robot i runs entry i, and
+# the last entry repeats if the alliance is wider than the lineup.
+#
+# The mixed row is not a nicety. The two uniform CORAL rows cannot see
+# any behavior that only appears when an alliance runs out of its own
+# supply or goes after loose pieces -- which is most of Collect. The
+# corner-piece stall (ARCHITECTURE.md, "Every commitment needs an
+# expiry") was invisible to this bench for exactly that reason: both
+# CORAL rows were bit-identical across the fix. A grid that varies the
+# defense while holding one offensive shape fixed measures that shape,
+# not the tactic.
+BLUE_PLANS: dict[str, tuple[str, ...]] = {
+    "cycle_coral": ("cycle_coral",),
+    "cycle_coral_evasive": ("cycle_coral_evasive",),
+    "algae+coral": ("algae_processor", "cycle_coral"),
+}
 
 
 def _load(name: str) -> dict:
@@ -98,9 +113,10 @@ def _full_time_defender(plan_name: str) -> dict:
 
 def build_job(index: int, seed: int, red_plan: str, blue_plan: str, per_side: int, defenders: int) -> TrialJob:
     characteristics = characteristics_to_spec(build_characteristics())
+    lineup = BLUE_PLANS[blue_plan]
     robots = [
-        RobotSpec(label=f"B{i}", alliance="blue", roster_index=i,
-                  characteristics=characteristics, strategy=_load(blue_plan))
+        RobotSpec(label=f"B{i}", alliance="blue", roster_index=i, characteristics=characteristics,
+                  strategy=_load(lineup[min(i, len(lineup) - 1)]))
         for i in range(per_side)
     ]
     robots += [

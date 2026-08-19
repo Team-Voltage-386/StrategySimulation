@@ -1056,6 +1056,106 @@ def test_collect_gives_up_a_piece_that_rolls_well_onto_the_opposing_half():
     assert tactic._target_piece is stationary
 
 
+def test_collect_gives_up_a_piece_it_cannot_get_any_closer_to():
+    """The corner-piece stall: a piece at rest behind a parked defender is
+    uncontested (a defender declares the robot it marks, not the piece) and
+    routes as a few inches away, since `estimate_travel_time` never models
+    robots. So every instantaneous release is satisfied while the robot
+    goes nowhere -- measured at a 22s commitment, and 132s across 8 seeds.
+
+    Staged by ticking without stepping physics, so the robot stays put: from
+    inside the tactic that is exactly a trip making no progress, which is
+    the only thing it can actually see."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    blocked = match.spawn_piece(WIDGET, (60, 100))
+    reachable = match.spawn_piece(WIDGET, (240, 100))   # much farther, so only a give-up reaches it
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is blocked
+
+    _run_collect(tactic, match, robot, tactics._PIECE_PATIENCE_MIN + 1.0)
+    assert tactic._target_piece is reachable
+    assert blocked in tactic._piece_cooldowns
+
+
+def test_collect_keeps_a_piece_it_is_still_closing_on():
+    """The budget is spent on time making no progress, not elapsed time.
+    A loose piece can legitimately be most of a cycle away -- tucked under
+    field structure, out at a wall -- so plain elapsed time cannot tell
+    "denied" from "far away and awkward". Measured: with elapsed time
+    alone this cost 1.2 points on the *undefended* control, where every
+    firing was a good trip thrown away."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (280, 100))
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is piece
+
+    # Creeping in far slower than the budget would allow, but always
+    # closing. `_PIECE_PROGRESS_EPSILON` is what it has to beat each time.
+    for _ in range(int((tactics._PIECE_PATIENCE_MIN + 5.0) * 60)):
+        robot.chassis.body.position = (robot.pose.x + 0.1, 100)
+        assert not tactic._piece_stalled(ctx)
+
+
+def test_collect_does_not_abandon_a_piece_already_in_its_intake():
+    """The clock stops in intake range, so a capture under way always gets
+    to finish -- the same rule the station escape follows at the feed."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (34, 100))
+    match.step(1.0 / 60.0)   # let the intake-range collision callbacks land
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_piece is piece
+    assert robot.accepts(piece)
+
+    for _ in range(int((tactics._PIECE_PATIENCE_MIN + 5.0) * 60)):
+        assert not tactic._piece_stalled(ctx)
+    assert tactic._piece_elapsed == 0.0
+
+
+def test_collect_reports_failure_when_its_only_piece_is_one_it_gave_up_on():
+    """A given-up piece is NOT re-offered when it is the last one -- the
+    one place this deliberately differs from the station cooldown, whose
+    fallback is to go back and wait. Waiting on an unreachable piece is the
+    stall itself. Failing instead is what lets the *strategy* switch jobs,
+    which no tactic can decide from inside its own scope."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (60, 100))
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    _run_collect(tactic, match, robot, tactics._PIECE_PATIENCE_MIN + 1.0)
+    assert piece in tactic._piece_cooldowns
+    assert tactic.tick(ctx) is Status.FAILURE
+
+
+def test_collect_piece_cooldown_survives_the_reset_between_cycles():
+    """Same trap as the station cooldown: Collect is re-entered from
+    scratch every cycle, so a cooldown cleared by `reset()` is wiped before
+    it is ever read."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    piece = match.spawn_piece(WIDGET, (60, 100))
+    match.spawn_piece(WIDGET, (240, 100))
+
+    tactic = tactics.Collect(piece_type=WIDGET)
+    _run_collect(tactic, match, robot, tactics._PIECE_PATIENCE_MIN + 1.0)
+    assert piece in tactic._piece_cooldowns
+    tactic.reset()
+    assert piece in tactic._piece_cooldowns
+
+
 class _DefenseIntent:
     def __init__(self, *, defending=True, marking=None, target_region=None):
         self.defending = defending

@@ -7,6 +7,7 @@ navigation/physics.
 from dataclasses import dataclass, field
 
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
+from common_sim.control import strategy as strategy_module
 from common_sim.control.strategy import Rule, Strategy, StrategyController
 from common_sim.control.tactics import Idle
 from common_sim.control.triggers import Trigger
@@ -245,3 +246,55 @@ def test_nested_for_duration_check_reaches_arbitrary_depth():
     deep = trg.AnyOf(triggers=(trg.Not(trigger=trg.AllOf(triggers=(trg.Always(for_duration=1.0),))),))
     with pytest.raises(ValueError, match="for_duration"):
         StrategyController(Strategy(name="s", rules=[Rule(name="r", trigger=deep, tactic=Idle())]), robot=None)
+
+
+def test_failing_tactic_yields_to_a_lower_priority_rule():
+    """A FAILURE has to be able to become "do the other job". Without
+    suppression `_best_candidate` re-picks the highest-priority *satisfied*
+    rule and never consults status, so the rule that just declared it
+    cannot do its job is handed the robot straight back -- and keeps it for
+    as long as its trigger holds.
+
+    Measured shape: an ALGAE cycler committed to the last ALGAE on the
+    field, unreachable behind a parked defender. Its availability trigger
+    stayed true the whole time (the piece existed, it just could not be
+    had) so it held the job for 22s while its CORAL rule sat one priority
+    below, satisfied and ready."""
+    failing = CountingTactic(finish_after=1, terminal_status=Status.FAILURE)
+    other = CountingTactic()
+    high = Rule(name="algae", trigger=FlagTrigger(flag=lambda: True), tactic=failing, priority=6)
+    low = Rule(name="coral", trigger=FlagTrigger(flag=lambda: True), tactic=other, priority=5)
+    controller = StrategyController(Strategy(name="s", rules=[high, low]), robot=None)
+    match = FakeMatch()
+
+    controller.tick(ctx_for(match))
+    assert controller._active_rule is high
+    assert controller._last_status is Status.FAILURE
+
+    controller.tick(ctx_for(match))
+    assert controller._active_rule is low, "the failing rule kept the robot"
+
+
+def test_failure_suppression_expires_so_the_rule_can_be_retried():
+    """A yield, not a ban: whatever blocked the job may have cleared, and
+    the arbiter has no way to know. So the rule comes back -- and if it
+    fails again, it yields again."""
+    failing = CountingTactic(finish_after=1, terminal_status=Status.FAILURE)
+    other = CountingTactic()
+    high = Rule(name="algae", trigger=FlagTrigger(flag=lambda: True), tactic=failing, priority=6)
+    low = Rule(name="coral", trigger=FlagTrigger(flag=lambda: True), tactic=other, priority=5)
+    controller = StrategyController(Strategy(name="s", rules=[high, low]), robot=None)
+    match = FakeMatch()
+
+    controller.tick(ctx_for(match))
+    controller.tick(ctx_for(match))
+    assert controller._active_rule is low
+
+    failing.finish_after = None  # whatever it was blocked on has cleared
+    # Two ticks: the first spends the suppression down to zero and is still
+    # suppressed by it, the second sees it clear. That off-by-one-tick is
+    # the author `cooldown`'s semantics too, deliberately -- the two are
+    # decayed side by side in `_evaluate_all` and read the same way.
+    controller.tick(ctx_for(match, dt=strategy_module._FAILED_RULE_SUPPRESSION + 0.1))
+    controller.tick(ctx_for(match))
+    assert controller._active_rule is high

@@ -191,18 +191,22 @@ limit, using the same retreat as the protected-zone release. Whether to
 release at all is a real trade rather than a free win -- see the
 constant's comment for the swept numbers.
 
-**Every commitment needs an expiry, and the expiry is elapsed time.**
-This is the same lesson in three places now, so it is worth stating as a
-rule rather than rediscovering it a fourth time. `Score` has
+**Every commitment needs an expiry, and the expiry is time spent
+failing.** This is the same lesson in three places now, so it is worth
+stating as a rule rather than rediscovering it a fourth time. `Score` has
 `_STALL_PATIENCE_*`, `Collect` has `_STATION_PATIENCE_*` for a committed
-station, and both exist because the instantaneous tests a tactic can run
--- is this region full, is that feeder occupied, would somebody beat me
-there -- are all blind to a defender that denies by *standing in the
-approach*. Such a defender is not in the region, not on the feed, and not
-racing us anywhere, so nothing it does makes the target read as
-unavailable. Only the fact that we have been failing for a while does.
+station and `_PIECE_PATIENCE_*` for a committed loose piece, and all
+three exist because the instantaneous tests a tactic can run -- is this
+region full, is that feeder occupied, would somebody beat me there -- are
+all blind to a defender that denies by *standing in the approach*. Such a
+defender is not in the region, not on the feed, and not racing us
+anywhere, so nothing it does makes the target read as unavailable. Worse,
+`estimate_travel_time` routes around field geometry only and never models
+robots, so a target one foot behind a parked opponent prices as one foot
+away: being close and stopped reads as success. Only the fact that we
+have been failing for a while does.
 
-Two things generalise from getting this wrong repeatedly. The budget
+Four things generalise from getting this wrong repeatedly. The budget
 must be priced off what the attempt *should* cost and floored well above
 ordinary variance, or it fires on the everyday case (a teammate ahead of
 you in a queue) instead of the case it is for. And the cooldown on the
@@ -211,12 +215,53 @@ on, or the robot alternates between two targets on exactly the period of
 the patience clock -- measured once at 96 of 150 seconds spent
 oscillating between two feeders.
 
+The third is that "elapsed time" is the wrong clock for a target whose
+honest cost varies widely. A station trip is short and stereotyped, so
+overrunning its budget really does mean denial; a loose piece is wherever
+it came to rest, and reaching one legitimately takes anywhere from half a
+second to most of a cycle. Timed on plain elapsed time the piece escape
+threw away good trips -- visibly so, because it moved the *undefended*
+control, where by definition nothing was being denied. What it should
+spend the budget on is time making no progress, ratcheted on the closest
+approach so far (`_PIECE_PROGRESS_EPSILON`). A trip that is still closing
+then never expires however long it takes, and a robot held at arm's
+length from a piece spends the whole budget standing there. Prefer that
+formulation wherever an escape's target is not a fixed, uniform trip.
+
+The fourth is that the give-up sometimes has to leave the tactic. A
+tactic can only re-pick within its own scope, and scope is exactly what
+can run out: `Collect(piece_type="algae")` whose last reachable ALGAE is
+behind a defender has nowhere to go, and no way to know its strategy also
+has a CORAL rule one priority below. So a piece is *not* re-offered when
+it is the last one (unlike a station, where going back and waiting is
+right, because a station is the only source of its type and regenerates).
+`Collect` reports `FAILURE` instead, and `_FAILED_RULE_SUPPRESSION` in the
+arbiter is what makes that mean something: a rule whose tactic failed
+yields briefly so a lower-priority rule can have the robot. Before that,
+`_best_candidate` never consulted status, so a rule that had just declared
+it could not do its job was handed the robot straight back and kept it
+for as long as its trigger held -- which for an availability trigger is
+the rest of the match. `Collect` is still the only tactic that returns
+`FAILURE`, so that edge exists for it alone today.
+
 The honest caveat, recorded so nobody re-derives it as a win: on this
 game these escapes are worth almost nothing on the mean. What they move
 is the spread, by removing the tail where a robot spends fifteen seconds
 achieving nothing. That is worth having in a baseline meant to survive a
 rules set nobody has seen yet, but it is not a scoring improvement and
-should not be quoted as one.
+should not be quoted as one. The piece escape is the same shape: over a
+2v2 mixed-blue defense grid it is +4.5 points across 14 plan pairings and
+bit-identical on the undefended control, while on the lineup it was found
+on it took blue 228.4 +-9.9 to 230.6 +-6.6 and cut the longest single
+commitment from 29.8s to 10.7s.
+
+A note on measuring these, since it caught out the piece escape: the
+defense bench's two blue plans both cycle CORAL only, so a whole class of
+Collect behavior -- anything to do with loose pieces, or with a robot
+whose supply can run out -- is invisible to it. The piece stall showed up
+only on a *mixed* alliance (one ALGAE cycler, one CORAL cycler). A grid
+that varies the defense while holding one offensive shape fixed measures
+that shape, not the tactic.
 
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-
@@ -357,6 +402,53 @@ substream seeded off `job.seed`, and the timestep is pinned
 `MatchView`'s tick rate) so `run_trial` and `replay_trial` agree
 bit-for-bit *on one machine* — not guaranteed bit-identical across
 machines/pymunk builds.
+
+**The planner is the sim's clock, and A\* is why.** A 3v3 defended match
+spends over half its wall time in `plan_path`, which is asked ~27,000
+questions per match: half from `estimate_travel_time` (tactics pricing
+candidate targets, every tick) and half from `NavigateTo._replan`. The
+inner loop is `_visible`, the segment-vs-obstacle test. Four things were
+measured there, and the split between what worked and what didn't is the
+useful part:
+
+- **Don't build the graph you won't search.** A visibility graph is
+  O(N²) in vertices, but A\* expands only the handful of nodes on or near
+  the route — 5.8 of 24.1 per plan, measured. Generating a node's edges
+  when A\* first pops it, and caching per unordered pair, cut `_visible`
+  calls by 68% and `plan_path` by 2.1x. Same graph, same edges, same
+  answer; just not computed until asked for. This was worth more than
+  every arithmetic-level change put together.
+- **Exact beats sampled, and is also faster.** `_visible` used to test
+  each obstacle edge for a strict straddle and then sample seven points
+  along the segment for containment — the samples not as insurance but
+  because the straddle test has a real blind spot at vertices, which
+  `_octagon` puts straight along +x. Every obstacle here is convex, so
+  clipping the segment's parameter interval against the edge half-planes
+  (Cyrus-Beck) answers the same question exactly, in one pass, with no
+  ray casts. Zero disagreements against the sampling version over 400,000
+  queries captured from a real match.
+- **Cull once over the list, not once per pair.** `clear_standoff` tried
+  up to 24 rotations against every obstacle; every chassis it builds sits
+  within one disc of the target, so obstacles outside it are dropped
+  before the loop. Conversely, a bounding-box pre-reject *inside*
+  `convex_overlap` measured **slower** and was removed: a separating-axis
+  test already answers "far apart" on its first axis after two
+  projections, which is cheaper than the box test that would have
+  replaced it.
+- **A cache's hit rate is not its value.** `plan_path` is a pure function
+  of its arguments and 17% of calls repeat one verbatim, so memoising it
+  is exactly behavior-preserving — and bought 1% of wall time, because
+  the repeated calls are overwhelmingly the ones that take the cheap
+  direct-visible exit (0.02ms against a 0.32ms mean). Not kept. Measure
+  the time a cache saves, not the calls it serves.
+
+Together: 24.2s -> 11.9s per 3v3 match, **bit-identical** results on the
+defense bench (42 matches at 2v2, 8 at 3v3) and 312 tests unchanged.
+Bit-identity is the acceptance test that makes this kind of work safe to
+do at all — an optimization that changes trajectories is a behavior
+change wearing a speed change's clothing, and has to be measured as one
+(see `_within_corridor`, which is exactly that and is documented as a
+bound rather than a proof).
 
 ## What ships in `common_sim` vs. what a new game writes
 
