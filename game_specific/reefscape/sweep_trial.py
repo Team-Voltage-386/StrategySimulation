@@ -46,6 +46,27 @@ from game_specific.reefscape.game_pieces import spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 
 SWEEP_DT = 1.0 / 60.0
+
+# The control timestep for *search*, which is a different job from a
+# sweep and has a different constraint. A sweep row must be replayable in
+# the MATCH tab, which pins it to 1/60 (above). A search never needs
+# scrubbing -- it needs to rank candidates -- and its winners get re-run
+# at SWEEP_DT for inspection, so it can afford a coarser step.
+#
+# 1/30 rather than coarser is a measured choice, not a guess. `SimEngine`
+# substeps at a fixed 1/240 whatever `dt` is, so coarsening this does not
+# touch physics at all: it changes only how often the arbiter re-decides,
+# which at 1/60 implicitly models an operator revising sixty times a
+# second. Across 1,800 paired-seed matches (benchmarks/dt_study.py and
+# dt_defense_study.py) every pair that 1/60 separates by more than 8
+# standard errors ranked the same way at 1/30, in both the design grid and
+# the defensive grid; the only disagreements were on pairs 1/60 can barely
+# distinguish from themselves. The score bias is -0.5 to -1.2 points --
+# monotonic, mechanistically expected (action completion quantizes upward)
+# and 5-6x smaller than the seed-to-seed noise it hides in. It buys 1.52x
+# on cycle matches and 1.36x with defenders.
+SEARCH_DT = 1.0 / 30.0
+
 STRATEGIES_DIR = Path(__file__).resolve().parent / "strategies"
 
 

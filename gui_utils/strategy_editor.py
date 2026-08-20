@@ -25,6 +25,7 @@ from common_sim.control.strategy import Rule, Strategy
 from common_sim.control.tactics import Idle, Tactic
 from common_sim.control.triggers import Always, Trigger
 from gui_utils import theme
+from gui_utils.doc_tags import document
 
 Qt = QtCore.Qt
 
@@ -539,16 +540,32 @@ class StrategyEditor(QtWidgets.QWidget):
 
         top_bar = QtWidgets.QHBoxLayout()
         top_bar.addWidget(QtWidgets.QLabel("Robot"))
-        self.robot_combo = QtWidgets.QComboBox()
+        self.robot_combo = document(
+            QtWidgets.QComboBox(), "robot_combo", "Which robot",
+            "Every robot currently on the roster (MATCH or SWEEP tab) has its own strategy "
+            "here. Switching this switches which one you're editing.",
+            "Edits to one robot are kept in memory when you switch to another and switch back "
+            "-- you don't lose work by looking at a different robot.")
         self.robot_combo.currentTextChanged.connect(self._on_robot_changed)
         top_bar.addWidget(self.robot_combo, stretch=1)
-        new_button = QtWidgets.QPushButton("New")
+        new_button = document(
+            QtWidgets.QPushButton("New"), "new_strategy", "New",
+            "Starts the selected robot from a blank strategy: no rules, one fallback tactic.")
         new_button.clicked.connect(self._new_strategy)
         top_bar.addWidget(new_button)
-        load_button = QtWidgets.QPushButton("Load...")
+        load_button = document(
+            QtWidgets.QPushButton("Load..."), "load_strategy", "Load...",
+            "Opens a strategy JSON file from disk and replaces the selected robot's strategy "
+            "with it.",
+            "This is how you open a strategy the SEARCH tab tuned and saved, or one a "
+            "teammate wrote.")
         load_button.clicked.connect(self._load_from_file)
         top_bar.addWidget(load_button)
-        save_button = QtWidgets.QPushButton("Save As...")
+        save_button = document(
+            QtWidgets.QPushButton("Save As..."), "save_strategy", "Save As...",
+            "Writes the selected robot's current strategy to a JSON file you choose.",
+            "Saves whatever is in the editor right now, whether or not you've pressed APPLY TO "
+            "ROBOT -- the file and the live robot are two separate things.")
         save_button.clicked.connect(self._save_to_file)
         top_bar.addWidget(save_button)
         root.addLayout(top_bar)
@@ -559,16 +576,27 @@ class StrategyEditor(QtWidgets.QWidget):
         left = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left)
         left_layout.addWidget(QtWidgets.QLabel("RULES (drag to reorder = priority)"))
-        self.rule_list = QtWidgets.QListWidget()
+        self.rule_list = document(
+            QtWidgets.QListWidget(), "rule_list", "Rule list",
+            "Every rule this strategy checks, top to bottom. The topmost rule whose trigger is "
+            "true right now is the one the robot follows -- so order is priority.",
+            "Drag a rule to reorder it. Click one to edit it in the inspector on the right. If "
+            "no rule's trigger is true, the robot falls back to the FALLBACK TACTIC below.")
         self.rule_list.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
         self.rule_list.currentRowChanged.connect(self._on_row_changed)
         self.rule_list.model().rowsMoved.connect(lambda *_: self._on_reordered())
         left_layout.addWidget(self.rule_list, stretch=1)
         rule_buttons = QtWidgets.QHBoxLayout()
-        add_rule_button = QtWidgets.QPushButton("+ Rule")
+        add_rule_button = document(
+            QtWidgets.QPushButton("+ Rule"), "add_rule", "Add rule",
+            "Adds a new rule to the bottom of the list -- lowest priority until you drag it "
+            "up -- with a default trigger and tactic to edit.")
         add_rule_button.clicked.connect(self._add_rule)
         rule_buttons.addWidget(add_rule_button)
-        remove_rule_button = QtWidgets.QPushButton("- Rule")
+        remove_rule_button = document(
+            QtWidgets.QPushButton("- Rule"), "remove_rule", "Remove rule",
+            "Deletes the currently selected rule. There's no undo -- Load a saved copy back if "
+            "you didn't mean to.")
         remove_rule_button.clicked.connect(self._remove_rule)
         rule_buttons.addWidget(remove_rule_button)
         left_layout.addLayout(rule_buttons)
@@ -579,13 +607,25 @@ class StrategyEditor(QtWidgets.QWidget):
         right_content = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(right_content)
         self.rule_inspector = RuleInspector(self._choices_provider)
-        self.inspector_box = QtWidgets.QGroupBox("SELECTED RULE")
+        self.inspector_box = document(
+            QtWidgets.QGroupBox("SELECTED RULE"), "inspector", "Selected rule",
+            "The full detail of whichever rule is selected in the list: its name, timing, the "
+            "trigger condition that turns it on, and the tactic it runs while active.",
+            "Every field here is generated straight from the trigger/tactic's own declared "
+            "parameters, so a new trigger or tactic type shows up here automatically -- nothing "
+            "in this panel is hand-built per type.")
         inspector_box_layout = QtWidgets.QVBoxLayout(self.inspector_box)
         inspector_box_layout.addWidget(self.rule_inspector)
         right_layout.addWidget(self.inspector_box)
 
         self.fallback_editor = TacticEditor(self._choices_provider)
-        fallback_box = QtWidgets.QGroupBox("FALLBACK TACTIC (no rule satisfied)")
+        fallback_box = document(
+            QtWidgets.QGroupBox("FALLBACK TACTIC (no rule satisfied)"), "fallback",
+            "Fallback tactic",
+            "What the robot does when none of its rules' triggers are true -- every strategy "
+            "needs one, since a robot has to do *something* every tick.",
+            "A common beginner strategy is nothing but a well-chosen fallback -- e.g. Collect -- "
+            "with no rules at all. Rules are for exceptions to that default behavior.")
         fallback_box_layout = QtWidgets.QVBoxLayout(fallback_box)
         fallback_box_layout.addWidget(self.fallback_editor)
         right_layout.addWidget(fallback_box)
@@ -598,7 +638,12 @@ class StrategyEditor(QtWidgets.QWidget):
         self.status_label = QtWidgets.QLabel("")
         self.status_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         bottom_bar.addWidget(self.status_label, stretch=1)
-        apply_button = QtWidgets.QPushButton("APPLY TO ROBOT")
+        apply_button = document(
+            QtWidgets.QPushButton("APPLY TO ROBOT"), "apply", "Apply to robot",
+            "Stages this robot's edited strategy to be used the next time RESET runs, on the "
+            "MATCH tab.",
+            "Editing here never touches the robot mid-match -- APPLY plus RESET is the only "
+            "path from an edit to a robot that actually runs it. Nothing is silently live.")
         apply_button.setStyleSheet(f"font-weight: bold; color: {theme.ACCENT_AMBER};")
         apply_button.setToolTip("Stage this robot's edited strategy to be used the next time RESET runs.")
         apply_button.clicked.connect(self._apply)

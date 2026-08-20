@@ -23,6 +23,7 @@ from common_sim.analysis.runner import CancelToken, default_worker_count, iter_r
 from common_sim.analysis.sweep_spec import NumericSampling, SweepVariable
 from common_sim.analysis.variability import VariabilityModel
 from gui_utils import theme
+from gui_utils.doc_tags import document
 from gui_utils.sweep_plots import apply_dark_style, render_sweep
 
 RESULT_METRIC_COLUMNS = (
@@ -279,7 +280,13 @@ class VariableTable(QtWidgets.QWidget):
         self._rows: list[VariableRow] = []
 
         self.rows_layout = QtWidgets.QVBoxLayout()
-        add_button = QtWidgets.QPushButton("+ ADD VARIABLE")
+        add_button = document(
+            QtWidgets.QPushButton("+ ADD VARIABLE"), "add_variable", "Add variable",
+            "Adds a row for one thing to vary across the sweep -- a robot's characteristic "
+            "(like max speed) or its strategy -- and every combination gets simulated.",
+            "Add two variables and you get a grid: every value of the first crossed with every "
+            "value of the second. That's how a sweep answers \"what does speed vs. strategy "
+            "look like\" in one run instead of one match at a time.")
         add_button.clicked.connect(self.add_row)
 
         layout = QtWidgets.QVBoxLayout(self)
@@ -352,29 +359,51 @@ class SweepControlPanel(QtWidgets.QWidget):
         super().__init__(parent)
         form = QtWidgets.QFormLayout()
 
-        self.repetitions_spin = QtWidgets.QSpinBox()
+        self.repetitions_spin = document(
+            QtWidgets.QSpinBox(), "repetitions", "Repetitions",
+            "How many times each point in the sweep grid gets re-run with a different seed.",
+            "One repetition tells you what happened once. More repetitions tell you what "
+            "usually happens -- and with Enable Variability off, every repetition of the same "
+            "point is the identical match, so this setting does nothing until that's checked.")
         self.repetitions_spin.setRange(1, 1000)
         self.repetitions_spin.setValue(1)
         self.repetitions_spin.valueChanged.connect(self.changed)
         form.addRow("Repetitions", self.repetitions_spin)
 
         seed_row = QtWidgets.QHBoxLayout()
-        self.seed_spin = QtWidgets.QSpinBox()
+        self.seed_spin = document(
+            QtWidgets.QSpinBox(), "base_seed", "Base seed",
+            "The starting seed for the sweep's randomness. Repetitions count up from here, so "
+            "the same base seed reproduces the exact same set of matches.",
+            "Keep this fixed while you compare two designs -- both should see the same seeds, "
+            "or a difference in score might just be a difference in luck.")
         self.seed_spin.setRange(0, 2_000_000_000)
         self.seed_spin.valueChanged.connect(self.changed)
         seed_row.addWidget(self.seed_spin)
-        randomize_button = QtWidgets.QPushButton("Randomize")
+        randomize_button = document(
+            QtWidgets.QPushButton("Randomize"), "randomize_seed", "Randomize",
+            "Picks a fresh base seed at random -- for when you specifically want a set of "
+            "matches nobody has looked at yet.")
         randomize_button.clicked.connect(self._randomize_seed)
         seed_row.addWidget(randomize_button)
         form.addRow("Base Seed", seed_row)
 
-        self.worker_spin = QtWidgets.QSpinBox()
+        self.worker_spin = document(
+            QtWidgets.QSpinBox(), "workers", "Workers",
+            "How many matches run at the same time, across CPU cores. Defaults to what this "
+            "machine has.",
+            "Turn it down to keep using the computer for something else while a sweep runs.")
         self.worker_spin.setRange(1, 64)
         self.worker_spin.setValue(default_worker_count())
         self.worker_spin.valueChanged.connect(self.changed)
         form.addRow("Workers", self.worker_spin)
 
-        self.variability_check = QtWidgets.QCheckBox("Enable variability")
+        self.variability_check = document(
+            QtWidgets.QCheckBox("Enable variability"), "variability", "Enable variability",
+            "Turns on random perturbation of robot characteristics, start positions and piece "
+            "scatter, so repeated matches aren't identical copies of each other.",
+            "This has to be on for Repetitions to mean anything -- see the amber warning below "
+            "if it isn't.")
         self.variability_check.toggled.connect(self.changed)
         form.addRow(self.variability_check)
 
@@ -410,9 +439,17 @@ class SweepControlPanel(QtWidgets.QWidget):
         # runs readout to the right, all on one line -- this frees the
         # vertical space that stacking them separately used to cost.
         run_row = QtWidgets.QHBoxLayout()
-        self.execute_button = QtWidgets.QPushButton("EXECUTE")
+        self.execute_button = document(
+            QtWidgets.QPushButton("EXECUTE"), "execute", "Execute",
+            "Runs every match in the sweep grid: every combination of variable values, times "
+            "Repetitions.",
+            "The window stays usable while it runs. Above 500 matches the readout turns amber; "
+            "above 5000 it turns red and asks you to confirm before starting.")
         self.execute_button.clicked.connect(self.execute_clicked)
-        self.abort_button = QtWidgets.QPushButton("ABORT")
+        self.abort_button = document(
+            QtWidgets.QPushButton("ABORT"), "abort", "Abort",
+            "Stops the sweep. Matches already running when you click it still finish -- they "
+            "can't be interrupted mid-flight -- but no new ones start.")
         self.abort_button.setEnabled(False)
         self.abort_button.clicked.connect(self.abort_clicked)
         run_row.addWidget(self.execute_button)
@@ -421,7 +458,12 @@ class SweepControlPanel(QtWidgets.QWidget):
         self.progress_bar = QtWidgets.QProgressBar()
         run_row.addWidget(self.progress_bar, stretch=1)
 
-        self.total_runs_label = QtWidgets.QLabel("0 runs")
+        self.total_runs_label = document(
+            QtWidgets.QLabel("0 runs"), "total_runs", "Total runs",
+            "How many matches this sweep will run, and about how long that takes on this "
+            "machine -- updates live as you add variables or change repetitions.",
+            "Colour is a warning level: white is normal, amber is a lot, red is a great deal. "
+            "Check this before EXECUTE, not after.")
         self.total_runs_label.setFont(theme.technical_font(13, bold=True))
         run_row.addWidget(self.total_runs_label)
         form.addRow(run_row)
@@ -589,6 +631,13 @@ class SweepResultsTable(QtWidgets.QTableView):
         self.setModel(model)
         self.setSelectionBehavior(QtWidgets.QTableView.SelectRows)
         self.horizontalHeader().setStretchLastSection(True)
+        document(
+            self, "results_table", "Results table",
+            "One row per match: the values it was run with, its final score and other "
+            "metrics, and whether it errored.",
+            "Double-click a row -- or right-click and choose REPLAY IN MATCH TAB -- to watch "
+            "that exact match again on the MATCH tab. A row in red is a match that crashed; the "
+            "tooltip on it has the error.")
         self.doubleClicked.connect(lambda index: self._emit_replay(index.row()))
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
@@ -643,6 +692,14 @@ class SweepPlotPanel(QtWidgets.QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.toolbar)
         layout.addWidget(self.canvas, stretch=1)
+
+        document(
+            self, "plot_panel", "Plots",
+            "Charts the sweep's results: pick a Metric for the vertical axis and which swept "
+            "variable goes on X (and optionally Y for a heatmap, or Facet to split into a grid "
+            "of small charts).",
+            "With zero swept variables this just shows the score's spread as a histogram. Add "
+            "one variable and it becomes a line; add two and X/Y becomes a heatmap.")
 
         self._df_provider = None
         self._columns: list[str] = []

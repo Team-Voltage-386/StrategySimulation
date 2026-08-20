@@ -30,6 +30,7 @@ from common_sim.analysis.sweep_spec import (
     total_run_count,
 )
 from game_specific.reefscape import sweep_trial
+from gui_utils.doc_tags import document
 from gui_utils.sweep_panel import (
     RED_RUN_THRESHOLD,
     SweepControlPanel,
@@ -58,11 +59,24 @@ class SweepTab(QtWidgets.QWidget):
         self._trial_durations: list[float] = []
         self._mean_trial_seconds: float | None = None
 
+        intro = document(
+            QtWidgets.QLabel(
+                "Run many matches at once, varying one or two things about the robots, and see "
+                "how the score responds. Good for questions like \"does a faster drivetrain "
+                "actually matter\" that one match can't answer honestly."),
+            "intro", "What this tab does",
+            "A one-paragraph reminder of what a sweep is for.")
+        intro.setWordWrap(True)
+
         self.roster_config = RobotRosterConfigPanel(sweep_mode=True)
         self.roster_config.roster_changed.connect(self._on_roster_changed)
         self.match_settings_panel = MatchSettingsPanel()
 
-        duration_group = QtWidgets.QGroupBox("MATCH DURATION")
+        duration_group = document(
+            QtWidgets.QGroupBox("MATCH DURATION"), "duration", "Match duration",
+            "How long auto and teleop last in every match this sweep runs.",
+            "Independent of MATCH's own settings -- a sweep gets its own copy so a running "
+            "sweep can't change because someone edited the MATCH tab mid-run.")
         duration_form = QtWidgets.QFormLayout(duration_group)
         self.auto_duration_spin = QtWidgets.QDoubleSpinBox()
         self.auto_duration_spin.setRange(0.0, 60.0)
@@ -77,6 +91,7 @@ class SweepTab(QtWidgets.QWidget):
 
         left_content = QtWidgets.QWidget()
         left_layout = QtWidgets.QVBoxLayout(left_content)
+        left_layout.addWidget(intro)
         left_layout.addWidget(self.roster_config)
         left_layout.addWidget(self.match_settings_panel)
         left_layout.addWidget(duration_group)

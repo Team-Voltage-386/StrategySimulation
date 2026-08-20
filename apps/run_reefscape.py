@@ -53,6 +53,7 @@ from apps.reefscape_widgets import (
     build_demo_characteristics,
     build_demo_match,
 )
+from apps.search_tab import SearchTab
 from apps.sweep_tab import SweepTab
 from common_sim.analysis.metrics import extract_metrics
 from common_sim.control import strategy_io
@@ -65,6 +66,7 @@ from game_specific.reefscape import sweep_trial
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
 from gui_utils import theme
 from gui_utils.console_panel import ConsolePanel
+from gui_utils.doc_tags import document
 from gui_utils.field_canvas import FieldCanvas
 from gui_utils.scrub_slider import ScrubSlider
 from gui_utils.strategy_editor import StrategyEditor
@@ -106,6 +108,12 @@ class ControlsPanel(QtWidgets.QGroupBox):
         self.label.setWordWrap(True)
         layout.addWidget(self.label)
         self.set_available(False)
+        document(
+            self, "controls_reference", "Controls reference",
+            "Which keys or gamepad buttons drive the robot right now. Switches automatically "
+            "between keyboard and gamepad bindings depending on what's plugged in.",
+            "This only matters while a human is driving PRIMARY -- once AI drives primary robot "
+            "is checked in the roster panel, nothing here does anything.")
 
     def set_available(self, available: bool) -> None:
         bindings = GAMEPAD_BINDINGS if available else KEYBOARD_BINDINGS
@@ -134,12 +142,21 @@ class TransportBar(QtWidgets.QWidget):
         super().__init__(parent)
         layout = QtWidgets.QHBoxLayout(self)
 
-        self.play_pause_button = QtWidgets.QPushButton("⏸")
+        self.play_pause_button = document(
+            QtWidgets.QPushButton("⏸"), "play_pause", "Play / pause",
+            "Starts or freezes the match clock. Everything else -- driving, telemetry, scoring "
+            "-- only advances while this says playing.")
         self.play_pause_button.setFixedWidth(40)
         self.play_pause_button.clicked.connect(self.play_pause_clicked)
         layout.addWidget(self.play_pause_button)
 
-        self.slider = ScrubSlider(Qt.Horizontal)
+        self.slider = document(
+            ScrubSlider(Qt.Horizontal), "scrub_slider", "Scrub bar",
+            "Shows how far into the match you are. Once paused, drag it to jump every robot "
+            "back to its recorded position at that moment.",
+            "This only works after pausing -- scrubbing a live physics simulation mid-step "
+            "doesn't mean anything, so the bar is locked while playing. It's how you review a "
+            "moment that already happened without re-running the whole match.")
         self.slider.setRange(0, 1000)
         self.slider.setEnabled(False)  # enabled by MatchView once paused with telemetry recorded
         self.slider.setToolTip("Match progress -- pause to scrub and review")
@@ -150,7 +167,12 @@ class TransportBar(QtWidgets.QWidget):
         self.time_label.setMinimumWidth(90)
         layout.addWidget(self.time_label)
 
-        self.reset_button = QtWidgets.QPushButton("RESET")
+        self.reset_button = document(
+            QtWidgets.QPushButton("RESET"), "reset", "Reset",
+            "Throws away the current match and starts a fresh one with whatever roster and "
+            "settings are configured right now.",
+            "This is also when every setting you've changed on the left and right columns "
+            "actually takes effect -- nothing there applies to a match already in progress.")
         self.reset_button.clicked.connect(self.reset_clicked)
         layout.addWidget(self.reset_button)
 
@@ -208,15 +230,30 @@ class MatchView(QtWidgets.QWidget):
         self.left_column.setMinimumWidth(240)
         self.left_column.setFrameShape(QtWidgets.QFrame.NoFrame)
 
-        self.canvas = FieldCanvas(None)  # match assigned by _reset_match()
+        self.canvas = document(
+            FieldCanvas(None), "field", "The field",
+            "The live match, drawn to scale: robots, game pieces, scoring regions, and (if "
+            "enabled) each AI robot's current intent.",
+            "Click it and use WASD/arrows to drive PRIMARY if a human is driving. This is the "
+            "same rendering the SWEEP tab's replay and the SEARCH tab's confirmation runs would "
+            "show if you replayed one of their matches here.")  # match assigned by _reset_match()
         self.piece_count_label = QtWidgets.QLabel()
         self.piece_count_label.setAlignment(Qt.AlignCenter)
         self.piece_count_label.setFont(theme.technical_font(11, bold=True))
         self.piece_count_label.setStyleSheet(f"color: {theme.ACCENT_CYAN};")
-        self.show_intent_check = QtWidgets.QCheckBox("Show AI Intent")
+        self.show_intent_check = document(
+            QtWidgets.QCheckBox("Show AI Intent"), "show_intent", "Show AI intent",
+            "Draws each AI robot's current target and active tactic name over the field, so you "
+            "can see what a strategy is trying to do, not just what it's doing.",
+            "The single best way to debug a strategy that looks like it's doing something odd -- "
+            "watch its intent line and see whether it's aiming somewhere sensible.")
         self.show_intent_check.setChecked(True)
         self.show_intent_check.toggled.connect(self._on_show_intent_toggled)
-        self.fullscreen_check = QtWidgets.QCheckBox("Full Screen Field")
+        self.fullscreen_check = document(
+            QtWidgets.QCheckBox("Full Screen Field"), "fullscreen_field", "Full screen field",
+            "Hides every other panel and the tab bar so the field fills the window.",
+            "Good for spectating or recording a match; the tab bar comes back the moment this "
+            "is unchecked.")
         self.fullscreen_check.toggled.connect(self._set_fullscreen)
         self.console = ConsolePanel()
         self.transport_bar = TransportBar()
@@ -241,7 +278,12 @@ class MatchView(QtWidgets.QWidget):
         center_layout.addWidget(self.transport_bar)
         self._center_column = center_column
 
-        self.telemetry_panel = TelemetryPanel("TELEMETRY")
+        self.telemetry_panel = document(
+            TelemetryPanel("TELEMETRY"), "telemetry", "Telemetry",
+            "Live readouts for the currently selected robot: position, speed, what it's "
+            "holding, and the current score.",
+            "Numbers here update every tick while playing -- pause the match and scrub the bar "
+            "above to see what they were at any earlier moment.")
         self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
         self.right_column = QtWidgets.QWidget()
@@ -791,6 +833,13 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.sweep_tab.replay_requested.connect(self._on_replay_requested)
         self.sweep_tab.running_changed.connect(lambda running: self.match_view.set_ticking(not running))
 
+        # SEARCH keeps its own roster too, for the same reason SWEEP does,
+        # and pauses the live MATCH tick while it runs -- both tabs
+        # saturate the CPU with worker processes and a ticking match
+        # competing for those cores makes the whole window stutter.
+        self.search_tab = SearchTab()
+        self.search_tab.running_changed.connect(lambda running: self.match_view.set_ticking(not running))
+
         strategy_tab = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         strategy_tab.addWidget(self.strategy_editor)
         strategy_tab.addWidget(self.strategy_graph)
@@ -800,6 +849,7 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self.match_view, "MATCH")
         self.tabs.addTab(strategy_tab, "STRATEGY")
         self.tabs.addTab(self.sweep_tab, "SWEEP")
+        self.tabs.addTab(self.search_tab, "SEARCH")
         self.setCentralWidget(self.tabs)
         self.resize(1600, 800)
 
@@ -830,6 +880,7 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         # Required: a live ProcessPoolExecutor keeps the process alive
         # after the window closes otherwise.
         self.sweep_tab.shutdown()
+        self.search_tab.shutdown()
         super().closeEvent(event)
 
     def _sync_strategy_robots(self) -> None:

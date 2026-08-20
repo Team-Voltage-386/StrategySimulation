@@ -24,6 +24,7 @@ from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, 
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 from gui_utils import theme
+from gui_utils.doc_tags import document
 
 Qt = QtCore.Qt
 
@@ -211,6 +212,15 @@ class RobotSettingsPanel(QtWidgets.QGroupBox):
         hint.setWordWrap(True)
         form.addRow(hint)
 
+        document(
+            self, "robot_settings", "Robot settings",
+            "This robot's chassis limits and piece handling: how fast it drives and turns, how "
+            "much it can carry, how long picking up or scoring a piece takes, and how often "
+            "scoring actually succeeds.",
+            "These are what make one design different from another in the simulator -- the same "
+            "strategy run by a fast, reliable robot and a slow, fumbling one produces very "
+            "different matches. Nothing here takes effect until RESET.")
+
     def alliance(self) -> str:
         return self.alliance_combo.currentText().lower()
 
@@ -258,6 +268,14 @@ class TimingPanel(QtWidgets.QGroupBox):
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
         hint.setWordWrap(True)
         form.addRow(hint)
+
+        document(
+            self, "timing", "Scoring timing",
+            "How many seconds this robot spends actually depositing a piece at each scoring "
+            "location, from L1 up to the net.",
+            "Higher reef levels and the net take longer in real life, and the defaults reflect "
+            "that -- a robot that can reach L4 quickly is a real design advantage this number "
+            "captures.")
 
     def deposit_time_by_action(self) -> dict[str, float]:
         return {action: spin.value() for action, spin in self._deposit_spins.items()}
@@ -315,6 +333,15 @@ class SideManipulatorPanel(QtWidgets.QGroupBox):
         hint.setStyleSheet(f"color: {theme.TEXT_DIM};")
         hint.setWordWrap(True)
         grid.addWidget(hint, len(SIDES) + 1, 0, 1, source_col + 1)
+
+        document(
+            self, "manipulators", "Manipulators",
+            "Which physical sides of the robot can pick up or score each piece type, and where "
+            "an intaking side is allowed to grab a piece from.",
+            "A checkbox here is a claim about the real robot's mechanisms -- a front coral "
+            "intake, a back algae scorer, whatever your build actually has. FieldCanvas draws a "
+            "small badge on the robot for every box checked, so you can sanity-check this "
+            "against a screenshot of the field.")
 
     def side_manipulators(self) -> dict[str, SideManipulators]:
         """Always returns one entry per SIDES member (even if empty),
@@ -417,17 +444,22 @@ class MatchSettingsPanel(QtWidgets.QGroupBox):
         super().__init__("MATCH SETTINGS", parent)
         layout = QtWidgets.QVBoxLayout(self)
 
-        self.disable_friendly_collisions_check = QtWidgets.QCheckBox("Disable friendly collisions")
-        self.disable_friendly_collisions_check.setToolTip(
-            "Robots on the same alliance pass through each other. Collisions with the opposing alliance are unaffected."
-        )
+        self.disable_friendly_collisions_check = document(
+            QtWidgets.QCheckBox("Disable friendly collisions"), "friendly_collisions",
+            "Disable friendly collisions",
+            "Robots on the same alliance pass through each other instead of bumping. Collisions "
+            "with the opposing alliance are unaffected.",
+            "Handy while you are testing a strategy alone and don't want your own alliance "
+            "partner's spawn point to shove your robot off course.")
         layout.addWidget(self.disable_friendly_collisions_check)
 
-        self.emit_coral_to_field_check = QtWidgets.QCheckBox("Emit coral to field")
-        self.emit_coral_to_field_check.setToolTip(
-            "Each alliance's coral emitter drops one CORAL every 10s during teleop, drawn from that alliance's "
-            "top coral station's remaining supply, while it lasts."
-        )
+        self.emit_coral_to_field_check = document(
+            QtWidgets.QCheckBox("Emit coral to field"), "emit_coral",
+            "Emit coral to field",
+            "Each alliance's coral emitter drops one CORAL every 10 seconds during teleop, from "
+            "that alliance's top coral station's remaining supply.",
+            "Switch this on to test a strategy against a steady trickle of new game pieces "
+            "instead of only the ones already on the field at kickoff.")
         layout.addWidget(self.emit_coral_to_field_check)
 
         hint = QtWidgets.QLabel("Changes apply on RESET (below field).")
@@ -487,7 +519,13 @@ class AllianceRosterBox(QtWidgets.QGroupBox):
         self.rows_layout = QtWidgets.QVBoxLayout()
         layout.addLayout(self.rows_layout)
 
-        add_button = QtWidgets.QPushButton("+ ADD ROBOT")
+        add_button = document(
+            QtWidgets.QPushButton("+ ADD ROBOT"), f"add_robot_{title.split()[0].lower()}",
+            f"Add a {title.split()[0].lower()} robot",
+            "Adds another AI-controlled robot to this alliance, each running a strategy you "
+            "pick from the dropdown that appears.",
+            "Every robot you add gets its own tab under ROBOT CONFIG, so a fast robot and a "
+            "slow one can share the field honestly.")
         add_button.clicked.connect(self._add_row)
         layout.addWidget(add_button)
 
@@ -533,7 +571,13 @@ class RosterPanel(QtWidgets.QGroupBox):
         super().__init__("ROSTER", parent)
         layout = QtWidgets.QVBoxLayout(self)
 
-        self.ai_primary_check = QtWidgets.QCheckBox("AI drives primary robot")
+        self.ai_primary_check = document(
+            QtWidgets.QCheckBox("AI drives primary robot"), "ai_primary",
+            "AI drives primary robot",
+            "Hands your robot -- the one WASD/gamepad normally controls -- to a strategy "
+            "instead, so you can watch it drive itself.",
+            "This is what turns MATCH into a place to watch a strategy rather than practice "
+            "driving. Pick which strategy from the dropdown that appears once this is checked.")
         layout.addWidget(self.ai_primary_check)
 
         self.primary_strategy_combo = QtWidgets.QComboBox()
@@ -545,7 +589,13 @@ class RosterPanel(QtWidgets.QGroupBox):
         # Only meaningful once AI is driving -- with a human at the
         # keyboard/gamepad, running faster than real time would just make
         # the robot undrivable.
-        self.fast_forward_check = QtWidgets.QCheckBox("Run as fast as possible")
+        self.fast_forward_check = document(
+            QtWidgets.QCheckBox("Run as fast as possible"), "fast_forward",
+            "Run as fast as possible",
+            "Advances the sim as fast as the CPU allows instead of at real-time speed.",
+            "Only available once the AI is driving -- a human at the keyboard can't keep up "
+            "with a sped-up match, but a strategy doesn't care. Good for watching a whole "
+            "match play out in a few seconds.")
         self.fast_forward_check.setEnabled(False)
         self.fast_forward_check.setToolTip("Advance the sim as fast as the CPU allows instead of at real-time speed.")
         self.ai_primary_check.toggled.connect(self._on_ai_primary_toggled)
@@ -608,7 +658,12 @@ class RobotRosterConfigPanel(QtWidgets.QWidget):
         self.config_tabs = QtWidgets.QTabWidget()
         self.config_tabs.addTab(self.primary_config_tab, "PRIMARY")
 
-        self.config_box = CollapsibleBox("ROBOT CONFIG")
+        self.config_box = document(
+            CollapsibleBox("ROBOT CONFIG"), "robot_config", "Robot config",
+            "One tab per robot in the match -- PRIMARY plus every AI robot you've added -- each "
+            "holding that robot's own chassis settings, manipulators and scoring timing.",
+            "Click the header to collapse this section once you're done editing; it takes up a "
+            "lot of space with several robots on the roster.")
         config_box_layout = QtWidgets.QVBoxLayout()
         config_box_layout.setContentsMargins(0, 0, 0, 0)
         config_box_layout.addWidget(self.config_tabs)
@@ -626,7 +681,14 @@ class RobotRosterConfigPanel(QtWidgets.QWidget):
 
     def _on_robot_added(self, alliance: str, row, config_tab: RobotConfigTab) -> None:
         self._row_config_tabs[row] = config_tab
-        index = len(self.roster_panel.roster_rows(alliance))
+        # -1: `row` is already appended to the roster by the time this
+        # signal fires (see AllianceRosterBox._add_row), so the un-adjusted
+        # count is one ahead of this row's own 0-based index -- the same
+        # index robot_labels() and _spawn_roster_robot use for "BLUE 0",
+        # "BLUE 1", etc. Without the -1 the very first extra robot's
+        # ROBOT CONFIG tab reads "BLUE 1" while everything else calls it
+        # "BLUE 0".
+        index = len(self.roster_panel.roster_rows(alliance)) - 1
         self.config_tabs.addTab(config_tab, f"{alliance.upper()} {index}")
 
     def _on_robot_removed(self, alliance: str, row) -> None:

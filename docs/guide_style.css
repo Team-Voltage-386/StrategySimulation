@@ -1,0 +1,381 @@
+/*
+  Shared visual identity for every sparky-sim tab guide (SEARCH, MATCH,
+  STRATEGY, SWEEP). Inlined into each guide's <style> block by
+  apps/build_guide.py -- edit here once and every guide picks it up on
+  its next rebuild.
+
+  Palette and type deliberately match gui_utils/theme.py, so the
+  screenshots sit in the page rather than on it. Single-theme on purpose:
+  this is the console's own world, not a general-purpose document.
+*/
+:root {
+  /* Straight from gui_utils/theme.py -- the app's own console palette. */
+  --ground: #05080d;
+  --panel: #0c131c;
+  --raised: #121b26;
+  --hover: #1a2836;
+  --cyan: #00e5ff;
+  --cyan-dim: #0a3a45;
+  --amber: #ffb020;
+  --red: #ff4d4d;
+  --green: #3ddc97;
+  --text: #d6faff;
+  --dim: #6f93a0;
+  --border: #173142;
+  --grid: #0e2630;
+
+  --mono: "Consolas", "SFMono-Regular", "DejaVu Sans Mono", "Liberation Mono", Menlo, monospace;
+  --sans: ui-sans-serif, "Segoe UI Variable Text", "Segoe UI", Roboto, system-ui, sans-serif;
+
+  --measure: 68ch;
+  --step: clamp(1rem, 0.6rem + 1.2vw, 1.5rem);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+
+.page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 var(--step) 6rem;
+}
+
+/* -- cross-guide navigation ---------------------------------------- */
+
+nav.crossnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 1.25rem 0 0;
+  margin-bottom: -1rem;
+}
+nav.crossnav a {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  text-decoration: none;
+  color: var(--dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+}
+nav.crossnav a:hover { color: var(--cyan); border-color: var(--cyan-dim); }
+nav.crossnav a[aria-current="page"] {
+  color: var(--ground);
+  background: var(--cyan);
+  border-color: var(--cyan);
+}
+
+/* -- masthead -------------------------------------------------------- */
+
+header.masthead {
+  border-bottom: 1px solid var(--border);
+  padding: 2.5rem 0 2.5rem;
+  margin-bottom: 3rem;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin: 0 0 1.25rem;
+}
+
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(2rem, 1.2rem + 3.4vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: 0 0 1.25rem;
+}
+
+.standfirst {
+  max-width: var(--measure);
+  font-size: 1.125rem;
+  color: var(--text);
+  margin: 0;
+}
+
+.standfirst + .standfirst { margin-top: 1rem; color: var(--dim); }
+
+/* -- sections ---------------------------------------------------- */
+
+main { display: flex; flex-direction: column; gap: 3.5rem; }
+
+section { display: flex; flex-direction: column; gap: 1.1rem; }
+
+h2 {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  margin: 0;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+h2 .marker {
+  color: var(--cyan);
+  font-size: 0.8em;
+  margin-right: 0.6em;
+}
+
+h3 {
+  font-family: var(--mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--cyan);
+  margin: 1rem 0 0;
+  text-wrap: balance;
+}
+
+p, ul, ol { margin: 0; max-width: var(--measure); }
+ul, ol { padding-left: 1.3rem; display: flex; flex-direction: column; gap: 0.5rem; }
+li::marker { color: var(--dim); }
+
+strong { color: #ffffff; font-weight: 650; }
+em { color: var(--cyan); font-style: normal; }
+
+code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0.08em 0.35em;
+  color: var(--text);
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--cyan-dim);
+  border-radius: 4px;
+  padding: 1rem 1.1rem;
+  margin: 0;
+  overflow-x: auto;
+  line-height: 1.55;
+}
+pre code { background: none; border: none; padding: 0; }
+
+a { color: var(--cyan); text-decoration-color: var(--cyan-dim); text-underline-offset: 3px; }
+a:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 2px; }
+
+/* -- contents ---------------------------------------------------- */
+
+nav.toc {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 1.25rem 1.5rem;
+  max-width: var(--measure);
+}
+nav.toc h2 {
+  border: none;
+  padding: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 0.75rem;
+}
+nav.toc ol {
+  list-style: none;
+  padding: 0;
+  gap: 0.35rem;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+}
+nav.toc li { display: flex; gap: 0.75rem; }
+nav.toc .n { color: var(--cyan); font-variant-numeric: tabular-nums; }
+
+/* -- the alert panel: a guide's one loud moment ------------------- */
+
+.trap {
+  border: 1px solid var(--amber);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(255, 176, 32, 0.07), rgba(255, 176, 32, 0.01));
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.trap .label {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+}
+.trap p { max-width: none; }
+
+.facepair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.face {
+  border: 1px solid var(--border);
+  background: var(--ground);
+  border-radius: 4px;
+  padding: 1.1rem 1.25rem;
+}
+.face .cap {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+.face .big {
+  font-family: var(--mono);
+  font-size: 2.6rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  display: block;
+}
+.face .note { font-size: 0.9rem; color: var(--dim); display: block; margin-top: 0.5rem; }
+.face.hope .big { color: var(--cyan); }
+.face.truth .big { color: var(--amber); }
+
+/* -- figures ----------------------------------------------------- */
+
+figure { margin: 0; display: flex; flex-direction: column; gap: 0.75rem; }
+
+.shotframe {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 8px;
+  overflow-x: auto;
+}
+img.shot { display: block; width: 100%; height: auto; border-radius: 2px; }
+
+figcaption { font-size: 0.9rem; color: var(--dim); max-width: var(--measure); }
+
+/* -- generated callout reference lists --------------------------- */
+
+.controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  margin-top: 0.5rem;
+}
+
+.entry {
+  display: grid;
+  grid-template-columns: 1.9rem minmax(0, 1fr);
+  gap: 0.85rem;
+  align-items: start;
+  border-top: 1px solid var(--border);
+  padding-top: 0.85rem;
+}
+.entry .num {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ground);
+  background: var(--cyan);
+  border-radius: 50%;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+}
+.entry h4 {
+  font-family: var(--mono);
+  font-size: 0.95rem;
+  margin: 0.15rem 0 0.35rem;
+  color: var(--text);
+}
+.entry p { margin: 0; font-size: 0.92rem; max-width: none; }
+.entry .detail { color: var(--dim); margin-top: 0.5rem; font-size: 0.88rem; }
+
+/* -- recipe cards ------------------------------------------------ */
+
+.recipes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.25rem;
+}
+.recipe {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  padding: 1.25rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.recipe h3 { margin: 0; }
+.recipe p, .recipe ul { max-width: none; font-size: 0.94rem; }
+.recipe dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+}
+.recipe dt { color: var(--dim); }
+.recipe dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* -- symptom / cause table --------------------------------------- */
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: 0.94rem; }
+th, td { text-align: left; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+thead th {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  background: var(--raised);
+}
+tbody tr:last-child td { border-bottom: none; }
+td:first-child { color: var(--text); font-weight: 600; }
+
+/* -- glossary ---------------------------------------------------- */
+
+dl.glossary { margin: 0; display: flex; flex-direction: column; gap: 1rem; max-width: var(--measure); }
+dl.glossary dt { font-family: var(--mono); color: var(--cyan); font-size: 0.95rem; }
+dl.glossary dd { margin: 0.25rem 0 0; }
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 0.88rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

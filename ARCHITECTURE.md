@@ -80,6 +80,10 @@ common_sim/
     tactics.py                   Collect/Score/Defend/RunScript/Idle -- Behaviors that replan their own target
     strategy.py                   Rule/Strategy/StrategyController: priority arbiter over Trigger->Tactic rules
     strategy_io.py                 Strategy <-> JSON (REGISTRY-driven, round-trips through the GUI editor)
+    strategy_params.py              The continuous half of a Rule[] as a flat vector (ParamRef/to_vector/
+                                       with_vector) -- structure (types, priority, counts, unset optionals)
+                                       is deliberately not exposed, so a search cannot change what a
+                                       strategy *is*, only its numbers
   match/
     match.py                Match orchestrator: clock, phase (auto/teleop/endgame), collision routing
     scoring.py                ScoringRules ABC: point table keyed by (action, phase)
@@ -91,6 +95,14 @@ common_sim/
     runner.py                     Qt-free CancelToken + bounded-submission iter_results/run_all over a ProcessPoolExecutor
     sweep_spec.py                  Picklable FieldDescriptor/SweepVariable/RobotSpec/TrialJob/TrialOutcome + expand_jobs
     variability.py                   Seeded config-perturbation model (VariabilityModel) -- the sweep's only randomness
+    calibration.py                    Times the machine in front of the user and reports what batch sizes are
+                                         realistic on it (game-agnostic: caller supplies worker + reference jobs)
+    cmaes.py                           CMA-ES as a plain ask/tell loop over a box-bounded vector, written out
+                                          rather than pip-installed; minimizes, knows nothing about matches
+    param_search.py                     Parameter search over a fixed rule structure: search_parameters (the
+                                           loop, in a normalized box) + AllianceScoreEvaluator (candidates ->
+                                           TrialJobs via expand_jobs/run_all, common random numbers across
+                                           candidates, refuses a disabled VariabilityModel with seeds > 1)
 
 gui_utils/               (existing — extended, not replaced)
   theme.py, overlay_panel.py, telemetry_store.py, ...   reused as-is
@@ -107,6 +119,13 @@ gui_utils/               (existing — extended, not replaced)
                                  handed in, never imports game_specific.
   sweep_plots.py              matplotlib rendering onto a caller-supplied Figure (line/heatmap/faceted
                                  heatmaps), testable headless under Agg with no Qt or widget involved.
+  search_panel.py              Game-agnostic SEARCH-tab widgets (SearchSetupPanel, ParameterPanel,
+                                  ProgressPanel, VerdictPanel) + the QThread plumbing (SearchWorker,
+                                  SearchRunController). VerdictPanel reports the held-out number as the
+                                  result and the search's own best-of-N as a dim aside -- deliberately.
+  doc_tags.py                   One explanation per widget, used three ways: the tooltip in the app, the
+                                   numbered callout on the user guide's screenshots, and the reference
+                                   entry beside them (apps/build_guide.py reads them back).
 
 game_specific/
   reefscape/                concrete REEFSCAPE field/pieces/scoring (the one game currently plugged in)
@@ -116,21 +135,36 @@ game_specific/
     strategies/                     example Strategy JSON files (also strategy_io round-trip fixtures):
                                        cycle_coral, algae_processor, endgame_defense, auto_then_cycle
     sweep_trial.py                    Qt-free worker entry point (run_trial/replay_trial) + build_match_for_job,
-                                         the match builder MATCH-tab replay shares with the SWEEP tab
+                                         the match builder MATCH-tab replay shares with the SWEEP tab.
+                                         SWEEP_DT (1/60, pinned by MATCH-tab replay) and SEARCH_DT (1/30,
+                                         for search, which never needs scrubbing) live here
 
 apps/
   run_reefscape.py        Interactive REEFSCAPE viewer: MATCH tab (keyboard+gamepad+AI roster) +
                              STRATEGY tab (strategy_editor.py + strategy_graph.py side by side) +
-                             SWEEP tab (sweep_panel.py + sweep_tab.py)
+                             SWEEP tab (sweep_panel.py + sweep_tab.py) +
+                             SEARCH tab (search_panel.py + search_tab.py)
   reefscape_widgets.py      Shared robot-config Qt widgets (RobotConfigTab, RosterPanel,
                                RobotRosterConfigPanel, ...) extracted from run_reefscape.py so MATCH and
                                SWEEP reuse the same classes and RobotRosterConfigPanel.robot_specs()
   sweep_tab.py               SWEEP tab wiring: owns its own roster (independent of MATCH), builds
                                 TrialJobs, drives SweepRunController, wires replay back into MATCH
+  search_tab.py               SEARCH tab wiring: the GUI front end for param_search. Reuses
+                                 run_param_search's roster and variability so a search started from the
+                                 tab and one started from the CLI measure the same quantity
+  build_guide.py               Builds all four tab guides (MATCH/STRATEGY/SWEEP/SEARCH): screenshots
+                                  the live tab, draws callouts from its doc_tags, generates the control
+                                  reference from the same tags, and cross-links the four via a shared
+                                  nav. Prose is docs/{match,strategy,sweep,guide}_template.html; shared
+                                  CSS is docs/guide_style.css. `--guide <name>` builds just one
   run_strategy_sweep.py    Headless Monte Carlo sweep with "strategy" as just another swept param
   run_defense_bench.py      Head-to-head (red plan x blue plan) grid measuring what a full-time defender
                                costs the alliance it defends -- the one thing a one-sided strategy sweep
                                structurally cannot show, since a defender scores nothing itself
+  run_calibration.py         Prints what batch sizes this particular machine can finish
+  run_param_search.py         Best-response-per-design: CMA-ES over a strategy's continuous fields, once per
+                                 design point, so a design is judged by its own tuned strategy rather than by
+                                 six hand-written ones. --estimate-only sizes the run before committing to it
 
 test/                     (existing) unit tests per package
 ```

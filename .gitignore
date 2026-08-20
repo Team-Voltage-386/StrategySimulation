@@ -5,3 +5,4 @@ Prompts.md
 .build_venv/
 build/
 dist/
+docs/

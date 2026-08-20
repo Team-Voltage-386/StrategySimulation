@@ -24,6 +24,7 @@ from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
 from common_sim.control.strategy import Strategy
 from gui_utils import theme
+from gui_utils.doc_tags import document
 
 Qt = QtCore.Qt
 
@@ -442,11 +443,24 @@ class StrategyGraphPanel(QtWidgets.QWidget):
             header_row.addWidget(button)
         layout.addLayout(header_row)
 
-        self.graph = StrategyGraphView()
+        self.graph = document(
+            StrategyGraphView(), "graph_view", "The state diagram",
+            "One box per rule, arranged by priority with the highest at the top and FALLBACK at "
+            "the bottom, coloured by what tactic it runs. Lines show which rule can interrupt "
+            "which.",
+            "While a match is running, the active rule glows and the edge just crossed flashes "
+            "-- this is the fastest way to actually see the order your rules fire in, rather "
+            "than working it out by reading the list. Click a box to jump the STRATEGY tab's "
+            "inspector straight to that rule.")
         self.graph.node_clicked.connect(self.node_clicked)
         layout.addWidget(self.graph, stretch=1)
 
-        self.history = TransitionHistory()
+        self.history = document(
+            TransitionHistory(), "history", "Transition history",
+            "A running log of every rule switch this robot has made this match, most recent "
+            "first.",
+            "Useful for answering \"why did it just do that\" after the fact, once the moment "
+            "on the graph itself has already flashed and faded.")
         layout.addWidget(self.history)
 
     def set_strategy(self, strategy: Strategy) -> None:

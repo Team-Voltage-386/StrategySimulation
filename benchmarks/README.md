@@ -56,7 +56,18 @@ process so thermal drift hits both equally, and reports medians.
   Score bias is -0.5 to -1.2 points, monotonic, ~5x under the noise floor.
 - Do **not** change `SWEEP_DT` from 1/60 -- `TelemetryRecorder` assumes
   60Hz and MATCH-tab replay would stop matching its results row. A search
-  needs its own timestep constant.
+  needs its own timestep constant, which is now
+  `sweep_trial.SEARCH_DT` (1/30) and is what `apps/run_param_search.py`
+  runs at by default. Winners get re-run at 1/60 for inspection.
+- Parameter search (`apps/run_param_search.py`) **must** be read off its
+  held-out confirmation, not its own best-of-N. First real run: 6
+  generations x 6 candidates over **4 seeds** reported +9.5 points and
+  kept **+0.2** on 12 fresh seeds. Seeds per candidate, not generations,
+  is the knob that buys signal here. The SEARCH tab exists so this is
+  hard to get wrong: it defaults to 16 matches per candidate, warns below
+  8, confirms by default, and shows the held-out figure as the headline
+  with the search's own best-of-N greyed out beneath it. That run is also
+  what the screenshots in `docs/param_search_guide.html` show.
 - Pin rule: live and unit-tested, but unreachable in match play -- peak
   clock 0.250s against a 3.0s limit, so `Defend._respect_pin_limit` (which
   releases at 2.1s) never engages either. Consequence: the sim can express
