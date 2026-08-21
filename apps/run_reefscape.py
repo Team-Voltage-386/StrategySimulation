@@ -214,6 +214,51 @@ class Player2Panel(QtWidgets.QGroupBox):
         self.status_label.setText("" if available else "No second gamepad detected")
 
 
+class SplitScreenPanel(QtWidgets.QGroupBox):
+    """Toggles a two-pane driver-station view -- Player 1's alliance
+    wall on the left, Player 2's on the right -- so both humans drive
+    from their own correct, opposing perspective on one screen at once.
+    Only enabled when two physical gamepads are connected and Player 2
+    is piloting a RED robot; otherwise there's no second, opposing
+    driver view to show (see MatchView._update_split_screen_availability)."""
+
+    toggled_by_user = QtCore.Signal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__("SPLIT SCREEN", parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.checkbox = document(
+            QtWidgets.QCheckBox("Split Screen (Face Off)"), "split_screen", "Split screen",
+            "Shows two driver-station views side by side -- Player 1's alliance wall on the "
+            "left, Player 2's on the right -- so both players drive from their own correct "
+            "perspective at once.",
+            "Needs two gamepads connected and Player 2 piloting a RED robot; otherwise there's "
+            "no second, opposing driver view to show, and this stays disabled.")
+        self.checkbox.toggled.connect(self.toggled_by_user.emit)
+        layout.addWidget(self.checkbox)
+        self.status_label = QtWidgets.QLabel()
+        self.status_label.setFont(theme.technical_font(8))
+        self.status_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        self.status_label.setWordWrap(True)
+        layout.addWidget(self.status_label)
+
+    def set_available(self, available: bool, reason: str = "") -> None:
+        self.checkbox.setEnabled(available)
+        if not available:
+            self.set_checked(False)
+        self.status_label.setText(reason)
+
+    def set_checked(self, checked: bool) -> None:
+        if self.checkbox.isChecked() == checked:
+            return
+        self.checkbox.blockSignals(True)
+        self.checkbox.setChecked(checked)
+        self.checkbox.blockSignals(False)
+
+    def is_checked(self) -> bool:
+        return self.checkbox.isChecked()
+
+
 class TransportBar(QtWidgets.QWidget):
     """Playback controls under the field: play/pause toggle, an
     elapsed-time slider, and a reset button that starts a fresh match.
@@ -329,6 +374,15 @@ class MatchView(QtWidgets.QWidget):
             "Click it and use WASD/arrows to drive PRIMARY if a human is driving. This is the "
             "same rendering the SWEEP tab's replay and the SEARCH tab's confirmation runs would "
             "show if you replayed one of their matches here.")  # match assigned by _reset_match()
+        # Player 2's pane -- only shown in split-screen mode, sharing the
+        # same live Match as self.canvas but with its own driver-station
+        # perspective (see SplitScreenPanel / _apply_split_screen_views).
+        self.canvas2 = document(
+            FieldCanvas(None), "field_p2", "Player 2's field view",
+            "The same live match, drawn from Player 2's own driver-station wall.",
+            "Only visible once Split Screen is enabled in the right column; hidden otherwise.")
+        self.canvas2.setVisible(False)
+        self._split_screen_active = False
         self.piece_count_label = QtWidgets.QLabel()
         self.piece_count_label.setAlignment(Qt.AlignCenter)
         self.piece_count_label.setFont(theme.technical_font(11, bold=True))
@@ -356,7 +410,11 @@ class MatchView(QtWidgets.QWidget):
         center_column = QtWidgets.QWidget()
         center_layout = QtWidgets.QVBoxLayout(center_column)
         center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.addWidget(self.canvas, stretch=2)
+        canvas_row = QtWidgets.QHBoxLayout()
+        canvas_row.setContentsMargins(0, 0, 0, 0)
+        canvas_row.addWidget(self.canvas, stretch=1)
+        canvas_row.addWidget(self.canvas2, stretch=1)
+        center_layout.addLayout(canvas_row, stretch=2)
         self.piece_count_widget = QtWidgets.QWidget()
         piece_count_row = QtWidgets.QHBoxLayout(self.piece_count_widget)
         piece_count_row.setContentsMargins(0, 0, 0, 0)
@@ -381,6 +439,8 @@ class MatchView(QtWidgets.QWidget):
         self.view_mode_panel = ViewModePanel()
         self.view_mode_panel.view_changed.connect(self._on_view_mode_changed)
         self.player2_panel = Player2Panel()
+        self.split_screen_panel = SplitScreenPanel()
+        self.split_screen_panel.toggled_by_user.connect(self._on_split_screen_toggled)
         self.right_column = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(self.right_column)
         right_layout.addWidget(self.telemetry_panel)
@@ -388,6 +448,7 @@ class MatchView(QtWidgets.QWidget):
         right_layout.addWidget(self.controls_panel)
         right_layout.addWidget(self.view_mode_panel)
         right_layout.addWidget(self.player2_panel)
+        right_layout.addWidget(self.split_screen_panel)
         right_layout.addStretch(1)
         self.right_column.setMinimumWidth(220)
 
@@ -513,9 +574,11 @@ class MatchView(QtWidgets.QWidget):
                 command_provider=lambda: self._player2_commands,
                 deposit_action_provider=lambda: self._effective_deposit_action_for(robot2, self._player2_deposit_action),
             )
+        self._update_split_screen_availability(robot2)
 
         self._endgame_cue_played = False
         self.canvas.match = self.match
+        self.canvas2.match = self.match
         self.console.reset()
         self._logged_event_count = 0
         self.paused = True
@@ -617,6 +680,52 @@ class MatchView(QtWidgets.QWidget):
     def _on_view_mode_changed(self, mode: str) -> None:
         alliance, preset = VIEW_MODES[mode]
         self.canvas.set_driver_view(alliance, preset)
+
+    def _update_split_screen_availability(self, robot2) -> None:
+        """Split screen only makes sense with two physical gamepads and
+        an opposing human to show: Player 2 piloting a RED robot, so
+        each pane can show that player's own driver wall. Re-evaluated
+        every RESET, since Player 2's robot (and its alliance) can
+        change there."""
+        gamepads_ok = self.gamepad_available and self.gamepad2.available
+        robot2_red = robot2 is not None and robot2.alliance == "red"
+        available = gamepads_ok and robot2_red
+        if not gamepads_ok:
+            reason = "Needs two gamepads connected"
+        elif not robot2_red:
+            reason = "Player 2 must be piloting a RED robot"
+        else:
+            reason = ""
+        self.split_screen_panel.set_available(available, reason)
+        if self._split_screen_active:
+            if available:
+                self._apply_split_screen_views(robot2)
+            else:
+                self._set_split_screen(False)
+
+    def _apply_split_screen_views(self, robot2) -> None:
+        self.canvas.set_driver_view(self.robot.alliance, DRIVER)
+        self.canvas2.set_driver_view(robot2.alliance, DRIVER)
+
+    def _on_split_screen_toggled(self, checked: bool) -> None:
+        self._set_split_screen(checked)
+
+    def _set_split_screen(self, enabled: bool) -> None:
+        if enabled == self._split_screen_active:
+            return
+        self._split_screen_active = enabled
+        self.canvas2.setVisible(enabled)
+        # The single-canvas FIELD VIEW picker doesn't apply while both
+        # panes are each showing their own alliance's driver wall.
+        self.view_mode_panel.setEnabled(not enabled)
+        if enabled:
+            label2 = self.player2_panel.selected_label()
+            robot2 = self._robots_by_label.get(label2) if label2 is not None else None
+            if robot2 is not None:
+                self._apply_split_screen_views(robot2)
+        else:
+            self._on_view_mode_changed(self.view_mode_panel.current_mode())
+        self.split_screen_panel.set_checked(enabled)
 
     def _set_fullscreen(self, enabled: bool) -> None:
         """Hides the roster/telemetry/console panels so the field
@@ -828,13 +937,26 @@ class MatchView(QtWidgets.QWidget):
             if self.match.ended:
                 break
 
-    def _orient_drive_command(self, drive: DriveCommand) -> DriveCommand:
+    # Sentinel default for _orient_drive_command's `alliance` param -- None
+    # is itself a meaningful value there (TOP-DOWN), so "not passed" needs
+    # its own marker to fall back to self.canvas.driver_alliance.
+    _CANVAS_ALLIANCE = object()
+
+    def _orient_drive_command(self, drive: DriveCommand, alliance: str | None = _CANVAS_ALLIANCE) -> DriveCommand:
         """Remaps a polled stick reading from driver-relative axes (up =
         away from the driver, right = the driver's own right hand) to
-        field-absolute vx/vy for whichever alliance's driver-station view
-        is active. TOP-DOWN passes `drive` through unchanged -- its
-        established convention (up=+y, right=+x) already matches the
+        field-absolute vx/vy for `alliance`'s driver-station view.
+        `alliance=None` (TOP-DOWN) passes `drive` through unchanged --
+        its established convention (up=+y, right=+x) already matches the
         screen directly, and nobody's asked to relearn it there.
+
+        `alliance` is whichever pane's perspective is actually driving
+        this player right now: self.canvas.driver_alliance for Player 1
+        always, but self.canvas2.driver_alliance for Player 2 while
+        split screen is active (each player faces their own wall) --
+        see the call sites in _tick. Omitted, it defaults to
+        self.canvas.driver_alliance (the pre-split-screen behavior, and
+        still correct for Player 1 and for the non-split-screen case).
 
         omega is negated too, not just vx/vy: a ground-level driver view
         is left-handed relative to the top-down map's screen convention
@@ -844,7 +966,8 @@ class MatchView(QtWidgets.QWidget):
         on the map reads as clockwise from the driver's own eye. Without
         this, "rotate cw" swings the nose toward the driver's left, which
         is exactly backwards from every chase-view driving convention."""
-        alliance = self.canvas.driver_alliance
+        if alliance is self._CANVAS_ALLIANCE:
+            alliance = self.canvas.driver_alliance
         if alliance is None:
             return drive
         vx, vy = orient_drive(alliance, up=drive.vy, right=drive.vx)
@@ -856,7 +979,11 @@ class MatchView(QtWidgets.QWidget):
         self._latest_commands = (drive, operator)
 
         drive2, operator2 = self.gamepad2.poll()
-        drive2 = self._orient_drive_command(drive2)
+        # Split screen: Player 2 faces their own pane's wall, not
+        # Player 1's -- outside split screen there's only one shared
+        # pane, so canvas's alliance is the only one there is.
+        alliance2 = self.canvas2.driver_alliance if self._split_screen_active else self.canvas.driver_alliance
+        drive2 = self._orient_drive_command(drive2, alliance2)
         self._player2_commands = (drive2, operator2)
 
         # Edge-trigger off the same _pressed_keys set WASD driving polls,
@@ -928,6 +1055,8 @@ class MatchView(QtWidgets.QWidget):
         self._update_telemetry()
         self._update_piece_counts()
         self.canvas.update()
+        if self._split_screen_active:
+            self.canvas2.update()
         self.tick_completed.emit()
 
     def _update_scrub_availability(self) -> None:
@@ -1012,7 +1141,9 @@ class MatchView(QtWidgets.QWidget):
         self._robots_by_label = dict(robots_by_label)
         self.telemetry = telemetry
 
+        self._set_split_screen(False)
         self.canvas.match = match
+        self.canvas2.match = match
         self.console.reset()
         all_events = list(match.events)
         self.console.append_events(all_events)

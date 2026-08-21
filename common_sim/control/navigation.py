@@ -851,6 +851,20 @@ class NavigateTo(Behavior):
     robots on a collision course route around each other instead of
     shoving head-on and stalling forever. Tactics whose whole point is
     to make contact or hold a blocking pose (`Defend`) pass False.
+
+    `target_velocity_provider`, when given, is called fresh each tick
+    alongside `target_provider` for the field-frame velocity the target
+    itself is moving at -- a rolling game piece, mainly. Without it the
+    speed law below treats every target as parked and brakes for it on
+    approach, which is right for a scoring pose but wrong for a target
+    that is itself receding: a robot only a little faster than the
+    piece it's chasing settles into braking at exactly the rate the
+    piece pulls away, so its speed converges on the piece's own speed
+    at a fixed following distance and the two just cruise in tandem,
+    never closing the last stretch. Crediting the target's own closing-
+    direction speed as feedforward removes that false equilibrium --
+    the brake law then measures against the gap that's actually
+    shrinking, not raw distance to a point sliding away underneath it.
     """
 
     def __init__(
@@ -867,6 +881,7 @@ class NavigateTo(Behavior):
         heading_gain: float = 4.0,
         avoid_robots: bool = True,
         robot_avoid_margin: float = 6.0,
+        target_velocity_provider: Callable[[BehaviorContext], tuple[float, float]] | None = None,
     ):
         self.target_provider = target_provider
         self.heading_mode = heading_mode
@@ -879,6 +894,7 @@ class NavigateTo(Behavior):
         self.heading_gain = heading_gain
         self.avoid_robots = avoid_robots
         self.robot_avoid_margin = robot_avoid_margin
+        self.target_velocity_provider = target_velocity_provider
 
         self._path: list[Vec2d] | None = None
         self._waypoint_index = 0
@@ -1101,7 +1117,15 @@ class NavigateTo(Behavior):
         vx, vy = 0.0, 0.0
         if distance > 1e-6:
             direction = delta / distance
-            speed = min(robot.characteristics.max_speed, remaining * self.speed_gain)
+            closing_feedforward = 0.0
+            if self.target_velocity_provider is not None:
+                target_vx, target_vy = self.target_velocity_provider(ctx)
+                # Only the component carrying the target further along our
+                # approach line counts -- one moving across or toward us
+                # needs no help closing the gap, and crediting that part
+                # too would undershoot the brake point instead of fixing it.
+                closing_feedforward = max(0.0, direction.x * target_vx + direction.y * target_vy)
+            speed = min(robot.characteristics.max_speed, remaining * self.speed_gain + closing_feedforward)
             vx, vy = direction.x * speed, direction.y * speed
         max_omega = robot.characteristics.max_angular_speed
         omega = max(-max_omega, min(max_omega, heading_error * self.heading_gain))

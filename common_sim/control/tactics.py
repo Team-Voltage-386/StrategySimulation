@@ -448,7 +448,10 @@ class Collect(Tactic):
         self._target_station = None
         self._start_held_count = None
         self._reconsider = _Throttle(replan_period)
-        self._nav = NavigateTo(self._provide_target, heading_mode="face_target", replan_period=replan_period)
+        self._nav = NavigateTo(
+            self._provide_target, heading_mode="face_target", replan_period=replan_period,
+            target_velocity_provider=self._target_velocity,
+        )
 
         # Stall escape for a committed station (see
         # `_STATION_PATIENCE_*`). `_station_cooldowns` deliberately
@@ -483,6 +486,16 @@ class Collect(Tactic):
         """Whether a trip is under way right now -- for an arbiter that
         needs to know before changing the job out from under it."""
         return self._target_piece is not None or self._target_station is not None
+
+    def _target_velocity(self, ctx: BehaviorContext) -> tuple[float, float]:
+        """Field-frame velocity of whatever `_provide_target` is currently
+        aimed at, for `NavigateTo`'s closing-speed feedforward -- see its
+        docstring for why a receding target needs this. A station never
+        moves; only a rolling piece does."""
+        piece = self._target_piece
+        if piece is None:
+            return (0.0, 0.0)
+        return (piece.velocity.x, piece.velocity.y)
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         robot = ctx.robot

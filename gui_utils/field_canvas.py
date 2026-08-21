@@ -69,6 +69,18 @@ ROBOT_BODY_HEIGHT = 12.0
 # label can be positioned above the bar stack without overlapping it.
 _BAR_H = 5
 
+# Big top-corner score readout drawn only under a driver-station camera
+# (see _draw_driver_scoreboard) -- a perspective projection keeps the
+# field below the horizon line, so both top corners are otherwise dead
+# space no field content ever reaches.
+DRIVER_SCORE_MARGIN = 12
+# Clears _draw_hud's small "t=...  phase=..." line, which keeps drawing
+# top-left regardless of view mode.
+DRIVER_SCORE_TOP = 30
+DRIVER_SCORE_BOX_W = 150
+DRIVER_SCORE_LABEL_SIZE = 11
+DRIVER_SCORE_FONT_SIZE = 40
+
 
 def _types_label(piece_types: frozenset[str]) -> str:
     return ",".join(t[:1].upper() for t in sorted(piece_types))
@@ -203,6 +215,8 @@ class FieldCanvas(QtWidgets.QWidget):
         self._draw_robots(painter, scale)
         self._draw_intent_overlay(painter, scale)
         self._draw_hud(painter)
+        if self._camera is not None:
+            self._draw_driver_scoreboard(painter)
         painter.end()
 
     def _polygon(self, vertices, scale: float) -> QtGui.QPolygonF:
@@ -829,9 +843,42 @@ class FieldCanvas(QtWidgets.QWidget):
         painter.drawText(x, y, header)
         x += fm.horizontalAdvance(header)
 
+        if self._camera is not None:
+            # Driver view shows scores as big corner numbers instead (see
+            # _draw_driver_scoreboard) -- repeating them small here would
+            # just stack clutter on top of that.
+            return
+
         for alliance in ("red", "blue"):
             score = self.match.scores.get(alliance, 0.0)
             text = f"{alliance.upper()}: {score:.0f}   "
             painter.setPen(ALLIANCE_COLORS.get(alliance, QtGui.QColor(theme.TEXT_PRIMARY)))
             painter.drawText(x, y, text)
             x += fm.horizontalAdvance(text)
+
+    def _draw_driver_scoreboard(self, painter) -> None:
+        """Big RED/BLUE score readout in the top-left/top-right corners --
+        the dead space a driver-station perspective always leaves above
+        the field's near edge (see the module docstring on
+        DRIVER_SCORE_MARGIN). Sized to read at a glance, unlike the small
+        running _draw_hud line the top-down view keeps."""
+        y = DRIVER_SCORE_TOP
+        for alliance, align in (("red", Qt.AlignLeft), ("blue", Qt.AlignRight)):
+            x = DRIVER_SCORE_MARGIN if align == Qt.AlignLeft \
+                else self.width() - DRIVER_SCORE_MARGIN - DRIVER_SCORE_BOX_W
+            color = ALLIANCE_COLORS.get(alliance, QtGui.QColor(theme.TEXT_PRIMARY))
+
+            painter.setPen(QtGui.QColor(theme.TEXT_DIM))
+            painter.setFont(theme.technical_font(DRIVER_SCORE_LABEL_SIZE, bold=True))
+            painter.drawText(
+                QtCore.QRectF(x, y, DRIVER_SCORE_BOX_W, DRIVER_SCORE_LABEL_SIZE + 4),
+                align | Qt.AlignTop, alliance.upper(),
+            )
+
+            score = self.match.scores.get(alliance, 0.0)
+            painter.setPen(color)
+            painter.setFont(theme.technical_font(DRIVER_SCORE_FONT_SIZE, bold=True))
+            painter.drawText(
+                QtCore.QRectF(x, y + DRIVER_SCORE_LABEL_SIZE + 4, DRIVER_SCORE_BOX_W, DRIVER_SCORE_FONT_SIZE + 8),
+                align | Qt.AlignTop, f"{score:.0f}",
+            )
