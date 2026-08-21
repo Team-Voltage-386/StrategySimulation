@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass
 from typing import Literal
 
-from common_sim.control import world_view
+from common_sim.control import utility, world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
 from common_sim.control.navigation import NavigateTo, clear_standoff, estimate_travel_time
 from common_sim.control.param import Param
@@ -478,6 +478,12 @@ class Collect(Tactic):
         self._reconsider.reset()
         self._nav.reset()
 
+    @property
+    def has_target(self) -> bool:
+        """Whether a trip is under way right now -- for an arbiter that
+        needs to know before changing the job out from under it."""
+        return self._target_piece is not None or self._target_station is not None
+
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         robot = ctx.robot
         characteristics = robot.characteristics
@@ -775,6 +781,26 @@ class Collect(Tactic):
         origin = robot.pose.translation
         characteristics = robot.characteristics
         pieces = world_view.collectable_pieces(match, piece_type=self.piece_type, robot=robot)
+        # Pieces there is no room for. `collectable_pieces` answers "what
+        # is lying around that this robot's intakes accept" -- physical
+        # capability, which is the right question for its other callers
+        # -- and deliberately says nothing about how full the robot is
+        # right now. `world_view.station_options` applies this same check
+        # itself, so a station never had the hole; a loose piece did.
+        #
+        # Nothing hit it until a caller left `piece_type` unset, because
+        # a typed Collect is protected by its own SUCCESS test
+        # (`is_full_for(self.piece_type)`) and by the trigger that fired
+        # it. Untyped, both go away: `is_full_for(None)` means "nothing
+        # can be taken at all", which is false for a robot holding one
+        # CORAL with a free ALGAE slot. Measured on a Pursue robot that
+        # picked a CORAL 19in off while already holding one -- it parked
+        # in intake range and stayed there for 130 of 150s, scoring
+        # nothing. Even the stall escape could not save it:
+        # `_piece_stalled` stops its clock while `robot.accepts(piece)`
+        # is true, on the principle that an intake under way should get
+        # to finish, and this intake was under way forever.
+        pieces = [p for p in pieces if not robot.is_full_for(p.piece_type)]
         if self.max_range is not None:
             pieces = [p for p in pieces if origin.get_distance(p.position) <= self.max_range]
 
@@ -1385,6 +1411,265 @@ class Score(Tactic):
         robot.set_deposit_active(robot.deposit_active, action=self._current.action)
         region = ctx.match.deposit_region_for(robot, self._current.piece)
         return region is not None and region.name == self._current.region.name
+
+
+class Pursue(Tactic):
+    """Chooses between *fetching* and *scoring* by what each is worth per
+    second, then hands the job to Collect or Score to actually do.
+
+    This is the one decision the rule layer could not express. A Rule
+    picks a tactic by a hand-written integer `priority`, so "score the
+    ALGAE I'm holding" versus "go get CORAL first" is settled once, at
+    authoring time, by a number that cannot know the PROCESSOR is four
+    feet away and the station is across the field. Both jobs are already
+    priced in the same currency by utility.py; all that was missing was
+    something to compare them.
+
+    The comparison is a rate, in points per second of the time the job
+    would occupy:
+
+    * scoring is `Outcome.value_rate` -- the points, over travel plus
+      deposit.
+    * fetching is the *whole cycle* it buys: the deposit's points over
+      (drive to the pickup + intake + drive to the region + deposit).
+      A pickup on its own scores nothing, so pricing it any other way
+      would rank every collect at zero.
+
+    Both denominators are "seconds this robot is committed for", which is
+    what makes them comparable at all, and neither needs a weight to be
+    on the same scale. `lookahead_weight` exists anyway, at a default of
+    1.0 that changes nothing, because the fetch half is a *prediction*
+    and the score half is in hand: the region may fill, a defender may
+    arrive, another robot may take the piece. How much to discount that
+    is a question for measurement (and for a parameter search -- it is a
+    flat float Param, so `strategy_params` picks it up for free), not for
+    a number invented here.
+
+    **It arbitrates the job, not the target.** Once fetching wins, Collect
+    picks *which* piece or station by its own ETA tiers, contention races
+    and patience clocks; Score likewise picks its own region. That is
+    deliberate: those mechanisms are what stop two robots converging on
+    one feeder and what gets a robot off a target a defender is denying,
+    and none of it is re-derivable from a rate. The consequence to know is
+    that the rate Pursue compares is the *best* pickup's, while Collect
+    may set off for a different one -- so the fetch side is an optimistic
+    bound, not a promise.
+
+    Commitment is the other half. Without it a robot re-decides ten times
+    a second and drives the midpoint of the two jobs: `min_commit` is how
+    long a job runs before the question is re-opened at all, and
+    `switch_margin` is how much better the other one has to look before
+    the answer changes. Both are floors under dithering, not tuning for
+    quality -- the same shape as Defend's `_MARK_DWELL`/`_MARK_SWAP_MARGIN`
+    and for the same reason.
+
+    Never reports SUCCESS. It is a standing job rather than a task that
+    completes, and an `Always`-triggered rule whose tactic reports SUCCESS
+    is re-selected by the arbiter on the very next tick -- logging a
+    behavior change every tick forever. When neither job has anything to
+    do it reports FAILURE, which is the arbiter's channel for "let another
+    rule have the robot" and comes with the suppression window that keeps
+    the retry from being every tick (see strategy._FAILED_RULE_SUPPRESSION).
+    """
+
+    PARAM_SCHEMA = (
+        Param("switch_margin", kind="float", default=0.25, min=0.0, max=2.0),
+        Param("min_commit", kind="float", default=2.0, min=0.0, suffix=" s"),
+        Param("lookahead_weight", kind="float", default=1.0, min=0.0, max=2.0),
+    )
+
+    def __init__(
+        self,
+        switch_margin: float = 0.25,
+        min_commit: float = 2.0,
+        lookahead_weight: float = 1.0,
+        replan_period: float = 0.5,
+    ):
+        self.switch_margin = switch_margin
+        self.min_commit = min_commit
+        self.lookahead_weight = lookahead_weight
+        # Five times Score's and Collect's, and not a copy of their
+        # cadence by oversight. Those replan a *target* -- which face,
+        # which feeder -- and want to react to a defender arriving. This
+        # replans a *job*, and a job that flips faster than `min_commit`
+        # allows is arithmetic thrown away. It is also the expensive one:
+        # a full arbitration prices every pickup on the field plus a
+        # lookahead for each, ~5ms against the ~3ms Score's planner
+        # spends, so running it at 0.1s would cost more than the rest of
+        # the control stack put together.
+        self.replan_period = replan_period
+
+        self._score = Score()
+        self._collect = Collect()
+        self._active: Tactic | None = None
+        self._commit_elapsed = 0.0
+        self._reconsider = _Throttle(replan_period)
+
+    @property
+    def active_tactic(self) -> Tactic | None:
+        """The child actually driving the robot, for
+        `strategy._update_intent` to read the published intent off (see
+        `strategy._delegate`). Everyone else's coordination runs through
+        that intent -- station claim races, piece contention, a defender
+        reading what its mark is doing -- so a Pursue robot that
+        published only "Pursue" would be invisible to all of it."""
+        return self._active
+
+    def reset(self) -> None:
+        # The children's own `reset()` deliberately preserves their
+        # cooldown dicts ("this region would not take my piece a moment
+        # ago" is knowledge about the field, not about one activation).
+        # Nothing here may reach past that and clear them: doing so is
+        # the exact trap Score.reset and _FAILED_STATION_COOLDOWN
+        # document, where a cooldown is wiped every cycle and the whole
+        # mechanism silently becomes a no-op.
+        self._score.reset()
+        self._collect.reset()
+        self._active = None
+        self._commit_elapsed = 0.0
+        self._reconsider.reset()
+
+    def _cycle_rate(self, outcome) -> float:
+        """Points per second for a pickup: the deposit it enables, over
+        the whole trip out and back. Zero when there is nowhere legal to
+        put the thing -- collecting it then genuinely buys nothing."""
+        payoff = outcome.enables
+        if payoff is None:
+            return 0.0
+        return self.lookahead_weight * payoff.points / max(1e-6, outcome.duration + payoff.duration)
+
+    def _rank(self, ctx: BehaviorContext) -> tuple[float, float]:
+        """(best scoring rate, best fetching rate) from where the robot
+        stands right now. Either is 0.0 when that job has no candidate at
+        all, which is also what a candidate worth nothing scores -- the
+        two cases are the same decision here, so they are not
+        distinguished."""
+        score_rate, collect_rate, _ = self._rank_with_type(ctx)
+        return score_rate, collect_rate
+
+    def _rank_with_type(self, ctx: BehaviorContext) -> tuple[float, float, "str | None"]:
+        """`_rank`, plus which piece type the winning pickup was for.
+
+        The type is carried out because handing it to Collect is what
+        makes the arbitration mean what it says. Pursue decides *what
+        kind of thing is worth fetching* -- that is the value question it
+        just priced, and the whole difference between a 2-point piece and
+        a 30-point one. Collect decides *which one of that kind, and how*
+        -- contention races, patience clocks, approach geometry -- which
+        is not re-derivable from a rate. Leaving it unset would let
+        Collect fetch the cheap type on a shorter drive and quietly
+        discard the comparison."""
+        match, robot = ctx.match, ctx.robot
+        travel = utility.TravelCache(match.field, robot.characteristics)
+        score_rate = max(
+            (outcome.value_rate for outcome in utility.score_outcomes(match, robot, travel=travel)),
+            default=0.0,
+        )
+        collect_rate, collect_type = 0.0, None
+        for outcome in utility.collect_outcomes(match, robot, travel=travel):
+            rate = self._cycle_rate(outcome)
+            if rate > collect_rate:
+                collect_rate, collect_type = rate, getattr(outcome.payload, "piece_type", None)
+        return score_rate, collect_rate, collect_type
+
+    def _arbitrate(self, ctx: BehaviorContext) -> None:
+        score_rate, collect_rate, collect_type = self._rank_with_type(ctx)
+        if score_rate <= 0.0 and collect_rate <= 0.0:
+            self._select(ctx, None)
+            return
+
+        # Ties go to scoring: the points are in hand and the fetch side's
+        # rate is a prediction of a trip not yet made.
+        best = self._collect if collect_rate > score_rate else self._score
+
+        if self._active is not None and self._active is not best:
+            # A swap. It has to clear both gates or the incumbent keeps
+            # the robot.
+            if self._commit_elapsed < self.min_commit:
+                return
+            incumbent = score_rate if self._active is self._score else collect_rate
+            challenger = collect_rate if best is self._collect else score_rate
+            if challenger <= incumbent * (1.0 + self.switch_margin):
+                return
+
+        if best is self._collect:
+            self._aim_collect_at(ctx, collect_type)
+        self._select(ctx, best)
+
+    def _aim_collect_at(self, ctx: BehaviorContext, piece_type: "str | None") -> None:
+        """Point the Collect child at the type the arbitration priced.
+
+        Only ever between trips. Two piece types whose rates sit close
+        together would otherwise trade the argmax on every arbitration,
+        and since a change of type invalidates the committed target,
+        patience clock and approach that belong to the old one, each flip
+        would restart the trip: the robot drives half a second toward one
+        and half a second toward the other, and arrives at neither. It is
+        the same ping-pong `_FAILED_TARGET_COOLDOWN` and
+        `_RETARGET_MARGIN_*` exist to stop one level down.
+
+        Nothing is lost by waiting. A trip that has stopped being worth
+        making is already Collect's own business, through its patience
+        clocks and cooldowns; abandoning fetching altogether is still the
+        `switch_margin` decision above, which is free to fire mid-trip."""
+        if piece_type is None or piece_type == self._collect.piece_type:
+            return
+        if self._active is self._collect and self._collect.has_target:
+            return
+        self._collect.piece_type = piece_type
+        self._collect.reset()
+        ctx.robot.set_intake_active(False)
+
+    def _select(self, ctx: BehaviorContext, child: "Tactic | None") -> None:
+        if child is self._active:
+            return
+        if self._active is not None:
+            self._active.reset()
+            # The same cleanup StrategyController does when it preempts a
+            # tactic, and for the same reason: Collect commands the intake
+            # on every tick it runs and only turns it off again in its own
+            # SUCCESS/FAILURE branch. Swapping to Score mid-collect without
+            # this leaves the intake latched on for the rest of the match,
+            # and the robot hoovers up whatever compatible piece it drives
+            # past.
+            ctx.robot.set_intake_active(False)
+            ctx.robot.set_deposit_active(False)
+        self._active = child
+        self._commit_elapsed = 0.0
+        # A fresh window before the new job is second-guessed, so
+        # `min_commit` measures time on the job rather than time since
+        # the last time the throttle happened to fire.
+        self._reconsider.reset()
+
+    def tick(self, ctx: BehaviorContext) -> Status:
+        self._commit_elapsed += ctx.dt
+        if self._active is None or self._reconsider.ready(ctx.dt):
+            self._arbitrate(ctx)
+        if self._active is None:
+            return self._stand_down(ctx, Status.FAILURE)
+
+        status = self._active.tick(ctx)
+        if status is Status.RUNNING:
+            return Status.RUNNING
+
+        # The job is over -- finished (Collect captured something, Score
+        # emptied the robot) or impossible (Collect found nothing it can
+        # get). Either way the arbitration that chose it is stale, so
+        # re-open it now instead of waiting out the replan period:
+        # `min_commit` exists to stop dithering between two workable jobs,
+        # not to hold a robot on one that has just declared itself done.
+        self._select(ctx, None)
+        self._arbitrate(ctx)
+        if self._active is None:
+            return self._stand_down(ctx, Status.FAILURE)
+        return Status.RUNNING
+
+    def _stand_down(self, ctx: BehaviorContext, status: Status) -> Status:
+        robot = ctx.robot
+        robot.set_intake_active(False)
+        robot.set_deposit_active(False)
+        robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
+        return status
 
 
 # How long a defender stays on the opponent it has marked before it will

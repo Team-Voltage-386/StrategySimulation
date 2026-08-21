@@ -80,7 +80,9 @@ common_sim/
                                  and prices only -- it does not choose
     planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
-    tactics.py                   Collect/Score/Defend/RunScript/Idle -- Behaviors that replan their own target
+    tactics.py                   Collect/Score/Pursue/Defend/RunScript/Idle -- Behaviors that replan their own target
+                                   Pursue arbitrates fetch-vs-score on utility.py's rate, then runs Collect or
+                                   Score to do it -- the tradeoff a Rule's integer `priority` cannot express
     strategy.py                   Rule/Strategy/StrategyController: priority arbiter over Trigger->Tactic rules
     strategy_io.py                 Strategy <-> JSON (REGISTRY-driven, round-trips through the GUI editor)
     strategy_params.py              The continuous half of a Rule[] as a flat vector (ParamRef/to_vector/
@@ -136,7 +138,8 @@ game_specific/
     game_pieces.py             concrete GamePiece subclasses (CORAL, ALGAE)
     scoring.py                    concrete ScoringRules
     strategies/                     example Strategy JSON files (also strategy_io round-trip fixtures):
-                                       cycle_coral, algae_processor, endgame_defense, auto_then_cycle
+                                       cycle_coral, algae_processor, endgame_defense, auto_then_cycle,
+                                       pursue (one Always -> Pursue rule; the arbitration is the strategy)
     sweep_trial.py                    Qt-free worker entry point (run_trial/replay_trial) + build_match_for_job,
                                          the match builder MATCH-tab replay shares with the SWEEP tab.
                                          SWEEP_DT (1/60, pinned by MATCH-tab replay) and SEARCH_DT (1/30,

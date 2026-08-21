@@ -115,6 +115,33 @@ def _reject_nested_for_duration(rule: Rule) -> None:
 _FAILED_RULE_SUPPRESSION = 1.0
 
 
+def _delegate(tactic: Behavior) -> Behavior:
+    """The tactic actually driving the robot, following through any
+    arbiter that runs a child tactic instead of doing the work itself
+    (Pursue).
+
+    Intent is not decoration: `Collect._station_has_room_for` races two
+    robots for one feeder on it, `Collect._piece_contenders` splits them
+    off one piece with it, `world_view.region_occupants` and
+    `region_denied_by` and `triggers.BeingDefended` read it to tell
+    denial from a teammate passing through. A tactic that publishes
+    nothing is invisible to every one of those, so an arbiter has to
+    report what its child is doing rather than its own name -- otherwise
+    two Pursue robots on an alliance would converge on the same feeder,
+    which is precisely the failure all that machinery exists to prevent.
+
+    Followed here rather than having the arbiter forge an Intent of its
+    own, so `_update_intent` below stays the single place that knows how
+    each kind of tactic describes itself. The depth cap is a guard against
+    a cycle, not an expectation of nesting."""
+    for _ in range(4):
+        child = getattr(tactic, "active_tactic", None)
+        if child is None:
+            break
+        tactic = child
+    return tactic
+
+
 class _RuleState:
     __slots__ = ("duration_true", "cooldown_remaining", "fired_once", "failure_suppressed")
 
@@ -258,7 +285,7 @@ class StrategyController:
         self._update_intent()
 
     def _update_intent(self) -> None:
-        tactic = self._active_tactic
+        tactic = _delegate(self._active_tactic)
         tactic_name = type(tactic).__name__
         target_region: str | None = None
         target_piece = None

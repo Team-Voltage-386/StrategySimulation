@@ -88,15 +88,56 @@ class Outcome:
         return self.points / max(1e-6, self.duration)
 
 
-def build_option(match, robot: "Robot", legal, from_pos: tuple[float, float]) -> ScoringOption:
+class TravelCache:
+    """Obstacle-routed travel times, memoized for one round of pricing.
+
+    `navigation.estimate_travel_time` is pure but deliberately not
+    memoized globally (see navigation.py: `plan_path` measured 1% of
+    match wall time from a cache, less than the cost of keying it by
+    field identity). At ~0.12ms a call it is nonetheless nearly all the
+    cost of pricing anything here, and one round of pricing asks it the
+    same question over and over: REEFSCAPE offers 24 legal CORAL slots
+    across just 6 REEF faces, so four of every five calls re-derive a
+    route already in hand. A collect lookahead pays that per pickup.
+
+    Scoped to one caller's pass rather than made global so it cannot
+    outlive the field or the robot it was built against, and keyed on
+    the exact float coordinates -- no rounding, so results are identical
+    to calling `estimate_travel_time` directly.
+    """
+
+    __slots__ = ("_field", "_characteristics", "_routes")
+
+    def __init__(self, field, characteristics):
+        self._field = field
+        self._characteristics = characteristics
+        self._routes: dict[tuple, float] = {}
+
+    def time(self, origin: tuple[float, float], goal: tuple[float, float]) -> float:
+        key = (origin, goal)
+        cached = self._routes.get(key)
+        if cached is None:
+            cached = self._routes[key] = navigation.estimate_travel_time(
+                self._field, origin, goal, self._characteristics,
+            )
+        return cached
+
+
+def build_option(match, robot: "Robot", legal, from_pos: tuple[float, float], travel: TravelCache | None = None) -> ScoringOption:
     """Turn a world_view.LegalScoringOption into a valued ScoringOption
     from `from_pos`. Public (not just planner-internal) so a caller
     pinning a specific region/action (Score) can value just that one
-    candidate without going through a planner's own choice logic."""
+    candidate without going through a planner's own choice logic.
+
+    `travel` shares one TravelCache across a batch of calls; omitting it
+    prices this option on its own, at the same numbers."""
     points = match.scoring_rules.points_for(legal.action, match.phase.value)
     deposit_time = robot.characteristics.deposit_duration(legal.action)
     goal = polygon_centroid(legal.region.vertices)
-    travel_time = navigation.estimate_travel_time(match.field, from_pos, goal, robot.characteristics)
+    if travel is None:
+        travel_time = navigation.estimate_travel_time(match.field, from_pos, goal, robot.characteristics)
+    else:
+        travel_time = travel.time(from_pos, goal)
     return ScoringOption(
         region=legal.region, action=legal.action, piece=legal.piece,
         points=points, deposit_time=deposit_time, travel_time=travel_time,
@@ -118,7 +159,7 @@ def _score_outcome(option: ScoringOption, robot: "Robot", piece_type: str) -> Ou
     )
 
 
-def score_outcomes(match, robot: "Robot", from_pos=None, pieces=None) -> list[Outcome]:
+def score_outcomes(match, robot: "Robot", from_pos=None, pieces=None, travel: TravelCache | None = None) -> list[Outcome]:
     """Every legal deposit for a piece `robot` is holding, priced from
     `from_pos` (its own pose by default; a planner chaining across
     several held pieces passes a virtual one).
@@ -132,16 +173,17 @@ def score_outcomes(match, robot: "Robot", from_pos=None, pieces=None) -> list[Ou
     Emission order is world_view.scoring_options' order (piece, then
     region, then action), which is what decides ties under `max`."""
     origin = _origin(robot, from_pos)
+    travel = travel or TravelCache(match.field, robot.characteristics)
     outcomes = []
     for legal in world_view.scoring_options(match, robot):
         if pieces is not None and legal.piece not in pieces:
             continue
-        option = build_option(match, robot, legal, origin)
+        option = build_option(match, robot, legal, origin, travel)
         outcomes.append(_score_outcome(option, robot, legal.piece.piece_type))
     return outcomes
 
 
-def best_score_for_type(match, robot: "Robot", piece_type: str, from_pos) -> "Outcome | None":
+def best_score_for_type(match, robot: "Robot", piece_type: str, from_pos, travel: TravelCache | None = None) -> "Outcome | None":
     """The best deposit `robot` could make with a piece of `piece_type`
     it does not have yet, valued from `from_pos`.
 
@@ -153,16 +195,17 @@ def best_score_for_type(match, robot: "Robot", piece_type: str, from_pos) -> "Ou
 
     None when there is nowhere legal to put that type, in which case
     collecting it is worth nothing at all right now."""
+    travel = travel or TravelCache(match.field, robot.characteristics)
     best: Outcome | None = None
     for region, action in world_view.scoring_slots_for_type(match, robot, piece_type):
         legal = world_view.LegalScoringOption(region=region, action=action, piece=None)
-        candidate = _score_outcome(build_option(match, robot, legal, from_pos), robot, piece_type)
+        candidate = _score_outcome(build_option(match, robot, legal, from_pos, travel), robot, piece_type)
         if best is None or candidate.value_rate > best.value_rate:
             best = candidate
     return best
 
 
-def collect_outcomes(match, robot: "Robot", from_pos=None) -> list[Outcome]:
+def collect_outcomes(match, robot: "Robot", from_pos=None, travel: TravelCache | None = None) -> list[Outcome]:
     """Every pickup available to `robot` right now -- human-player
     stations first, then loose pieces on the field -- priced from
     `from_pos`.
@@ -179,47 +222,39 @@ def collect_outcomes(match, robot: "Robot", from_pos=None) -> list[Outcome]:
     re-derive that split."""
     origin = _origin(robot, from_pos)
     characteristics = robot.characteristics
+    travel = travel or TravelCache(match.field, characteristics)
     outcomes = []
 
     for station in world_view.station_options(match, robot):
         goal = polygon_centroid(station.vertices)
-        travel = navigation.estimate_travel_time(match.field, origin, goal, characteristics)
         outcomes.append(Outcome(
             kind="collect",
             label=f"collect {station.piece_type} @ {station.name}",
             points=0.0,
-            duration=travel + characteristics.station_intake_time,
+            duration=travel.time(origin, goal) + characteristics.station_intake_time,
             success_probability=1.0,
             payload=station,
-            enables=best_score_for_type(match, robot, station.piece_type, goal),
+            enables=best_score_for_type(match, robot, station.piece_type, goal, travel),
         ))
 
     for piece in world_view.collectable_pieces(match, robot=robot):
-        if not _has_room_for(robot, piece.piece_type):
+        # `station_options` already applies this, but `collectable_pieces`
+        # does not -- it answers "what is lying around that this robot's
+        # intakes accept", which is a different question and the right one
+        # for its other callers. Offering a pickup there is no room for
+        # would put an outcome in the list that can never complete.
+        # Checked before the ETA, so a full robot pays nothing here.
+        if robot.is_full_for(piece.piece_type):
             continue
         goal = (piece.position.x, piece.position.y)
-        travel = navigation.estimate_travel_time(match.field, origin, goal, characteristics)
         outcomes.append(Outcome(
             kind="collect",
             label=f"collect {piece.piece_type} @ ({goal[0]:.0f}, {goal[1]:.0f})",
             points=0.0,
-            duration=travel + robot.duration_for(piece),
+            duration=travel.time(origin, goal) + robot.duration_for(piece),
             success_probability=1.0,
             payload=piece,
-            enables=best_score_for_type(match, robot, piece.piece_type, goal),
+            enables=best_score_for_type(match, robot, piece.piece_type, goal, travel),
         ))
 
     return outcomes
-
-
-def _has_room_for(robot: "Robot", piece_type: str) -> bool:
-    """Whether `robot` could actually hold another piece of this type.
-
-    `world_view.station_options` already applies this, but
-    `collectable_pieces` does not -- it answers "what is lying around
-    that this robot's intakes accept", which is a different question and
-    the right one for its other callers. Offering a pickup the robot has
-    no room for would put an outcome in the list that can never
-    complete."""
-    held = sum(1 for p in robot.held_pieces if p.piece_type == piece_type)
-    return held < robot.characteristics.capacity_for(piece_type)
