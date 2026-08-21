@@ -131,36 +131,59 @@ def station_options(match, robot: Robot) -> list[IntakeLocation]:
 class LegalScoringOption:
     """A (region, action, piece) triple a robot is legally able to
     execute right now -- membership only, no value judgement. Kept
-    separate from planning.ScoringOption (which adds points/travel_time/
+    separate from utility.ScoringOption (which adds points/travel_time/
     deposit_time) because computing those needs navigation +
-    scoring_rules + characteristics, which is planning.py's job, not
-    world_view's."""
+    scoring_rules + characteristics, which is utility.py's job, not
+    world_view's.
+
+    `piece` is None when the option was enumerated for a piece *type*
+    rather than a physical piece -- a caller asking what a piece it has
+    not collected yet would be worth (see `scoring_slots_for_type`)."""
     region: ScoringRegion
     action: str
-    piece: GamePiece
+    piece: GamePiece | None
+
+
+def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[ScoringRegion, str]]:
+    """Every (region, action) pair a piece of `piece_type` could legally
+    be scored in by `robot`: region accepts the type, action is in
+    region.actions, the region/action isn't full (via
+    `match.region_full`, if the Match implementation provides it --
+    treated as never-full otherwise), and robot has a scoring side
+    configured for that type.
+
+    Asked by type rather than by piece so a caller can price a piece it
+    does not have yet -- "is that station worth driving to" is answered
+    by where the thing it dispenses could go. `scoring_options` is this
+    same rule applied to each held piece, so the two cannot drift."""
+    if not _robot_can_score(robot, piece_type):
+        return []
+    region_full = getattr(match, "region_full", None)
+    slots = []
+    for region in match.field.scoring_regions:
+        if region.alliance is not None and region.alliance != robot.alliance:
+            continue
+        if region.piece_types and piece_type not in region.piece_types:
+            continue
+        for action in region.actions:
+            if region_full is not None and region_full(region, action):
+                continue
+            slots.append((region, action))
+    return slots
 
 
 def scoring_options(match, robot: Robot) -> list[LegalScoringOption]:
-    """Every (region, action) pair legal for a piece `robot` holds:
-    region accepts the type, action is in region.actions, the
-    region/action isn't full (via `match.region_full`, if the Match
-    implementation provides it -- treated as never-full otherwise), and
-    robot has a scoring side configured for that type."""
-    region_full = getattr(match, "region_full", None)
-    options = []
-    for piece in robot.held_pieces:
-        if not _robot_can_score(robot, piece.piece_type):
-            continue
-        for region in match.field.scoring_regions:
-            if region.alliance is not None and region.alliance != robot.alliance:
-                continue
-            if region.piece_types and piece.piece_type not in region.piece_types:
-                continue
-            for action in region.actions:
-                if region_full is not None and region_full(region, action):
-                    continue
-                options.append(LegalScoringOption(region=region, action=action, piece=piece))
-    return options
+    """Every (region, action) pair legal for a piece `robot` holds.
+
+    Emitted piece-major (each held piece's full slate of regions and
+    actions, in field order, before the next piece's) -- callers rank
+    these with `max`, and `max` keeps the first of equal keys, so the
+    order is part of the behavior."""
+    return [
+        LegalScoringOption(region=region, action=action, piece=piece)
+        for piece in robot.held_pieces
+        for region, action in scoring_slots_for_type(match, robot, piece.piece_type)
+    ]
 
 
 def _robot_can_score(robot: Robot, piece_type: str) -> bool:

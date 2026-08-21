@@ -75,6 +75,9 @@ common_sim/
     param.py                 Param dataclass: shared PARAM_SCHEMA element for Trigger/Tactic GUI forms
     world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents, defenders, denial targets
     navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
+    utility.py                 Outcome: any candidate action priced in points/second, deposits and pickups
+                                 alike (a pickup's value is `enables`, the deposit it sets up). Generates
+                                 and prices only -- it does not choose
     planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
     tactics.py                   Collect/Score/Defend/RunScript/Idle -- Behaviors that replan their own target
