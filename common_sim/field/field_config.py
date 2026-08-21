@@ -11,9 +11,19 @@ from dataclasses import dataclass, field
 @dataclass(frozen=True)
 class Obstacle:
     """A static field obstacle (reef, stage truss, charge station, ...).
-    Rendered and collided with as a solid polygon."""
+    Rendered and collided with as a solid polygon.
+
+    `height`, in inches, is visual-only -- collision is always the 2D
+    footprint regardless of this value (this sim has no z-axis physics).
+    0.0 (the default) draws the flat footprint everywhere, matching every
+    game_specific package that predates this field; a game_specific
+    package that sets it gets an extruded prism instead, but only under
+    a driver-station camera (see gui_utils/field_canvas.py) -- the
+    top-down view ignores it entirely, so setting this can never change
+    what the ordinary strategy view looks like."""
     name: str
     vertices: tuple[tuple[float, float], ...]
+    height: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -62,6 +72,15 @@ class ScoringRegion:
     # both filter on this against Robot.alliance, so a robot never plans to
     # (or actually does) score on the opposing alliance's regions.
     alliance: str | None = None
+    # Visual-only elevation, in inches, of this zone above the carpet --
+    # see Obstacle.height for the same contract (ignored by every scoring
+    # check, ignored by the top-down view, only drawn by a driver-station
+    # camera). 0.0 (the default, and every region this sim currently
+    # builds) means "on the ground", which is honest for REEFSCAPE: a
+    # face's ScoringRegion already represents all of L1-L4 flattened into
+    # one zone (see game_specific/reefscape/field.py), so there is no
+    # single real elevation to assign it without inventing one.
+    height: float = 0.0
 
 
 @dataclass(frozen=True)
