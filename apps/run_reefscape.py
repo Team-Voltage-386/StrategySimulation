@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import math
 import sys
+import time
+from pathlib import Path
 
 from pyqtgraph.Qt import QtCore, QtWidgets
 
@@ -57,7 +59,8 @@ from apps.search_tab import SearchTab
 from apps.sweep_tab import SweepTab
 from common_sim.analysis.metrics import extract_metrics
 from common_sim.control import strategy_io
-from common_sim.control.input_sources import GamepadInput, KeyBindings, KeyboardInput
+from common_sim.control.human import HumanController
+from common_sim.control.input_sources import DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand
 from common_sim.control.strategy import StrategyController
 from common_sim.field.field_config import point_in_polygon
 from common_sim.match.match import Match, MatchConfig, Phase
@@ -67,7 +70,9 @@ from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
 from gui_utils import theme
 from gui_utils.console_panel import ConsolePanel
 from gui_utils.doc_tags import document
+from gui_utils.field_camera import DRIVER, ELEVATED, orient_drive
 from gui_utils.field_canvas import FieldCanvas
+from gui_utils.match_sounds import MatchSoundboard
 from gui_utils.scrub_slider import ScrubSlider
 from gui_utils.strategy_editor import StrategyEditor
 from gui_utils.strategy_graph import StrategyGraphPanel
@@ -83,6 +88,13 @@ KEY_BINDINGS = KeyBindings(
 LEVEL_KEYS = {Qt.Key_1: "l1", Qt.Key_2: "l2", Qt.Key_3: "l3", Qt.Key_4: "l4"}
 REEF_LEVELS = ("l1", "l2", "l3", "l4")
 TOGGLE_REEF_LEVEL_KEY = Qt.Key_X
+
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+# Cosmetic only -- there is no ENDGAME phase or duration in common_sim/
+# game_specific (see Phase in common_sim/match/match.py); this just picks
+# when the "Start of End Game" cue plays, matching the real FRC 2025
+# endgame length, and has no effect on scoring.
+ENDGAME_SECONDS = 20.0
 
 GAMEPAD_BINDINGS = [
     ("Left Stick", "Drive"), ("Right Stick X", "Rotate"),
@@ -120,6 +132,86 @@ class ControlsPanel(QtWidgets.QGroupBox):
         heading = "GAMEPAD" if available else "KEYBOARD"
         lines = [f"{control}: {action}" for control, action in bindings]
         self.label.setText(f"{heading}\n" + "\n".join(lines))
+
+
+VIEW_MODES = {
+    "TOP-DOWN": (None, None),
+    "DRIVER (BLUE)": ("blue", DRIVER),
+    "DRIVER (RED)": ("red", DRIVER),
+    "ELEVATED (BLUE)": ("blue", ELEVATED),
+    "ELEVATED (RED)": ("red", ELEVATED),
+}
+
+
+class ViewModePanel(QtWidgets.QGroupBox):
+    """Picks which of FieldCanvas's camera modes the field is drawn
+    with -- the usual top-down strategy view, or a tilted driver-station
+    perspective from behind either alliance's wall, for driver practice."""
+
+    view_changed = QtCore.Signal(str)  # one of VIEW_MODES' keys
+
+    def __init__(self, parent=None):
+        super().__init__("FIELD VIEW", parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.combo = document(
+            QtWidgets.QComboBox(), "view_mode", "Field view",
+            "Switches the field between the usual top-down strategy view and a tilted "
+            "driver-station perspective from behind an alliance wall.",
+            "The perspective views are for driver practice, not analysis -- distance is much "
+            "harder to judge than in top-down, which is the point: that's what a real driver "
+            "has to deal with too. ELEVATED pulls the eye back and up for an easier, more "
+            "coach's-eye version of the same idea.")
+        self.combo.addItems(list(VIEW_MODES.keys()))
+        self.combo.currentTextChanged.connect(self.view_changed.emit)
+        layout.addWidget(self.combo)
+
+    def current_mode(self) -> str:
+        return self.combo.currentText()
+
+
+PLAYER2_AI_OPTION = "AI (no second player)"
+
+
+class Player2Panel(QtWidgets.QGroupBox):
+    """Picks which non-PRIMARY robot, if any, a second gamepad drives --
+    either a teammate (another robot on PRIMARY's alliance) or an
+    opponent, for practicing against a human-driven defender. Options
+    are refreshed from the current roster on every RESET (roster edits
+    already only take effect on RESET elsewhere in this app)."""
+
+    def __init__(self, parent=None):
+        super().__init__("PLAYER 2 (GAMEPAD 2)", parent)
+        layout = QtWidgets.QVBoxLayout(self)
+        self.combo = document(
+            QtWidgets.QComboBox(), "player2_robot", "Player 2 robot",
+            "Hands a second gamepad's input to whichever robot is picked here, instead of that "
+            "robot's AI strategy. Pick a teammate to practice cycling together, or an opponent "
+            "to practice against a human defender.",
+            "Same bindings as the GAMEPAD control scheme, on a second physical controller. "
+            "Takes effect on the next RESET.")
+        self.combo.addItem(PLAYER2_AI_OPTION)
+        layout.addWidget(self.combo)
+        self.status_label = QtWidgets.QLabel()
+        self.status_label.setFont(theme.technical_font(8))
+        self.status_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
+        layout.addWidget(self.status_label)
+
+    def set_options(self, labels: list[str]) -> None:
+        current = self.combo.currentText()
+        self.combo.blockSignals(True)
+        self.combo.clear()
+        self.combo.addItem(PLAYER2_AI_OPTION)
+        self.combo.addItems(labels)
+        index = self.combo.findText(current)
+        self.combo.setCurrentIndex(index if index >= 0 else 0)
+        self.combo.blockSignals(False)
+
+    def selected_label(self) -> str | None:
+        text = self.combo.currentText()
+        return None if text == PLAYER2_AI_OPTION else text
+
+    def set_gamepad_available(self, available: bool) -> None:
+        self.status_label.setText("" if available else "No second gamepad detected")
 
 
 class TransportBar(QtWidgets.QWidget):
@@ -286,11 +378,16 @@ class MatchView(QtWidgets.QWidget):
             "above to see what they were at any earlier moment.")
         self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
+        self.view_mode_panel = ViewModePanel()
+        self.view_mode_panel.view_changed.connect(self._on_view_mode_changed)
+        self.player2_panel = Player2Panel()
         self.right_column = QtWidgets.QWidget()
         right_layout = QtWidgets.QVBoxLayout(self.right_column)
         right_layout.addWidget(self.telemetry_panel)
         right_layout.addWidget(self.match_settings_panel)
         right_layout.addWidget(self.controls_panel)
+        right_layout.addWidget(self.view_mode_panel)
+        right_layout.addWidget(self.player2_panel)
         right_layout.addStretch(1)
         self.right_column.setMinimumWidth(220)
 
@@ -316,7 +413,22 @@ class MatchView(QtWidgets.QWidget):
         gamepad = GamepadInput()
         self.input_source = gamepad if gamepad.available else self.keyboard
         self.gamepad_available = gamepad.available
+        # This tick's already-polled input, read (not re-polled) by any
+        # HumanController -- see that module's docstring for why it must
+        # not own a second poll() call.
+        self._latest_commands: tuple[DriveCommand, OperatorCommand] = (DriveCommand(), OperatorCommand())
         self.controls_panel.set_available(gamepad.available)
+
+        # A second physical gamepad, wired to whichever roster robot
+        # Player2Panel selects -- see _reset_match. Keyboard stays
+        # single-player (it's already owned by the canvas' key events for
+        # PRIMARY), so a second human is gamepad-only.
+        self.gamepad2 = GamepadInput(index=1)
+        self.player2_panel.set_gamepad_available(self.gamepad2.available)
+        self._player2_commands: tuple[DriveCommand, OperatorCommand] = (DriveCommand(), OperatorCommand())
+        self._player2_deposit_action = "l4"
+
+        self.sounds = MatchSoundboard(ASSETS_DIR)
 
         self.paused = False
         self._selected_deposit_action = "l4"
@@ -374,11 +486,35 @@ class MatchView(QtWidgets.QWidget):
         self._robots_by_label = {"PRIMARY": self.robot}
         if self.roster_panel.ai_drives_primary():
             self._attach_strategy(self.robot, "PRIMARY", self.roster_panel.primary_strategy_name())
+        else:
+            # Unifies with the AI path: Match.step ticks every robot's
+            # controller uniformly, rather than _tick special-casing "no
+            # controller means drive it inline here".
+            self.robot.controller = HumanController(
+                command_provider=lambda: self._latest_commands,
+                deposit_action_provider=self._effective_deposit_action,
+            )
 
         for roster_alliance in ("blue", "red"):
             for i, (row, config_tab) in enumerate(self.roster_panel.roster_rows(roster_alliance)):
                 self._spawn_roster_robot(roster_alliance, i, row.strategy_name(), config_tab)
 
+        self.player2_panel.set_options([label for label in self.robot_labels() if label != "PRIMARY"])
+        self._player2_commands = (DriveCommand(), OperatorCommand())
+        self._player2_deposit_action = "l4"
+        label2 = self.player2_panel.selected_label()
+        robot2 = self._robots_by_label.get(label2) if label2 is not None else None
+        if robot2 is not None:
+            # Overwrites the AI controller _spawn_roster_robot just
+            # attached -- see Stage 4 of the driver-practice plan for why
+            # this doesn't touch _spawn_roster_robot/RosterEntryRow
+            # themselves.
+            robot2.controller = HumanController(
+                command_provider=lambda: self._player2_commands,
+                deposit_action_provider=lambda: self._effective_deposit_action_for(robot2, self._player2_deposit_action),
+            )
+
+        self._endgame_cue_played = False
         self.canvas.match = self.match
         self.console.reset()
         self._logged_event_count = 0
@@ -394,6 +530,11 @@ class MatchView(QtWidgets.QWidget):
         self.transport_bar.slider.setEnabled(False)
         self._update_piece_counts()
         self.canvas.setFocus()
+        # Wall-clock pacing state for _advance_realtime -- reset here (not
+        # just in __init__) so a fresh match never inherits a stale
+        # last-tick timestamp from whatever the previous match was doing.
+        self._last_tick_time = time.perf_counter()
+        self._accumulator = 0.0
         self.match_reset.emit(self.match)
 
     def robot_labels(self) -> list[str]:
@@ -454,9 +595,28 @@ class MatchView(QtWidgets.QWidget):
             # the field to fill the window. Ending the match or hitting
             # RESET contracts it back (see _tick / _reset_match).
             self._set_fullscreen(True)
+            # Otherwise the wall-clock time spent paused (however long)
+            # would show up as one huge frame_dt on the next tick and get
+            # burned through as a burst of catch-up steps.
+            self._last_tick_time = time.perf_counter()
+            if self.match.elapsed == 0.0:
+                # elapsed only reads exactly 0.0 at the one moment PLAY is
+                # first pressed on a fresh match -- every later resume
+                # (mid-match pause, or after scrubbing) has already
+                # advanced past it.
+                self.sounds.play("start_auto")
+        elif self.match.elapsed > 0.0 and not self.match.ended:
+            # Excludes the RESET-induced initial paused state (elapsed ==
+            # 0) and the match-end auto-pause, which fires from _tick, not
+            # here, and plays its own "match_end" cue instead.
+            self.sounds.play("pause")
 
     def _on_show_intent_toggled(self, checked: bool) -> None:
         self.canvas.show_intent = checked
+
+    def _on_view_mode_changed(self, mode: str) -> None:
+        alliance, preset = VIEW_MODES[mode]
+        self.canvas.set_driver_view(alliance, preset)
 
     def _set_fullscreen(self, enabled: bool) -> None:
         """Hides the roster/telemetry/console panels so the field
@@ -620,12 +780,84 @@ class MatchView(QtWidgets.QWidget):
         self._pressed_keys.discard(event.key())
 
     def _cycle_reef_level(self) -> None:
-        start = REEF_LEVELS.index(self._selected_deposit_action) if self._selected_deposit_action in REEF_LEVELS else -1
-        self._selected_deposit_action = REEF_LEVELS[(start + 1) % len(REEF_LEVELS)]
+        self._selected_deposit_action = self._next_level(self._selected_deposit_action)
+
+    def _next_level(self, current: str) -> str:
+        start = REEF_LEVELS.index(current) if current in REEF_LEVELS else -1
+        return REEF_LEVELS[(start + 1) % len(REEF_LEVELS)]
+
+    # Wall-clock pacing guards for _advance_realtime: a frame_dt clamp so a
+    # long stall (a slow repaint, or the process briefly losing the CPU)
+    # can't inject one giant catch-up burst, and a steps-per-tick cap so
+    # sustained overload degrades to "runs a bit slow" rather than a
+    # spiral-of-death where each catch-up step costs more than it buys back.
+    _MAX_FRAME_DT = 0.1
+    _MAX_STEPS_PER_TICK = 4
+
+    def _advance_one_step(self, dt: float) -> None:
+        # Once the match has ended, Match.step is a no-op (elapsed stops
+        # advancing) -- skip telemetry.tick() too, or it would keep
+        # appending duplicate same-timestamp frames for as long as the
+        # app sits open and unpaused.
+        if self.match.ended:
+            return
+        self.match.step(dt)
+        self._drain_new_events()
+        self.telemetry.tick()
+
+    def _advance_realtime(self) -> None:
+        """Steps the sim by as many fixed dt=1/60 ticks as real wall-clock
+        time actually elapsed since the last tick, instead of always
+        exactly one -- otherwise a slower repaint (driver-station
+        perspective costs more per vertex than the old orthographic path)
+        would silently make the sim run in slow motion, which defeats the
+        whole point of practicing cycle timing. Not used under
+        fast-forward -- see _tick, which keeps that mode's original
+        "exactly one fixed dt per timer fire, timer firing as fast as the
+        event loop allows" behavior untouched."""
+        now = time.perf_counter()
+        frame_dt = min(now - self._last_tick_time, self._MAX_FRAME_DT)
+        self._last_tick_time = now
+        self._accumulator += frame_dt
+        dt = 1.0 / self.TICK_HZ
+        steps = 0
+        while self._accumulator >= dt and steps < self._MAX_STEPS_PER_TICK:
+            self._advance_one_step(dt)
+            self._accumulator -= dt
+            steps += 1
+            if self.match.ended:
+                break
+
+    def _orient_drive_command(self, drive: DriveCommand) -> DriveCommand:
+        """Remaps a polled stick reading from driver-relative axes (up =
+        away from the driver, right = the driver's own right hand) to
+        field-absolute vx/vy for whichever alliance's driver-station view
+        is active. TOP-DOWN passes `drive` through unchanged -- its
+        established convention (up=+y, right=+x) already matches the
+        screen directly, and nobody's asked to relearn it there.
+
+        omega is negated too, not just vx/vy: a ground-level driver view
+        is left-handed relative to the top-down map's screen convention
+        (looking horizontally along the field's forward axis flips which
+        way "right cross up" points, versus looking straight down from
+        above), so the same field-CCW spin that reads as counter-clockwise
+        on the map reads as clockwise from the driver's own eye. Without
+        this, "rotate cw" swings the nose toward the driver's left, which
+        is exactly backwards from every chase-view driving convention."""
+        alliance = self.canvas.driver_alliance
+        if alliance is None:
+            return drive
+        vx, vy = orient_drive(alliance, up=drive.vy, right=drive.vx)
+        return DriveCommand(vx=vx, vy=vy, omega=-drive.omega)
 
     def _tick(self) -> None:
-        dt = 1.0 / self.TICK_HZ
         drive, operator = self.input_source.poll()
+        drive = self._orient_drive_command(drive)
+        self._latest_commands = (drive, operator)
+
+        drive2, operator2 = self.gamepad2.poll()
+        drive2 = self._orient_drive_command(drive2)
+        self._player2_commands = (drive2, operator2)
 
         # Edge-trigger off the same _pressed_keys set WASD driving polls,
         # rather than QKeyEvent.isAutoRepeat() -- on some platforms the
@@ -639,24 +871,27 @@ class MatchView(QtWidgets.QWidget):
             self._cycle_reef_level()
         self._prev_pressed_keys = set(self._pressed_keys)
 
-        if operator.pause_toggle:
+        if operator2.cycle_level:
+            self._player2_deposit_action = self._next_level(self._player2_deposit_action)
+
+        if operator.pause_toggle or operator2.pause_toggle:
             self._toggle_paused()
 
         if not self.paused:
-            if self.robot.controller is None:
-                c = self.robot.characteristics
-                self.robot.drive_field_relative(dt, drive.vx * c.max_speed, drive.vy * c.max_speed, drive.omega * c.max_angular_speed)
-                self.robot.set_intake_active(operator.intake_active)
-                action = self._effective_deposit_action()
-                self.robot.set_deposit_active(operator.deposit_active, action=action)
-            # Once the match has ended, Match.step is a no-op (elapsed
-            # stops advancing) -- skip telemetry.tick() too, or it would
-            # keep appending duplicate same-timestamp frames for as long
-            # as the app sits open and unpaused.
-            if not self.match.ended:
-                self.match.step(dt)
-                self._drain_new_events()
-                self.telemetry.tick()
+            phase_before = self.match.phase
+            if self.roster_panel.fast_forward_enabled():
+                self._advance_one_step(1.0 / self.TICK_HZ)
+            else:
+                self._advance_realtime()
+            if phase_before == Phase.AUTO and self.match.phase == Phase.TELEOP:
+                self.sounds.play("start_teleop")
+            if (
+                not self._endgame_cue_played and not self.match.ended
+                and self.match.phase == Phase.TELEOP
+                and self.match.config.total_duration - self.match.elapsed <= ENDGAME_SECONDS
+            ):
+                self.sounds.play("start_endgame")
+                self._endgame_cue_played = True
             # The match just ran out the clock -- drop into the same
             # paused state a manual pause would, so the transport bar's
             # play/pause button and scrub slider immediately reflect it
@@ -665,6 +900,7 @@ class MatchView(QtWidgets.QWidget):
             if self.match.ended:
                 self.paused = True
                 self._set_fullscreen(False)
+                self.sounds.play("match_end")
 
         # sync_slider=False while scrubbing: the slider already reflects
         # where the user dragged it (see _enter_playback_at_fraction),
@@ -712,16 +948,18 @@ class MatchView(QtWidgets.QWidget):
         self.piece_count_label.setText("   ".join(parts))
 
     def _effective_deposit_action(self) -> str:
-        """The manually-selected level/action, unless the robot is
+        return self._effective_deposit_action_for(self.robot, self._selected_deposit_action)
+
+    def _effective_deposit_action_for(self, robot, manual: str) -> str:
+        """The manually-selected level/action, unless `robot` is
         currently sitting in a single-action scoring zone (PROCESSOR,
         NET) holding a piece that zone accepts -- ALGAE only ever scores
         at one of those two, so there's nothing to pick between and
         requiring an explicit GUI selection just adds friction. REEF
         faces offer 4 actions at once (L1-L4), so they're deliberately
         excluded from this and stay a manual/toggle (X) choice."""
-        manual = self._selected_deposit_action
-        pose = self.robot.pose
-        held_types = {p.piece_type for p in self.robot.held_pieces}
+        pose = robot.pose
+        held_types = {p.piece_type for p in robot.held_pieces}
         if not held_types:
             return manual
         for region in self.match.field.scoring_regions:
@@ -901,7 +1139,11 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
         label = self.strategy_editor.current_label()
         robot = self.match_view.robot_for_label(label) if label is not None else None
         controller = robot.controller if robot is not None else None
-        if controller is None:
+        # The rule graph only means anything for a StrategyController --
+        # a human-driven PRIMARY now always has *some* controller
+        # (HumanController, see MatchView._reset_match), so this can no
+        # longer use "controller is None" as the "nothing to show" guard.
+        if not isinstance(controller, StrategyController):
             return
         self.strategy_graph.set_active_rule(controller.active_rule_name)
 

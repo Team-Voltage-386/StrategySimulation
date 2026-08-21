@@ -49,6 +49,13 @@ FIELD_WIDTH = 26 * 12 + 5                # 26 ft 5 in = 317 in (short axis, guar
 REEF_DISTANCE_FROM_WALL = 12 * 12        # REEF centered 12 ft from its ALLIANCE WALL
 REEF_HEX_WIDTH = 5 * 12 + 5.5            # REEF structure, face-to-face: 5 ft 5-1/2 in
 REEF_HEX_APOTHEM = REEF_HEX_WIDTH / 2.0
+# Visual-only extrusion height for the REEF obstacle (see Obstacle.height) --
+# roughly the L4 branch height, since that's the tallest thing a driver
+# actually needs to judge clearance against. Scoring itself stays flattened
+# to one zone per face regardless (see _reef_scoring_regions); this does
+# not attempt to represent L1-L4 as 4 separate elevations, only "how tall
+# does the structure look from the driver station".
+REEF_STRUCTURE_HEIGHT = 72.0
 
 CORAL_STATION_WIDTH = 5 * 12 + 10 + 7 / 8   # 5 ft 10-7/8 in
 CORAL_STATION_DEPTH = 13 * 12 + 8 + 3 / 8   # 13 ft 8-3/8 in
@@ -60,6 +67,13 @@ CORAL_STATION_CORNER_MARGIN = 10.0
 
 PROCESSOR_WIDTH = 3 * 12 + 7 + 3 / 8      # 3 ft 7-3/8 in
 PROCESSOR_DEPTH = 1 * 12 + 6              # 1 ft 6 in
+
+# NET scoring zone (BARGE): how far each alliance's landing zone sits to
+# its own side of the true field midline, and how wide (x-extent) that
+# zone is. Also where the starting-line formation lines robots up --
+# see sweep_trial.start_pose, which reuses net_center().
+NET_MID_OFFSET = 60.0
+NET_WIDTH = 80.0
 
 # 6.3.4 SCORING ELEMENTS: FIELD STAFF pre-stage 1 CORAL (with 1 ALGAE on
 # top of it) on each of 3 CORAL MARKs per alliance, within that
@@ -253,6 +267,13 @@ def processor_position(alliance: str) -> tuple[float, float]:
     return (reef_x, PROCESSOR_DEPTH / 2.0)
 
 
+def net_center(alliance: str) -> tuple[float, float]:
+    """Center of this alliance's NET (BARGE) landing zone -- just to its
+    own side of the field midline, per NET_MID_OFFSET."""
+    x = FIELD_LENGTH / 2.0 - NET_MID_OFFSET if alliance == "blue" else FIELD_LENGTH / 2.0 + NET_MID_OFFSET
+    return (x, FIELD_WIDTH / 2.0)
+
+
 def other_alliance(alliance: str) -> str:
     return "red" if alliance == "blue" else "blue"
 
@@ -262,8 +283,8 @@ def build_field() -> FieldConfig:
     red_reef_center = reef_center("red")
 
     obstacles = (
-        Obstacle(name="blue_reef", vertices=_hex_vertices(blue_reef_center, REEF_HEX_APOTHEM)),
-        Obstacle(name="red_reef", vertices=_hex_vertices(red_reef_center, REEF_HEX_APOTHEM)),
+        Obstacle(name="blue_reef", vertices=_hex_vertices(blue_reef_center, REEF_HEX_APOTHEM), height=REEF_STRUCTURE_HEIGHT),
+        Obstacle(name="red_reef", vertices=_hex_vertices(red_reef_center, REEF_HEX_APOTHEM), height=REEF_STRUCTURE_HEIGHT),
     )
 
     # Each alliance's REEF ZONE protects *that* alliance's robots: blue
@@ -303,12 +324,12 @@ def build_field() -> FieldConfig:
             ),
             ScoringRegion(
                 name="blue_net",
-                vertices=_rect((FIELD_LENGTH / 2.0 - 60, FIELD_WIDTH / 2.0), 80, FIELD_WIDTH * 0.9),
+                vertices=_rect(net_center("blue"), NET_WIDTH, FIELD_WIDTH * 0.9),
                 actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True, alliance="blue",
             ),
             ScoringRegion(
                 name="red_net",
-                vertices=_rect((FIELD_LENGTH / 2.0 + 60, FIELD_WIDTH / 2.0), 80, FIELD_WIDTH * 0.9),
+                vertices=_rect(net_center("red"), NET_WIDTH, FIELD_WIDTH * 0.9),
                 actions=frozenset({"net"}), piece_types=frozenset({ALGAE_TYPE}), passive_scoring=True, alliance="red",
             ),
         )

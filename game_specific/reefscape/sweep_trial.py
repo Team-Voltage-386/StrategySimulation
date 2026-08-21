@@ -41,7 +41,7 @@ from common_sim.control.strategy import StrategyController
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.telemetry import TelemetryRecorder
-from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions, coral_station_positions
+from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions, net_center
 from game_specific.reefscape.game_pieces import spawn_algae, spawn_coral
 from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 
@@ -69,23 +69,32 @@ SEARCH_DT = 1.0 / 30.0
 
 STRATEGIES_DIR = Path(__file__).resolve().parent / "strategies"
 
+# PRIMARY's default lateral offset from the NET's y-center, toward that
+# alliance's own left (the driver's left hand, standing at the wall facing
+# into the field -- same "left/right" a real 3-station-wide ALLIANCE WALL
+# has) rather than dead-center under the NET.
+PRIMARY_LATERAL_OFFSET = 80.0
+
 
 def start_pose(alliance: str, roster_index: int) -> Pose2d:
     """Byte-for-byte the geometry apps/run_reefscape.py's MatchView
     _reset_match (roster_index < 0, the primary robot) and
     _spawn_roster_robot (roster_index >= 0) compute inline --
     run_reefscape.py calls this same function so MATCH and SWEEP place
-    robots identically."""
-    if roster_index < 0:
-        station = coral_station_positions(alliance)[0]
-        facing = 0.0 if alliance == "blue" else 3.14159265
-        return Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1], facing)
+    robots identically.
 
-    station = coral_station_positions(alliance)[roster_index % 2]
-    facing = 0.0 if alliance == "blue" else math.pi
-    offset = 30.0 + 40.0 * (roster_index // 2 + 1)
+    Lines the alliance up on the starting line under its own NET,
+    facing back toward its own ALLIANCE WALL / driver station -- where
+    REEFSCAPE robots actually start a match, not at a CORAL STATION."""
+    x, y = net_center(alliance)
+    facing = math.pi if alliance == "blue" else 0.0
+    if roster_index < 0:
+        left_sign = -1.0 if alliance == "blue" else 1.0
+        return Pose2d(x, y + left_sign * PRIMARY_LATERAL_OFFSET, facing)
+
+    offset = 40.0 * (roster_index // 2 + 1)
     along_wall = offset if roster_index % 2 == 0 else -offset
-    return Pose2d(station[0] + (30.0 if alliance == "blue" else -30.0), station[1] + along_wall, facing)
+    return Pose2d(x, y + along_wall, facing)
 
 
 def _resolve_strategy(strategy, strategies_dir):
