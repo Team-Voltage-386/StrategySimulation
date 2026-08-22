@@ -1657,6 +1657,22 @@ TIME_FIT_SLACK = 4.0
 RELIABILITY_WEIGHT = 1.0
 
 
+# How many pieces of a type left in the alliance's own supply (loose plus
+# what its stations have left to dispense) still count as "plenty" for
+# `Pursue._scarcity` -- at this count or above the discount is off, and it
+# ramps to its floor as the count runs to zero. One REEFSCAPE REEF face
+# stages exactly 1 ALGAE and a CORAL STATION starts with a double-digit
+# handful, so this sits low enough to bind on the ALGAE case and mid-ramp
+# on the CORAL one rather than never firing on either.
+#
+# `scarcity_weight` defaults to 0.0, which makes this constant inert until
+# a search turns the term on -- see the Pursue Ceiling Test artifact for
+# why: the existing terms closed most but not all of the defense-bench
+# gap, and it plateaued specifically on the rows that deny supply, which
+# this term exists to answer.
+SCARCITY_FLOOR = 3.0
+
+
 class _Ranking(NamedTuple):
     """One arbitration's answer: what each job is worth per second, and
     which flavour of it was priced.
@@ -1702,7 +1718,7 @@ class _Prospects:
     is an expensive thing to say by accident.
     """
 
-    __slots__ = ("match", "robot", "remaining", "_contention")
+    __slots__ = ("match", "robot", "remaining", "_contention", "_supply")
 
     def __init__(self, match, robot):
         self.match = match
@@ -1710,6 +1726,7 @@ class _Prospects:
         total = getattr(getattr(match, "config", None), "total_duration", None)
         self.remaining = None if total is None else total - match.elapsed
         self._contention: dict[str, tuple[int, int]] = {}
+        self._supply: dict[str, float | None] = {}
 
     def contention(self, feature) -> tuple[int, int]:
         """(opposing defenders denying `feature`, everybody else working
@@ -1738,6 +1755,43 @@ class _Prospects:
             occupants = len(world_view.region_occupants(self.match, feature, exclude=self.robot))
             counts = self._contention[name] = (deniers, max(0, occupants - deniers))
         return counts
+
+    def remaining_supply(self, piece_type: str) -> float | None:
+        """How many `piece_type` pieces this robot's alliance could still
+        ever collect -- loose ones on the field plus what its finite
+        intake locations have left to dispense.
+
+        `None` only when some intake location for this type is itself
+        unmetered (absent from `station_supply`, which means "unlimited"
+        -- see `world_view.station_has_supply`): summing a real count
+        against an unknown one would just undercount, not estimate, so
+        the whole type is treated as not scarce. A type with no intake
+        location at all is fully known from its loose pieces alone and
+        never returns `None`.
+
+        Alliance-scoped the same way `world_view.station_options` is: the
+        opponent's stock of the same type is a different resource, and
+        counting it in would make a robot's own supply look healthier
+        than it is."""
+        cached = self._supply.get(piece_type, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        match, robot = self.match, self.robot
+        locations = [
+            loc for loc in getattr(getattr(match, "field", None), "intake_locations", ())
+            if loc.piece_type == piece_type and (loc.alliance is None or loc.alliance == robot.alliance)
+        ]
+        supply = getattr(match, "station_supply", None)
+        if supply is None or any(loc not in supply for loc in locations):
+            result = None
+        else:
+            loose = len(world_view.collectable_pieces(match, piece_type=piece_type, robot=robot))
+            result = float(loose + sum(supply[loc] for loc in locations))
+        self._supply[piece_type] = result
+        return result
+
+
+_MISSING = object()
 
 
 class Pursue(Tactic):
@@ -1807,6 +1861,8 @@ class Pursue(Tactic):
         Param("reliability_weight", kind="float", default=RELIABILITY_WEIGHT, min=0.0, max=1.0),
         Param("contest_penalty", kind="float", default=CONTEST_PENALTY, min=0.0, max=1.0),
         Param("claim_penalty", kind="float", default=CLAIM_PENALTY, min=0.0, max=1.0),
+        Param("scarcity_weight", kind="float", default=0.0, min=0.0, max=1.0),
+        Param("scarcity_floor", kind="float", default=SCARCITY_FLOOR, min=0.5, max=12.0),
     )
 
     def __init__(
@@ -1818,6 +1874,8 @@ class Pursue(Tactic):
         reliability_weight: float = RELIABILITY_WEIGHT,
         contest_penalty: float = CONTEST_PENALTY,
         claim_penalty: float = CLAIM_PENALTY,
+        scarcity_weight: float = 0.0,
+        scarcity_floor: float = SCARCITY_FLOOR,
         replan_period: float = 0.5,
     ):
         self.switch_margin = switch_margin
@@ -1827,6 +1885,8 @@ class Pursue(Tactic):
         self.reliability_weight = reliability_weight
         self.contest_penalty = contest_penalty
         self.claim_penalty = claim_penalty
+        self.scarcity_weight = scarcity_weight
+        self.scarcity_floor = scarcity_floor
         # Five times Score's and Collect's, and not a copy of their
         # cadence by oversight. Those replan a *target* -- which face,
         # which feeder -- and want to react to a defender arriving. This
@@ -1921,6 +1981,25 @@ class Pursue(Tactic):
         float Param is tunable by `strategy_params` for free."""
         return 1.0 - self.reliability_weight * (1.0 - probability)
 
+    def _scarcity(self, prospects: "_Prospects", piece_type: str) -> float:
+        """What is left of a fetch's value as the type it would collect
+        runs low field-wide -- distinct from `_pressure`, which prices
+        who is standing on a feature *this tick* and forgets the instant
+        they leave. A station camped for the whole match and one bumped
+        for five seconds look identical to `_pressure` once the bump
+        ends; this is what lets the denial's effect outlast the denier.
+
+        Skips the lookup entirely at the default weight of 0.0, so a
+        strategy that has never been tuned for this term pays nothing
+        for it and behaves exactly as it did before the term existed."""
+        if self.scarcity_weight <= 0.0:
+            return 1.0
+        remaining = prospects.remaining_supply(piece_type)
+        if remaining is None:
+            return 1.0
+        fraction = min(1.0, remaining / max(1e-6, self.scarcity_floor))
+        return 1.0 - self.scarcity_weight * (1.0 - fraction)
+
     def _pressure(self, prospects: "_Prospects", *features) -> float:
         """What is left of a job's value after the robots already on the
         field features it needs.
@@ -1977,7 +2056,9 @@ class Pursue(Tactic):
         payoff = outcome.enables
         if payoff is None:
             return 0.0
-        return self.lookahead_weight * self._expected_rate(
+        piece_type = getattr(outcome.payload, "piece_type", None)
+        scarcity = 1.0 if piece_type is None else self._scarcity(prospects, piece_type)
+        return scarcity * self.lookahead_weight * self._expected_rate(
             prospects, payoff.points, outcome.duration + payoff.duration,
             payoff.success_probability, (outcome.payload, payoff.payload),
         )

@@ -28,7 +28,7 @@ RICH = "rich"
 POINTS = {("drop_cheap", "auto"): 2.0, ("drop_rich", "auto"): 30.0}
 
 
-def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100)) -> FieldConfig:
+def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100), feeder_pieces: int | None = 99) -> FieldConfig:
     def box(cx, cy, half=20):
         return ((cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half))
 
@@ -41,7 +41,7 @@ def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100)) -> FieldConfig:
         actions=frozenset({"drop_rich"}), piece_types=frozenset({RICH}),
     )
     feeder = IntakeLocation(
-        name="feeder", vertices=box(*feeder_at), piece_type=RICH, starting_pieces=99,
+        name="feeder", vertices=box(*feeder_at), piece_type=RICH, starting_pieces=feeder_pieces,
     )
     return FieldConfig(
         width=1200, height=200, scoring_regions=(cheap_goal, rich_goal), intake_locations=(feeder,),
@@ -452,11 +452,12 @@ def test_pricing_a_batch_matches_pricing_each_option_alone():
 # not worth the tick it costs.
 
 
-def far_fetch_field():
+def far_fetch_field(feeder_pieces: int | None = 99):
     """A quick, cheap deposit underfoot and a rich one at the end of a
     long trip. Fetching wins on rate when there is time for it, which is
-    what makes it possible to show the clock taking it away."""
-    return make_field(feeder_at=(600, 100), rich_goal_at=(640, 100))
+    what makes it possible to show the clock -- or scarcity -- taking it
+    away."""
+    return make_field(feeder_at=(600, 100), rich_goal_at=(640, 100), feeder_pieces=feeder_pieces)
 
 
 def job_durations(match, robot):
@@ -663,4 +664,119 @@ def test_contention_is_asked_once_per_feature(monkeypatch):
     for _ in range(5):
         prospects.contention(region)
     assert len(calls) == 1
+
+
+# --- scarcity ----------------------------------------------------------
+#
+# What `_pressure` cannot see: not who is standing on a feature this
+# instant, but whether the type itself is running out field-wide. A
+# station camped for the whole match and one bumped for five seconds
+# look identical to `_pressure` the moment the bump ends; scarcity is
+# what lets the effect outlast the denier.
+
+
+def test_remaining_supply_counts_loose_pieces_and_station_stock():
+    """The count `_scarcity` discounts against: what's still sitting loose
+    on the field plus what the station has left to hand out, not just one
+    or the other."""
+    match = make_match(make_field(feeder_pieces=5))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    match.spawn_piece(RICH, (400, 100))
+    match.spawn_piece(RICH, (500, 100))
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) == 7.0
+
+
+def test_remaining_supply_is_none_when_a_station_is_unmetered():
+    """An unlimited station cannot run low by definition, so there is
+    nothing here for the term to ramp against."""
+    match = make_match(make_field(feeder_pieces=None))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) is None
+
+
+def test_remaining_supply_is_fully_known_without_a_station():
+    """CHEAP has no intake location in the test field at all, so its
+    supply is exactly its loose pieces -- a known count, not `None`.
+    Unmetered only means "some tracked location for this type is
+    unlimited"; having no location at all is the opposite case."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(CHEAP) == 0.0
+
+
+def test_remaining_supply_ignores_the_opponents_station():
+    """The opponent's stock of the same type is a different resource --
+    counting it in would make this robot's own supply look healthier
+    than it actually is."""
+    def box(cx, cy, half=20):
+        return ((cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half))
+
+    blue_feeder = IntakeLocation(
+        name="blue_feeder", vertices=box(20, 100), piece_type=RICH, starting_pieces=1, alliance="blue",
+    )
+    red_feeder = IntakeLocation(
+        name="red_feeder", vertices=box(1180, 100), piece_type=RICH, starting_pieces=50, alliance="red",
+    )
+    field = FieldConfig(width=1200, height=200, scoring_regions=(), intake_locations=(blue_feeder, red_feeder))
+    match = make_match(field)
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) == 1.0
+
+
+def test_scarcity_is_inert_at_the_default_weight():
+    """0.0 by default, so a strategy nobody has tuned for this term pays
+    nothing for it -- the same shape `reliability_weight` and
+    `lookahead_weight` default to."""
+    prospects = SimpleNamespace(remaining_supply=lambda piece_type: 0.0)
+    assert tactics.Pursue()._scarcity(prospects, RICH) == 1.0
+
+
+def test_scarcity_ramps_toward_the_floor_as_supply_runs_out():
+    """Full value with `scarcity_floor` or more left, a straight line
+    down from there -- the same ramp shape as `_time_fit`, for the same
+    reason: the count that matters is an estimate, and a hard cliff would
+    make one more piece on the field worth everything."""
+    tactic = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 4.0), RICH) == 1.0
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 2.0), RICH) == 0.5
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 0.0), RICH) == 0.0
+
+
+def test_scarcity_is_partial_below_full_weight():
+    """Below 1.0 the discount stops short of the floor's full bite -- the
+    same shape `_reliability` uses for the same reason: how much to
+    trust the signal is a separate question from what it says."""
+    tactic = tactics.Pursue(scarcity_weight=0.5, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 0.0), RICH) == 0.5
+
+
+def test_scarcity_is_neutral_when_the_type_is_unmetered():
+    tactic = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: None), RICH) == 1.0
+
+
+def test_a_nearly_exhausted_feeder_makes_fetching_the_worse_job():
+    """The case scarcity exists for: not a defender standing at the
+    feeder this instant, but the feeder itself down to its last piece.
+    Ignoring that keeps a robot setting off for a resource about to run
+    out from under it instead of banking what it already holds."""
+    match = make_match(far_fetch_field(feeder_pieces=1))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    give(match, robot, CHEAP)
+
+    unaware = tactics.Pursue()
+    settle(unaware, context(match, robot))
+    assert isinstance(unaware.active_tactic, tactics.Collect)
+
+    aware = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=10.0)
+    settle(aware, context(match, robot))
+    assert isinstance(aware.active_tactic, tactics.Score)
 
