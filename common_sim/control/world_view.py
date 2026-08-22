@@ -106,6 +106,27 @@ def _distance(a, b) -> float:
     return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
 
+def station_has_supply(match, station: IntakeLocation) -> bool:
+    """Whether `station` still has anything to dispense.
+
+    Defaults to True for a station the match does not track at all -- an
+    unmetered human player, or a duck-typed match in a test -- because
+    "no entry in the table" means unlimited here, not empty.
+
+    Split out of `station_options` so a tactic already committed to a
+    station can re-ask the one part of that legality that can go stale
+    underneath it. It can and does: a REEFSCAPE REEF ALGAE position
+    holds exactly one, and a robot that arrives to find its target
+    already taken is standing on furniture.
+
+    The sim has always known this -- `Match.step` gates
+    `Robot.update_station_intake` on the same counter and simply
+    declines to dispense. What was missing was any way for the control
+    layer to ask, so a committed tactic ran an intake that could never
+    complete against a patience clock that had stopped."""
+    return match.station_supply.get(station, 1) > 0
+
+
 def station_options(match, robot: Robot) -> list[IntakeLocation]:
     """Intake locations with remaining supply whose piece type `robot`
     has a side configured to intake, and capacity left for."""
@@ -113,8 +134,7 @@ def station_options(match, robot: Robot) -> list[IntakeLocation]:
     for location in match.field.intake_locations:
         if location.alliance is not None and location.alliance != robot.alliance:
             continue
-        remaining = match.station_supply.get(location, 1)
-        if remaining <= 0:
+        if not station_has_supply(match, location):
             continue
         if not any(
             robot.characteristics.side_intake_accepts(side, location.piece_type, source="station") for side in SIDES

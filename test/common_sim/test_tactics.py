@@ -1418,3 +1418,58 @@ def test_score_re_picks_when_its_target_never_completes():
         tactic.tick(ctx)
         ctx.elapsed += ctx.dt
     assert tactic._current is not committed
+
+
+def test_collect_lets_go_of_a_station_that_has_run_dry():
+    """A committed station that runs out is not a trip going badly, it
+    is a target that has stopped being a target -- so it is dropped at
+    once, the way a piece somebody else picked up is.
+
+    The robot is parked on the feed on purpose, because that is the case
+    every other release path misses: `_station_stalled` stops its clock
+    while the robot is being served, on the theory that an intake under
+    way should finish, and `_better_station_exists` wants the committed
+    station to be *full*, which an empty one is not. Measured before the
+    fix: a robot reached a REEFSCAPE REEF ALGAE position, found it
+    emptied, and sat on it for the remaining 126 seconds of the match."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    match.station_supply[NEAR_FEEDER] = 0
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert tactic._target_station.name == "far_feeder"
+
+
+def test_a_station_that_ran_dry_is_not_put_on_cooldown():
+    """Cooldown is for a station this robot failed to get served at, so
+    it stops going back. An empty one needs no such memory: it is
+    already excluded by `world_view.station_options` for exactly as long
+    as it is empty, and a station an emitter refills should be available
+    again the tick it is."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    match.station_supply[NEAR_FEEDER] = 0
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert not tactic._station_cooldowns
+
+
+def test_collect_gives_up_when_the_last_station_runs_dry():
+    """Nothing left to collect at all -- which is a FAILURE the arbiter
+    above can act on (strategy._FAILED_RULE_SUPPRESSION), not a wait."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station is not None
+
+    match.station_supply[NEAR_FEEDER] = 0
+    status = tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert status is Status.FAILURE

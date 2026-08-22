@@ -22,7 +22,7 @@ from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import INTAKE_SOURCES, RobotCharacteristics, SideManipulators, SIDES
 from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
-from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
+from game_specific.reefscape.scoring import DEFAULT_SCORING_RELIABILITY_BY_ACTION, REEFSCAPE_SCORING_RULES
 from gui_utils import theme
 from gui_utils.doc_tags import document
 
@@ -97,6 +97,7 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
         deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
         accepted_piece_types=frozenset({"coral", "algae"}),
         scoring_reliability_by_type=dict(DEFAULT_SCORING_RELIABILITY),
+        scoring_reliability_by_action=dict(DEFAULT_SCORING_RELIABILITY_BY_ACTION),
     )
     defaults.update(overrides)
     return RobotCharacteristics(**defaults)

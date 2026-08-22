@@ -343,7 +343,11 @@ class Match:
 
     def _roll_scoring_success(self, robot: Robot, piece: GamePiece) -> bool:
         """Whether a deliberate scoring attempt by `robot` lands, per its
-        RobotCharacteristics.scoring_reliability_for(piece.piece_type).
+        RobotCharacteristics.reliability_for(piece.piece_type,
+        piece.target_action) -- the action matters because a REEF branch
+        is harder to hit than a trough, and `target_action` is already
+        settled by the time a deposit completes (it is what `_try_score`
+        scores against).
         Only ever consulted for the explicit deposit-into-a-ready-region
         path in step() -- a piece that merely drifts/bounces into a region
         later (passive scoring) isn't a robot "attempt" and always keeps
@@ -351,7 +355,7 @@ class Match:
         (the default for any unconfigured type) so the common case never
         draws from self._rng, keeping existing sims' RNG draw sequence
         untouched."""
-        reliability = robot.characteristics.reliability_for(piece.piece_type)
+        reliability = robot.characteristics.reliability_for(piece.piece_type, piece.target_action)
         if reliability >= 1.0:
             return True
         return self._rng.random() < reliability

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, NamedTuple, NamedTuple
 
 from common_sim.control import utility, world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
@@ -1132,11 +1132,30 @@ class Collect(Tactic):
             self._piece_cooldowns[self._target_piece] = _FAILED_PIECE_COOLDOWN
             self._piece_elapsed = 0.0
             target_lost = True
+        # The station counterpart of "somebody else took the piece": the
+        # supply ran out. Unconditional, like its piece twin -- no
+        # patience clock, no reconsideration cadence, and no requirement
+        # that somewhere better exist -- because this is not a trip going
+        # badly, it is a target that has stopped being a target at all.
+        #
+        # Every other release below is guarded on something that an empty
+        # station does not satisfy, so without this the commitment is
+        # permanent: `_station_stalled` stops its clock while
+        # `_holds_station` is true, on the reasonable theory that an
+        # intake under way should be allowed to finish -- but nothing is
+        # under way, the station has nothing to give -- and
+        # `_better_station_exists` wants the committed station to be
+        # *full*, which an empty one conspicuously is not. Measured on
+        # blue={pursue, pursue} vs block/supply: a robot reached a REEF
+        # ALGAE position at t=24, found it emptied, and sat on it with an
+        # intake it could not fill for the remaining 126 seconds.
+        if self._target_station is not None and not world_view.station_has_supply(ctx.match, self._target_station):
+            target_lost = True
         # Two ways off a committed station. The cheap one: it filled up
         # and another has room, which is strictly better than waiting.
         # Guarded on the other station actually having room so this can't
         # cycle between two equally crowded ones.
-        if self._target_station is not None and reconsider and self._better_station_exists(ctx):
+        elif self._target_station is not None and reconsider and self._better_station_exists(ctx):
             target_lost = True
         # The one that catches a defender: the trip has simply taken too
         # long. A station being denied never reads as full -- the defender
@@ -1413,6 +1432,124 @@ class Score(Tactic):
         return region is not None and region.name == self._current.region.name
 
 
+# How much of a job's value a robot already on the field feature it needs
+# takes away, per robot (see `Pursue._pressure`).
+#
+# An opposing defender declaring your target halves the job. A teammate
+# already working it costs far less, because a teammate is a queue that
+# is moving -- it will load or score and leave -- while an opponent is
+# not a queue at all. That is the same distinction Collect draws in
+# `_station_stalled`, for the same reason.
+#
+# Measured on the 2v2 defense bench, 8 seeds, against the same tactic
+# with both at zero: +23.0 points on block/supply and +8.5 on
+# shadow/supply -- the two rows where a defender camps the feeder, which
+# is what the term is for -- and roughly a wash elsewhere, except
+# block/any at -16.5 which is not explained. Summed across the grid it
+# is +23.8, which at ~5-9 points of standard error per row is a weak
+# result carried by one strong row. Kept because the mechanism is
+# principled and the row it targets moves a lot; both are flat float
+# Params, so Phase F's search tunes them without new code.
+CONTEST_PENALTY = 0.5
+CLAIM_PENALTY = 0.2
+
+
+# How much room a job has to leave on the clock to be worth its full
+# value to Pursue (see `Pursue._time_fit`). A job that will finish with
+# this many seconds to spare is priced at face value; one that exactly
+# fills the time remaining is priced at zero, and the ramp between the
+# two is where an ETA that is a little optimistic gets caught.
+#
+# One CORAL cycle on the REEFSCAPE bench is 8-12s, so this is roughly
+# "half a cycle of slack": long enough to cover the error in an
+# obstacle-routed estimate, short enough that it does not start refusing
+# work with twenty seconds left.
+TIME_FIT_SLACK = 4.0
+
+
+class _Ranking(NamedTuple):
+    """One arbitration's answer: what each job is worth per second, and
+    which flavour of it was priced.
+
+    The piece type is handed down to Collect, because *what kind of
+    thing is worth fetching* is the value judgement Pursue just made and
+    Collect ranks supply on ETA alone -- it cannot re-derive one from
+    the other.
+
+    There is deliberately no matching action for Score. Handing one down
+    was tried and measured: it cost 51 points a match under
+    `block/scoring`, because `_score_rate` ranks a single next deposit
+    while Score's planner ranks a *sequence* over everything held, and a
+    REEF branch's value depends on what is already on it
+    (`match.region_full`). Piece type is a genuine either/or -- fetch
+    CORAL or fetch ALGAE, not both. Which action to score is not: the
+    robot will put down everything it carries eventually, so that is a
+    sequencing question, and sequencing is what the planner is for.
+    Pinned to the one-step argmax, a robot committed to PROCESSOR on 68
+    of 93 re-picks and scored 32 pieces where the planner scored 43."""
+
+    score_rate: float
+    collect_rate: float
+    collect_type: "str | None"
+
+
+class _Prospects:
+    """The context one arbitration pass values its outcomes in: how much
+    match is left, and how contested each field feature is.
+
+    Both are per-pass rather than per-outcome because neither can change
+    while a pass runs and both are asked over and over inside one.
+    `region_occupants` in particular walks every robot on the field and
+    runs a point-in-polygon per one, while an arbitration prices a
+    deposit per (region, action) pair -- REEFSCAPE's four levels across
+    six REEF faces bring the same six polygons round four times each.
+    The same redundancy `utility.TravelCache` exists for, and the same
+    fix.
+
+    Duck-typed on `match` throughout, as world_view is: a stub match
+    with no `config` reports an unknown clock rather than an expired
+    one, because "the match is over" zeroes every job on the board and
+    is an expensive thing to say by accident.
+    """
+
+    __slots__ = ("match", "robot", "remaining", "_contention")
+
+    def __init__(self, match, robot):
+        self.match = match
+        self.robot = robot
+        total = getattr(getattr(match, "config", None), "total_duration", None)
+        self.remaining = None if total is None else total - match.elapsed
+        self._contention: dict[str, tuple[int, int]] = {}
+
+    def contention(self, feature) -> tuple[int, int]:
+        """(opposing defenders denying `feature`, everybody else working
+        it), for a scoring region or an intake location -- which are the
+        same `.name` + `.vertices` pair to everything downstream. A
+        ScoringOption is unwrapped to the region it names, so a caller
+        can hand over an Outcome's payload without knowing which kind it
+        got.
+
+        The two counts are disjoint on purpose. A denier declares the
+        feature as its `intent.target_region`, which is exactly what
+        makes `region_occupants` count it too, so charging both raw
+        would price one defender as two robots and leave the two
+        penalties impossible to weigh against each other.
+
+        (0, 0) for anything that is neither: a loose piece on the floor
+        has no name for a defender to declare and no polygon to stand
+        in, so nobody can be denying it."""
+        feature = getattr(feature, "region", feature)
+        name = getattr(feature, "name", None)
+        if name is None or not getattr(feature, "vertices", None):
+            return (0, 0)
+        counts = self._contention.get(name)
+        if counts is None:
+            deniers = len(world_view.region_denied_by(self.match, name, self.robot.alliance))
+            occupants = len(world_view.region_occupants(self.match, feature, exclude=self.robot))
+            counts = self._contention[name] = (deniers, max(0, occupants - deniers))
+        return counts
+
+
 class Pursue(Tactic):
     """Chooses between *fetching* and *scoring* by what each is worth per
     second, then hands the job to Collect or Score to actually do.
@@ -1476,6 +1613,10 @@ class Pursue(Tactic):
         Param("switch_margin", kind="float", default=0.25, min=0.0, max=2.0),
         Param("min_commit", kind="float", default=2.0, min=0.0, suffix=" s"),
         Param("lookahead_weight", kind="float", default=1.0, min=0.0, max=2.0),
+        Param("time_fit_slack", kind="float", default=TIME_FIT_SLACK, min=0.0, suffix=" s"),
+        Param("reliability_weight", kind="float", default=0.0, min=0.0, max=1.0),
+        Param("contest_penalty", kind="float", default=CONTEST_PENALTY, min=0.0, max=1.0),
+        Param("claim_penalty", kind="float", default=CLAIM_PENALTY, min=0.0, max=1.0),
     )
 
     def __init__(
@@ -1483,11 +1624,19 @@ class Pursue(Tactic):
         switch_margin: float = 0.25,
         min_commit: float = 2.0,
         lookahead_weight: float = 1.0,
+        time_fit_slack: float = TIME_FIT_SLACK,
+        reliability_weight: float = 0.0,
+        contest_penalty: float = CONTEST_PENALTY,
+        claim_penalty: float = CLAIM_PENALTY,
         replan_period: float = 0.5,
     ):
         self.switch_margin = switch_margin
         self.min_commit = min_commit
         self.lookahead_weight = lookahead_weight
+        self.time_fit_slack = time_fit_slack
+        self.reliability_weight = reliability_weight
+        self.contest_penalty = contest_penalty
+        self.claim_penalty = claim_penalty
         # Five times Score's and Collect's, and not a copy of their
         # cadence by oversight. Those replan a *target* -- which face,
         # which feeder -- and want to react to a defender arriving. This
@@ -1529,71 +1678,154 @@ class Pursue(Tactic):
         self._commit_elapsed = 0.0
         self._reconsider.reset()
 
-    def _cycle_rate(self, outcome) -> float:
+    def _time_fit(self, prospects: "_Prospects", duration: float) -> float:
+        """How much of a job's value survives the clock: all of it with
+        `time_fit_slack` seconds to spare, none once the job no longer
+        fits in what is left, a straight line between.
+
+        This half is arithmetic rather than taste. A fetch is priced on
+        the deposit it enables, and a deposit that happens after the
+        buzzer scores nothing -- so without it a robot holding a piece
+        it could put down right now still sets off across the field at
+        t=147 for a cycle it cannot finish, and the fetch that "wins"
+        the arbitration returns exactly zero points.
+
+        The taste is only in how sharp the edge is. Zero slack makes it
+        a cliff, which is wrong for the reason every other estimate here
+        carries a margin: `duration` is an ETA over an obstacle-routed
+        path, and a job worth everything on one tick and nothing on the
+        next flips back and forth across the boundary."""
+        remaining = prospects.remaining
+        if remaining is None:
+            return 1.0
+        if self.time_fit_slack <= 0.0:
+            return 1.0 if duration < remaining else 0.0
+        return min(1.0, max(0.0, (remaining - duration) / self.time_fit_slack))
+
+    def _reliability(self, probability: float) -> float:
+        """The fraction of a deposit's points to expect, given how often
+        it actually lands.
+
+        `success_probability` has been populated on every Outcome since
+        Phase A and multiplied into nothing, deliberately: utility.py
+        generates candidates and folding reliability into a ranking is a
+        behavior change. This is where it becomes one, behind a weight
+        that is 0.0 by default -- so the ranking is Phase B's exactly
+        until somebody configures a robot that misses."""
+        return 1.0 - self.reliability_weight * (1.0 - probability)
+
+    def _pressure(self, prospects: "_Prospects", *features) -> float:
+        """What is left of a job's value after the robots already on the
+        field features it needs.
+
+        Job-level, and that is the whole reason it lives here rather
+        than one layer down. Score already re-picks among regions that
+        have room and Collect already races teammates for a feeder --
+        but neither can conclude that *this kind of job* has stopped
+        being worth doing. A robot whose every scoring face is being
+        denied should go fetch; one whose supply is camped should put
+        down what it is already holding. Only something holding both
+        jobs at once can say that, and saying it is what this tactic is
+        for.
+
+        Compounds per robot rather than saturating, so a second defender
+        on the same feature costs as much again as the first."""
+        factor = 1.0
+        for feature in features:
+            deniers, crowd = prospects.contention(feature)
+            factor *= (1.0 - self.contest_penalty) ** deniers
+            factor *= (1.0 - self.claim_penalty) ** crowd
+        return factor
+
+    def _expected_rate(self, prospects, points, duration, probability, features) -> float:
+        """Points per second of commitment, after everything the raw
+        Outcome does not know: whether the job fits inside the match,
+        how often the deposit lands, and who else is on the field
+        features it needs.
+
+        Every term is a multiplier on the points, never on the seconds.
+        A contested region does not take longer to score in -- it scores
+        less often -- and keeping the denominator as the honest ETA is
+        what stops these weights from quietly re-pricing the commitment
+        they are supposed to be judging."""
+        value = points * self._reliability(probability) * self._time_fit(prospects, duration)
+        return value * self._pressure(prospects, *features) / max(1e-6, duration)
+
+    def _score_rate(self, prospects: "_Prospects", outcome) -> float:
+        """A deposit's rate: `Outcome.value_rate` with the context terms
+        applied."""
+        return self._expected_rate(
+            prospects, outcome.points, outcome.duration,
+            outcome.success_probability, (outcome.payload,),
+        )
+
+    def _cycle_rate(self, prospects: "_Prospects", outcome) -> float:
         """Points per second for a pickup: the deposit it enables, over
         the whole trip out and back. Zero when there is nowhere legal to
-        put the thing -- collecting it then genuinely buys nothing."""
+        put the thing -- collecting it then genuinely buys nothing.
+
+        Both ends are charged for contention: a camped feeder spoils the
+        trip out, a denied REEF face spoils the trip back, and a fetch
+        has to survive both to be worth making."""
         payoff = outcome.enables
         if payoff is None:
             return 0.0
-        return self.lookahead_weight * payoff.points / max(1e-6, outcome.duration + payoff.duration)
+        return self.lookahead_weight * self._expected_rate(
+            prospects, payoff.points, outcome.duration + payoff.duration,
+            payoff.success_probability, (outcome.payload, payoff.payload),
+        )
 
-    def _rank(self, ctx: BehaviorContext) -> tuple[float, float]:
-        """(best scoring rate, best fetching rate) from where the robot
-        stands right now. Either is 0.0 when that job has no candidate at
-        all, which is also what a candidate worth nothing scores -- the
-        two cases are the same decision here, so they are not
-        distinguished."""
-        score_rate, collect_rate, _ = self._rank_with_type(ctx)
-        return score_rate, collect_rate
+    def _rank_jobs(self, ctx: BehaviorContext) -> _Ranking:
+        """Price both jobs from where the robot stands right now.
 
-    def _rank_with_type(self, ctx: BehaviorContext) -> tuple[float, float, "str | None"]:
-        """`_rank`, plus which piece type the winning pickup was for.
+        A rate of 0.0 means that job has nothing worth doing -- either no
+        candidate at all, or only candidates worth nothing. The two are
+        the same decision here, so they are not distinguished.
 
-        The type is carried out because handing it to Collect is what
-        makes the arbitration mean what it says. Pursue decides *what
-        kind of thing is worth fetching* -- that is the value question it
-        just priced, and the whole difference between a 2-point piece and
-        a 30-point one. Collect decides *which one of that kind, and how*
-        -- contention races, patience clocks, approach geometry -- which
-        is not re-derivable from a rate. Leaving it unset would let
-        Collect fetch the cheap type on a shorter drive and quietly
-        discard the comparison."""
+        Ties within a job go to the first candidate, which is the order
+        `utility` emits them in (piece, then region, then action) -- the
+        same tie-break `max` gave before, kept deliberately so the
+        emission order stays part of the behavior rather than becoming
+        accidental."""
         match, robot = ctx.match, ctx.robot
         travel = utility.TravelCache(match.field, robot.characteristics)
+        prospects = _Prospects(match, robot)
+
         score_rate = max(
-            (outcome.value_rate for outcome in utility.score_outcomes(match, robot, travel=travel)),
+            (self._score_rate(prospects, outcome)
+             for outcome in utility.score_outcomes(match, robot, travel=travel)),
             default=0.0,
         )
+
         collect_rate, collect_type = 0.0, None
         for outcome in utility.collect_outcomes(match, robot, travel=travel):
-            rate = self._cycle_rate(outcome)
+            rate = self._cycle_rate(prospects, outcome)
             if rate > collect_rate:
                 collect_rate, collect_type = rate, getattr(outcome.payload, "piece_type", None)
-        return score_rate, collect_rate, collect_type
+        return _Ranking(score_rate, collect_rate, collect_type)
 
     def _arbitrate(self, ctx: BehaviorContext) -> None:
-        score_rate, collect_rate, collect_type = self._rank_with_type(ctx)
-        if score_rate <= 0.0 and collect_rate <= 0.0:
+        ranking = self._rank_jobs(ctx)
+        if ranking.score_rate <= 0.0 and ranking.collect_rate <= 0.0:
             self._select(ctx, None)
             return
 
         # Ties go to scoring: the points are in hand and the fetch side's
         # rate is a prediction of a trip not yet made.
-        best = self._collect if collect_rate > score_rate else self._score
+        best = self._collect if ranking.collect_rate > ranking.score_rate else self._score
 
         if self._active is not None and self._active is not best:
             # A swap. It has to clear both gates or the incumbent keeps
             # the robot.
             if self._commit_elapsed < self.min_commit:
                 return
-            incumbent = score_rate if self._active is self._score else collect_rate
-            challenger = collect_rate if best is self._collect else score_rate
+            incumbent = ranking.score_rate if self._active is self._score else ranking.collect_rate
+            challenger = ranking.collect_rate if best is self._collect else ranking.score_rate
             if challenger <= incumbent * (1.0 + self.switch_margin):
                 return
 
         if best is self._collect:
-            self._aim_collect_at(ctx, collect_type)
+            self._aim_collect_at(ctx, ranking.collect_type)
         self._select(ctx, best)
 
     def _aim_collect_at(self, ctx: BehaviorContext, piece_type: "str | None") -> None:

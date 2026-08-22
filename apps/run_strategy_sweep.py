@@ -18,6 +18,7 @@ from common_sim.analysis.sweep_spec import MatchSpec, RobotSpec, SweepVariable, 
 from common_sim.analysis.variability import VariabilityModel
 from common_sim.robot.characteristics import RobotCharacteristics
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
+from game_specific.reefscape.scoring import DEFAULT_SCORING_RELIABILITY_BY_ACTION
 from game_specific.reefscape.sweep_trial import STRATEGIES_DIR, SWEEP_DT, run_trial
 
 DEFAULT_PIECE_CAPACITY = {CORAL_TYPE: 1, ALGAE_TYPE: 1}
@@ -33,6 +34,7 @@ def build_characteristics() -> RobotCharacteristics:
         intake_time_by_type=dict(DEFAULT_INTAKE_TIMES), station_intake_time=0.6, intake_range=6.0,
         deposit_time=0.5, deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
         accepted_piece_types=frozenset({CORAL_TYPE, ALGAE_TYPE}),
+        scoring_reliability_by_action=dict(DEFAULT_SCORING_RELIABILITY_BY_ACTION),
     )
 
 

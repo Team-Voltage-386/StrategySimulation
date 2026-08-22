@@ -154,7 +154,7 @@ def _score_outcome(option: ScoringOption, robot: "Robot", piece_type: str) -> Ou
         label=f"score {option.action} @ {option.region.name}",
         points=option.points,
         duration=option.travel_time + option.deposit_time,
-        success_probability=robot.characteristics.reliability_for(piece_type),
+        success_probability=robot.characteristics.reliability_for(piece_type, option.action),
         payload=option,
     )
 

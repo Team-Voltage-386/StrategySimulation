@@ -300,3 +300,53 @@ def test_collect_outcomes_empty_when_no_supply_exists():
     match = make_match(make_field(intake_locations=()))
     robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
     assert utility.collect_outcomes(match, robot) == []
+
+
+def test_reliability_scales_the_type_by_the_action():
+    """Two axes that have to stay independent: the type says how good
+    this robot's mechanism for that game piece is, the action says how
+    hard that particular target is. A REEF branch and a trough take the
+    same CORAL, so a per-type number alone cannot tell them apart."""
+    characteristics = make_characteristics(
+        scoring_reliability_by_type={WIDGET: 0.8},
+        scoring_reliability_by_action={"score_widget": 0.5},
+    )
+    assert characteristics.reliability_for(WIDGET, "score_widget") == 0.4
+    # An action nobody configured does not scale its type at all, and
+    # asking without an action is the old per-type question unchanged.
+    assert characteristics.reliability_for(WIDGET, "something_else") == 0.8
+    assert characteristics.reliability_for(WIDGET) == 0.8
+    assert make_characteristics().reliability_for(WIDGET, "score_widget") == 1.0
+
+
+def test_score_outcomes_charge_the_action_they_would_attempt():
+    """The number a tactic plans on has to be the number the sim rolls
+    against, or every context weight built on it is measuring a
+    different robot than the one playing."""
+    match = make_match()
+    characteristics = make_characteristics(
+        scoring_reliability_by_type={WIDGET: 0.8},
+        scoring_reliability_by_action={"score_widget": 0.5},
+    )
+    robot = match.add_robot(characteristics, Pose2d(0, 0, 0))
+    give(match, robot)
+    outcome = utility.score_outcomes(match, robot)[0]
+    assert outcome.success_probability == 0.4
+    assert outcome.success_probability == characteristics.reliability_for(WIDGET, outcome.payload.action)
+
+
+def test_the_sim_rolls_against_the_action_being_attempted():
+    """`piece.target_action` is settled by the time a deposit completes
+    -- it is what `_try_score` scores against -- so the roll can and
+    must use it."""
+    match = make_match()
+    robot = match.add_robot(
+        make_characteristics(scoring_reliability_by_action={"sure_thing": 1.0, "never": 0.0}),
+        Pose2d(0, 0, 0),
+    )
+    piece = match.spawn_piece(WIDGET, (0, 0))
+
+    piece.target_action = "never"
+    assert match._roll_scoring_success(robot, piece) is False
+    piece.target_action = "sure_thing"
+    assert match._roll_scoring_success(robot, piece) is True
