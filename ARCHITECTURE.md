@@ -64,6 +64,13 @@ common_sim/
     field_config.py      FieldConfig dataclass: dims, obstacles, ScoringRegion / PieceSpawnRegion /
                           IntakeLocation / EmitterRegion / ProtectedZone lists
     game_piece.py         GamePiece base: pymunk body/shape + type tag
+    validation.py          Static checks on a built FieldConfig -- unreachable scoring regions,
+                            unregistered piece types, actions worth nothing, mis-linked emitters,
+                            gaps narrower than a robot. Every one of them is a mistake that
+                            otherwise produces a plausible-looking *wrong match* rather than an
+                            error. Imports control.navigation on purpose: the question "can a
+                            robot park somewhere that scores here" has to be asked with the same
+                            geometry the robot will use
   robot/
     characteristics.py    RobotCharacteristics dataclass: speed, accel, size, capacity, intake/deposit time,
                             scoring reliability per piece type and per action (a REEF branch is harder to hit
@@ -144,7 +151,7 @@ gui_utils/               (existing — extended, not replaced)
                                    entry beside them (apps/build_guide.py reads them back).
 
 game_specific/
-  reefscape/                concrete REEFSCAPE field/pieces/scoring (the one game currently plugged in)
+  reefscape/                concrete REEFSCAPE field/pieces/scoring (the real game)
     field.py                 concrete FieldConfig instance (alliance-owned scoring regions/stations)
     game_pieces.py             concrete GamePiece subclasses (CORAL, ALGAE)
     scoring.py                    concrete ScoringRules + per-action scoring reliability
@@ -155,6 +162,16 @@ game_specific/
                                          the match builder MATCH-tab replay shares with the SWEEP tab.
                                          SWEEP_DT (1/60, pinned by MATCH-tab replay) and SEARCH_DT (1/30,
                                          for search, which never needs scrubbing) live here
+  salvage/                  SALVAGE 2027 -- an *invented* game, written as a dry run for the
+                               two-day new-game turnaround this whole layout exists to support.
+                               Deliberately awkward where REEFSCAPE is smooth: 7 obstacles rather
+                               than 2, 3 piece types sourced 3 different ways, a finite contested
+                               neutral depot, shared scoring capacity, scoring value that moves
+                               (and reorders) at the phase boundary, and holds whose value,
+                               reliability and travel are all coupled. Same file set as
+                               reefscape/, plus robot.py -- the reference robot, which on
+                               REEFSCAPE lives in apps/ and is duplicated there.
+                               Findings: DRY_RUN_LOG.md
 
 apps/
   run_reefscape.py        Interactive REEFSCAPE viewer: MATCH tab (keyboard+gamepad+AI roster) +
@@ -178,6 +195,15 @@ apps/
   run_defense_bench.py      Head-to-head (red plan x blue plan) grid measuring what a full-time defender
                                costs the alliance it defends -- the one thing a one-sided strategy sweep
                                structurally cannot show, since a defender scores nothing itself
+  run_salvage_bench.py       The same idea on the dry-run game, but *paired*: every blue plan is run on
+                                the same seeds as the baseline and reported as a per-seed difference, which
+                                resolves an order of magnitude better than differencing two means. A second
+                                copy rather than a second arm because run_defense_bench and run_stall_audit
+                                both import game_specific.reefscape at module scope -- see DRY_RUN_LOG.md, F6
+  run_stall_audit.py         Frozen-robot detector over the same grid: longest motionless span per robot per
+                                match, with what the robot was *asking* for while frozen (translation and
+                                rotation separately -- a robot can be held rotationally while commanding no
+                                translation at all) and how much match was left when it moved again
   run_calibration.py         Prints what batch sizes this particular machine can finish
   run_param_search.py         Best-response-per-design: CMA-ES over a strategy's continuous fields, once per
                                  design point, so a design is judged by its own tuned strategy rather than by
