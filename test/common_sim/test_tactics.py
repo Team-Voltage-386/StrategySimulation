@@ -1608,3 +1608,57 @@ def test_a_feeder_an_opponent_holds_is_not_resurrected_by_the_fallback():
     friendly_tactic = tactics.Collect(piece_type=WIDGET)
     friendly_tactic._station_cooldowns["only_feeder"] = 20.0
     assert friendly_tactic._best_station(friendly_ctx)[0] is friendly_feeder
+
+
+# A feeder on the far side of the STRUCTURE from the robot's start, so
+# the only way there is around it -- and a robot that ends up with its
+# bumper against the obstacle is not going to arrive.
+BEHIND_FEEDER = IntakeLocation(
+    name="behind_feeder", vertices=((205, 82), (241, 82), (241, 118), (205, 118)),
+    piece_type=WIDGET, starting_pieces=5,
+)
+
+
+def test_collect_releases_a_station_it_is_wedged_short_of():
+    """The third instance of "committed to a target the robot can never
+    reach", after the emptied REEF ALGAE position and the denied feeder.
+
+    Measured on blue={pursue_tuned} vs block/supply: a robot routing to
+    an ALGAE staging position on the far REEF face wedged its bumper on
+    the hex and commanded ~107 in/s into it for 120s of a 150s match.
+    Every other release is blind to it -- the station is not full, not
+    empty, and has no opponent on it -- so the elapsed clock overruns and
+    then `_better_station_exists` asks for somewhere else of the same
+    type to go, which the alliance's last ALGAE position does not have.
+    Three of 24 seeds collapsed to 55-64 points against a 212 median.
+    """
+    field = make_field(intake_locations=(BEHIND_FEEDER,), obstacles=(STRUCTURE,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    # Parked against the structure, one feeder, no alternative to leave
+    # for -- exactly the shape that made the commitment permanent.
+    robot = match.add_robot(make_characteristics(), Pose2d(139, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot, feeders=(BEHIND_FEEDER,))
+    assert tactic._target_station is not None
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN * 2 + 1.0)
+    assert tactic._target_station is None or tactic._station_cooldowns, (
+        "a robot wedged on field geometry must let go of the station it "
+        "cannot reach, even with no alternative of that type"
+    )
+
+
+def test_collect_still_waits_out_a_defender_in_open_space():
+    """The other half of the same decision, and the reason the release
+    above is gated on being against an obstacle: a robot held off the
+    only feeder by a *defender* is stationary too, and from inside the
+    tactic the two look identical. A defender moves eventually and
+    touring the field instead measured as a loss, so this one must keep
+    waiting -- clear of geometry, nothing is released."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot, feeders=(NEAR_FEEDER,))
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN * 2 + 1.0)
+    assert tactic._target_station is not None
+    assert not tactic._station_cooldowns

@@ -14,7 +14,9 @@ from typing import Literal, NamedTuple, NamedTuple
 
 from common_sim.control import utility, world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
-from common_sim.control.navigation import NavigateTo, clear_standoff, estimate_travel_time
+from common_sim.control.navigation import (
+    NavigateTo, clear_standoff, estimate_travel_time, polygon_distance,
+)
 from common_sim.control.param import Param
 from common_sim.control.planning import GreedyRatePlanner, ScorePlanner
 from common_sim.field.field_config import IntakeLocation, point_in_polygon, polygon_centroid
@@ -259,6 +261,26 @@ _PIECE_PATIENCE_MIN = 8.0
 # and well under the intake reach it is trying to close.
 _PIECE_PROGRESS_EPSILON = 3.0
 
+# The same ratchet, for a committed *station* (see `_station_stalled`).
+#
+# The piece escape's docstring used to say the station escape did not need
+# a progress test. That was wrong, and the case it misses is not subtle: a
+# robot routing around the REEF to an ALGAE staging position on the far
+# face can wedge its bumper against the hex and command ~107 in/s into it
+# for the rest of the match without moving an inch. Every existing release
+# is blind to that -- the station is not full, not empty, and has no
+# opponent on it, so the elapsed clock runs past its patience and then
+# stops at `_better_station_exists`, which wants somewhere else of the
+# same type to go. Once the alliance's other five ALGAE positions are
+# consumed there is nowhere, and the commitment becomes permanent.
+#
+# Measured on blue={pursue_tuned} vs block/supply, 24 seeds: 3 of them
+# collapsed to 55-64 points against a 212 median, one robot frozen for
+# 120s of a 150s match. Distance to the aim point, not to the centroid,
+# so queueing a footprint back (see `_station_aim`) is not read as a
+# stall.
+_STATION_PROGRESS_EPSILON = 3.0
+
 # How long a piece given up on stays out of the running -- longer than the
 # patience above, for the reason `_FAILED_STATION_COOLDOWN` spells out at
 # length: a give-up has to outlast the trip it sends you on, or the robot
@@ -456,6 +478,8 @@ class Collect(Tactic):
         # has to outlive one collect cycle to mean anything.
         self._station_elapsed = 0.0
         self._station_patience = _STATION_PATIENCE_MIN
+        self._station_closest = math.inf
+        self._station_stuck = 0.0
         self._station_cooldowns: dict[str, float] = {}
 
         # The same escape for a committed loose piece (see
@@ -473,6 +497,8 @@ class Collect(Tactic):
         self._target_station = None
         self._start_held_count = None
         self._station_elapsed = 0.0
+        self._station_closest = math.inf
+        self._station_stuck = 0.0
         self._piece_elapsed = 0.0
         self._piece_closest = math.inf
         self._reconsider.reset()
@@ -998,6 +1024,8 @@ class Collect(Tactic):
         it started is the same attempt continuing."""
         if station is not self._target_station:
             self._station_elapsed = 0.0
+            self._station_closest = math.inf
+            self._station_stuck = 0.0
             self._station_patience = max(
                 _STATION_PATIENCE_MIN,
                 _STATION_PATIENCE_RATIO * (eta + ctx.robot.characteristics.station_intake_time),
@@ -1027,8 +1055,10 @@ class Collect(Tactic):
         else.
 
         What the budget is spent on is time making no progress, not elapsed
-        time -- see `_PIECE_PROGRESS_EPSILON` for why this escape needs that
-        and the station one does not. Every fresh closest approach restarts
+        time -- see `_PIECE_PROGRESS_EPSILON` for why. `_station_stalled`
+        carries the same ratchet for the same reason; it did not
+        originally, and `_STATION_PROGRESS_EPSILON` records what that
+        cost. Every fresh closest approach restarts
         the clock, so a slow trip that is still closing is never given up
         on, however far the piece is or however awkwardly it is placed.
 
@@ -1067,6 +1097,30 @@ class Collect(Tactic):
         self._piece_elapsed += ctx.dt
         return self._piece_elapsed >= self._piece_patience
 
+    def _wedged(self, ctx: BehaviorContext) -> bool:
+        """Whether the chassis is up against a static obstacle.
+
+        The one signal that separates "a defender is holding me off the
+        feed" from "my bumper is on the REEF", which are otherwise the
+        same observation -- a robot that is not moving and not arriving.
+        Obstacles are field geometry, so unlike a defender they are never
+        going to clear, and a commitment that depends on one moving is a
+        commitment for the rest of the match.
+
+        Deliberately a footprint test, not a contact test: the physics
+        contact set is not exposed here, and a chassis whose half-extent
+        overlaps an obstacle boundary is wedged closely enough for the
+        purpose whether or not a solver pair happens to be live this
+        tick."""
+        field = getattr(ctx.match, "field", None)
+        obstacles = getattr(field, "obstacles", ())
+        if not obstacles:
+            return False
+        characteristics = ctx.robot.characteristics
+        half_extent = math.hypot(characteristics.width, characteristics.length) / 2.0
+        point = (ctx.robot.pose.x, ctx.robot.pose.y)
+        return any(polygon_distance(point, o.vertices) < half_extent for o in obstacles)
+
     def _station_stalled(self, ctx: BehaviorContext) -> bool:
         """Whether the committed station has taken long enough without
         delivering that it is worth trying the other one.
@@ -1097,9 +1151,43 @@ class Collect(Tactic):
             return False
         if self._served_by_teammate(ctx, self._target_station):
             return False
+        # The progress ratchet, exactly `_piece_stalled`'s: every fresh
+        # closest approach to the aim point restarts the stuck clock, so a
+        # slow trip that is still closing never spends any of it, and a
+        # robot that has stopped closing spends all of it. Measured
+        # against the *best* approach so far rather than the last one, so
+        # routing around the REEF (which increases the distance before it
+        # decreases) is not mistaken for a stall.
+        aim_x, aim_y = self._station_aim(ctx)
+        distance = math.hypot(aim_x - ctx.robot.pose.x, aim_y - ctx.robot.pose.y)
+        if distance < self._station_closest - _STATION_PROGRESS_EPSILON:
+            self._station_closest = distance
+            self._station_stuck = 0.0
+        else:
+            self._station_stuck += ctx.dt
+
         self._station_elapsed += ctx.dt
         if self._station_elapsed < self._station_patience:
             return False
+        # A trip that has stopped closing *while the chassis is against
+        # static geometry* is not a slow trip, it is a trip that is not
+        # happening: the bumper is on the REEF and the drive is commanding
+        # full speed into it. Released with no alternative required, for
+        # the same reason `_piece_stalled` needs none -- requiring one
+        # makes the escape silent in precisely the case that costs the
+        # most, the last station of a type the arbiter above has pointed
+        # us at. See `_STATION_PROGRESS_EPSILON` for the measurement.
+        #
+        # The obstacle test is what keeps this from swallowing the
+        # deliberate decision beside it (`test_collect_keeps_the_only_
+        # station_however_long_it_takes`): a robot held off a feeder by a
+        # *defender* is stationary too, and from inside this tactic the
+        # two are otherwise identical. Waiting out a defender is right --
+        # it moves eventually, and touring the field instead measured as a
+        # loss. Waiting out the REEF is not; it will still be there at the
+        # buzzer.
+        if self._station_stuck >= self._station_patience and self._wedged(ctx):
+            return True
         # An opponent physically on the feed is its own reason to leave,
         # with no alternative required. The "somewhere to give up to"
         # rule below is about preferring a better trip to a worse one,
