@@ -668,9 +668,24 @@ def clear_standoff(
     Prefers approaching from wherever the robot already is, and rotates
     away from that bearing only as far as it must to keep the chassis --
     its real `width` x `length` rectangle, not a point -- out of the
-    field's obstacles. Falls back to the preferred bearing when no angle
-    is clear, since a pose the robot can't quite reach still beats no
-    target at all."""
+    field's obstacles *and* inside the field perimeter. Falls back to the
+    preferred bearing when no angle is clear, since a pose the robot
+    can't quite reach still beats no target at all.
+
+    The perimeter matters here for the same reason it matters in
+    `plan_path`: it is a wall, and it is the one wall no `FieldConfig`
+    lists among its obstacles. Without it the spiral will happily park a
+    robot's chassis three inches through the guardrail whenever the
+    preferred bearing points at a nearby wall -- the robot then drives
+    into it, is held there by the contact solver, and never "arrives" at
+    a target it is standing on top of. A scoring region a robot's length
+    from a wall makes that the *common* case rather than a corner case,
+    which is how the SALVAGE dry run surfaced it (DRY_RUN_LOG.md).
+
+    The chassis is tested against the perimeter at its true size, not
+    the `margin`-grown size used against obstacles: a robot is allowed
+    to put its bumper on the wall (a REEFSCAPE CORAL STATION is loaded
+    from exactly there), it is only not allowed to be outside it."""
     grown_width, grown_length = width + 2.0 * margin, length + 2.0 * margin
     # Every chassis this loop builds has its center exactly `distance`
     # from `aim` and reaches at most half its own diagonal past that, so
@@ -682,24 +697,64 @@ def clear_standoff(
     # returns on the first bearing.
     reach = distance + math.hypot(grown_length / 2.0, grown_width / 2.0)
     obstacles = [o.vertices for o in field.obstacles if polygon_distance(aim, o.vertices) <= reach]
+    # That same disc decides whether the perimeter can matter at all, at
+    # the cost of four comparisons -- so an aim out in open field keeps
+    # the original fast path, tests nothing extra, and returns on the
+    # first bearing exactly as before.
+    near_wall = (
+        aim[0] - reach < 0.0 or aim[1] - reach < 0.0
+        or aim[0] + reach > field.width or aim[1] + reach > field.height
+    )
     bearing = math.atan2(from_point[1] - aim[1], from_point[0] - aim[0])
     step = 2.0 * math.pi / _STANDOFF_SAMPLES
     preferred = None
+    # When no bearing satisfies both constraints, these are what is left:
+    # the nearest pose that clears the obstacles but hangs outside the
+    # perimeter, and the nearest that is inside the perimeter but sits on
+    # a structure. Obstacle-clear is ranked first, which keeps this
+    # function's older contract intact on a field whose geometry makes
+    # the pair unsatisfiable; neither is reachable, and with `Score`'s
+    # overrun ratchet a target that cannot be reached now expires
+    # instead of being retried forever.
+    clear_only = None
+    inside_only = None
     for offset in _spiral_offsets(step, _STANDOFF_SAMPLES):
         angle = bearing + offset
         center = (aim[0] + math.cos(angle) * distance, aim[1] + math.sin(angle) * distance)
         # The side's outward normal must point from the center at `aim`,
         # i.e. back along the standoff direction.
         heading = wrap_angle(angle + math.pi - side_local_angle)
+        pose = (center[0], center[1], heading)
         if preferred is None:
-            preferred = (center[0], center[1], heading)
-        if not obstacles:
+            preferred = pose
+        if not obstacles and not near_wall:
             return preferred
-        chassis = footprint_polygon(center, heading, grown_width, grown_length)
-        if not any(convex_overlap(chassis, vertices) for vertices in obstacles):
-            return (center[0], center[1], heading)
+        in_field = not near_wall or _footprint_in_field(
+            footprint_polygon(center, heading, width, length), field,
+        )
+        if obstacles:
+            chassis = footprint_polygon(center, heading, grown_width, grown_length)
+            clear = not any(convex_overlap(chassis, vertices) for vertices in obstacles)
+        else:
+            clear = True
+        if clear and in_field:
+            return pose
+        if clear and clear_only is None:
+            clear_only = pose
+        elif in_field and inside_only is None:
+            inside_only = pose
     assert preferred is not None
-    return preferred
+    return clear_only or inside_only or preferred
+
+
+def _footprint_in_field(polygon: tuple[Point, ...], field: FieldConfig) -> bool:
+    """Whether every corner of a chassis footprint is inside the field
+    perimeter. Inclusive at the boundary -- bumper-on-the-wall is a
+    legal, and often required, place to park."""
+    return all(
+        0.0 <= x <= field.width and 0.0 <= y <= field.height
+        for x, y in polygon
+    )
 
 
 def _spiral_offsets(step: float, samples: int):

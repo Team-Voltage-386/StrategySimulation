@@ -540,3 +540,40 @@ def test_corridor_cull_slack_widens_with_the_field_structures():
 
     assert nav._within_corridor([off_line], empty, own_radius, start, goal) == []
     assert nav._within_corridor([off_line], with_structure, own_radius, start, goal) == [off_line]
+
+
+def test_clear_standoff_keeps_the_chassis_inside_the_field():
+    """A wall is geometry too, and it is the one piece of geometry no
+    FieldConfig lists among its obstacles.
+
+    The aim here is ten inches from the top wall and the robot is coming
+    at it from beyond that wall, so the straight-on approach parks the
+    chassis outside the field. A robot sent there drives into the
+    guardrail and is held by it, having "arrived" at nothing -- which is
+    how the SALVAGE dry run lost a robot for 110 seconds of a match
+    (DRY_RUN_LOG.md, F1)."""
+    field = FieldConfig(width=300, height=200)
+    aim = (150, 190)
+    x, y, heading = clear_standoff(
+        field, aim, from_point=(150, 260), distance=14.0,
+        width=28.0, length=28.0, side_local_angle=0.0,
+    )
+    chassis = footprint_polygon((x, y), heading, 28.0, 28.0)
+    assert all(0.0 <= px <= field.width and 0.0 <= py <= field.height for px, py in chassis)
+    # Still a real standoff pose, not a clamped one.
+    assert math.isclose(math.hypot(x - aim[0], y - aim[1]), 14.0, abs_tol=1e-6)
+
+
+def test_clear_standoff_still_takes_the_preferred_bearing_in_open_field():
+    """Control for the test above: away from every wall and obstacle the
+    perimeter check must not perturb anything, since the fast path that
+    returns on the first bearing is most of what this function costs."""
+    field = FieldConfig(width=300, height=200)
+    aim = (150, 100)
+    x, y, heading = clear_standoff(
+        field, aim, from_point=(150, 40), distance=14.0,
+        width=28.0, length=28.0, side_local_angle=0.0,
+    )
+    assert math.isclose(x, 150.0, abs_tol=1e-6)
+    assert math.isclose(y, 86.0, abs_tol=1e-6)
+    assert math.isclose(heading, math.pi / 2.0, abs_tol=1e-6)
