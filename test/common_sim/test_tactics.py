@@ -1721,9 +1721,36 @@ def test_collect_still_waits_out_a_defender_in_open_space():
     waiting -- clear of geometry, nothing is released."""
     field = make_field(intake_locations=(NEAR_FEEDER,))
     match = make_match(field, auto_duration=1000, teleop_duration=1000)
-    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    # Clear of the wall by a comfortable margin, not by inches: this
+    # asserts the *unwedged* branch, so a robot that is only barely clear
+    # would let the test keep passing while measuring something else.
+    robot = match.add_robot(make_characteristics(), Pose2d(28, 100, 0))
     tactic = _collect_tactic_at_stations(match, robot, feeders=(NEAR_FEEDER,))
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._wedged(ctx)
 
     _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN * 2 + 1.0)
     assert tactic._target_station is not None
     assert not tactic._station_cooldowns
+
+
+def test_collect_counts_the_field_boundary_as_geometry_it_can_wedge_on():
+    """The walls are geometry too, and are not in `field.obstacles` --
+    that list holds the REEFs, while the boundary is just `width` and
+    `height`. Testing obstacles alone left the corners uncovered, which
+    is the worst place to miss: a robot in a corner is against two
+    surfaces at once and least able to shake itself loose.
+
+    Found by `apps/run_stall_audit`, which reported a robot motionless at
+    (21,21) for 129 seconds of a 150 second match with the nearest listed
+    obstacle 149 inches away."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    corner = match.add_robot(make_characteristics(), Pose2d(6, 6, 0))
+    tactic = _collect_tactic_at_stations(match, corner, feeders=(NEAR_FEEDER,))
+    assert tactic._wedged(BehaviorContext(robot=corner, dt=1.0 / 60.0, match=match))
+
+    # ...and a robot the same distance from the middle of nowhere is not.
+    open_field = match.add_robot(make_characteristics(), Pose2d(150, 100, 0))
+    other = _collect_tactic_at_stations(match, open_field, feeders=(NEAR_FEEDER,))
+    assert not other._wedged(BehaviorContext(robot=open_field, dt=1.0 / 60.0, match=match))

@@ -1131,15 +1131,32 @@ class Collect(Tactic):
         contact set is not exposed here, and a chassis whose half-extent
         overlaps an obstacle boundary is wedged closely enough for the
         purpose whether or not a solver pair happens to be live this
-        tick."""
+        tick.
+
+        The field boundary counts as much as an `Obstacle` does, and is
+        not one -- `FieldConfig.obstacles` holds the REEFs, while the
+        walls are just `width` and `height`. Testing only the obstacle
+        list missed the corners entirely, which is where a robot ends up
+        wedged against *two* surfaces at once and is least able to
+        recover. Found by `apps/run_stall_audit`: a robot sat at (21,21)
+        for 129 seconds of a 150 second match reading as unwedged, with
+        the nearest listed obstacle 149 inches away."""
         field = getattr(ctx.match, "field", None)
-        obstacles = getattr(field, "obstacles", ())
-        if not obstacles:
+        if field is None:
             return False
         characteristics = ctx.robot.characteristics
         half_extent = math.hypot(characteristics.width, characteristics.length) / 2.0
-        point = (ctx.robot.pose.x, ctx.robot.pose.y)
-        return any(polygon_distance(point, o.vertices) < half_extent for o in obstacles)
+        x, y = ctx.robot.pose.x, ctx.robot.pose.y
+        width = getattr(field, "width", None)
+        height = getattr(field, "height", None)
+        if width is not None and height is not None and min(
+            x, y, width - x, height - y
+        ) < half_extent:
+            return True
+        return any(
+            polygon_distance((x, y), o.vertices) < half_extent
+            for o in getattr(field, "obstacles", ())
+        )
 
     def _station_stalled(self, ctx: BehaviorContext) -> bool:
         """Whether the committed station has taken long enough without
