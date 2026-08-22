@@ -42,6 +42,17 @@ def piece_spec(piece_type: str) -> GamePieceSpec:
     return _PIECE_SPECS.get(piece_type, GamePieceSpec())
 
 
+def has_piece_spec(piece_type: str) -> bool:
+    """Whether this type was ever registered, as opposed to falling back
+    to `GamePieceSpec()`'s defaults.
+
+    `piece_spec` deliberately never fails -- a match must not die because
+    a piece type is unknown -- which also means an unregistered type is
+    invisible at runtime and simply comes out the default size. This is
+    how a checker asks the question `piece_spec` refuses to answer."""
+    return piece_type in _PIECE_SPECS
+
+
 class GamePiece:
     def __init__(
         self,
