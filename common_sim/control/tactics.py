@@ -675,13 +675,48 @@ class Collect(Tactic):
                    for other in ctx.match.robots)
 
     def _held_by_opponent(self, ctx: BehaviorContext, station: IntakeLocation) -> bool:
-        """Whether an opponent is physically on `station`. Engagement
-        only, not a declared claim: a claim is a race we might win (see
-        `_station_has_room_for`), and treating one as possession hands a
-        defender both feeders for the price of announcing them."""
-        return any(other.alliance != ctx.robot.alliance
-                   and _robot_engaged_with_station(other, station)
-                   for other in ctx.match.robots)
+        """Whether an opponent's *body* is on `station`.
+
+        Bodies only, never a declared claim: a claim is a race we might
+        win (see `_station_has_room_for`), and treating one as
+        possession hands a defender both feeders for the price of
+        announcing them.
+
+        Engagement alone is too narrow a test for a body, though.
+        `_robot_engaged_with_station` is the sim's dispensing check, and
+        `nearby_station()` is alliance-scoped -- it never names a blue
+        location for a red robot -- so against an opponent it collapses
+        to "is its centre inside the polygon". A REEFSCAPE ALGAE
+        position is 20in across and a chassis is 28in, so a defender
+        parked squarely over one sits outside that test while its
+        bumpers cover the spot.
+
+        Measured on block/scoring seed 5035: a defender at (177,206),
+        against a polygon whose x ends at 176.4, read as absent. The
+        robot whose only approach it occupied orbited 25-45in out for
+        110 seconds -- past ten times its patience -- because this
+        predicate is the escape for exactly that case and could not see
+        it. Its teammate, deferring to the claim it kept publishing,
+        froze 58in out for 76 seconds.
+
+        So ask the footprint. The radius is the *inscribed* half-extent,
+        the distance inside which an overlap is certain, rather than
+        `_wedged`'s circumscribed one: this decides whether to abandon a
+        trip, so it should fire only when the spot is definitely covered
+        and not merely when it might be. A robot passing nearby is not
+        holding anything, and the clock this sits behind
+        (`_station_patience`) has already established that we have not
+        been closing for a while."""
+        for other in ctx.match.robots:
+            if other.alliance == ctx.robot.alliance:
+                continue
+            if _robot_engaged_with_station(other, station):
+                return True
+            characteristics = other.characteristics
+            half_extent = min(characteristics.width, characteristics.length) / 2.0
+            if polygon_distance((other.pose.x, other.pose.y), station.vertices) <= half_extent:
+                return True
+        return False
 
     def _best_station(self, ctx: BehaviorContext) -> tuple[IntakeLocation | None, float]:
         match, robot = ctx.match, ctx.robot

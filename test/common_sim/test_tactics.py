@@ -1754,3 +1754,71 @@ def test_collect_counts_the_field_boundary_as_geometry_it_can_wedge_on():
     open_field = match.add_robot(make_characteristics(), Pose2d(150, 100, 0))
     other = _collect_tactic_at_stations(match, open_field, feeders=(NEAR_FEEDER,))
     assert not other._wedged(BehaviorContext(robot=open_field, dt=1.0 / 60.0, match=match))
+
+
+def test_collect_yields_to_an_opponent_whose_bumpers_cover_the_feed():
+    """Engagement is the sim's *dispensing* test and it is alliance-
+    scoped, so against an opponent it collapses to "is its centre in the
+    polygon". A station 20in across and a chassis 28in wide means a
+    defender parked squarely over one sits outside that test with its
+    bumpers on the spot.
+
+    Measured on block/scoring seed 5035: a defender at (177,206) against
+    a polygon ending at x=176.4 read as absent, and the robot whose only
+    approach it occupied orbited for 110 seconds -- ten times its
+    patience -- because this predicate is that robot's escape."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    # Centre 6in clear of the polygon, so the old test says absent --
+    # but a 28in chassis reaches 14in, so the feed is under its bumpers.
+    blocker = match.add_robot(make_characteristics(), Pose2d(156, 100, 0), alliance="red")
+    assert not tactics._robot_engaged_with_station(blocker, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._held_by_opponent(ctx, station)
+
+
+def test_collect_does_not_call_a_passing_opponent_a_blocked_feed():
+    """The radius is the inscribed half-extent -- the distance inside
+    which an overlap is certain -- because this decides whether to
+    abandon a trip. A robot merely near the feeder is not holding it,
+    and treating it as though it were hands away the same denial for
+    free that the claim rules already refuse to pay for."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    passer = match.add_robot(make_characteristics(), Pose2d(180, 100, 0), alliance="red")
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)
+
+
+def test_collect_treats_a_teammate_on_the_feed_as_a_queue_not_a_blockage():
+    """The whole distinction the escape turns on. A teammate covering
+    the feed will load and leave, so the wait is a queue that is moving
+    and the trip we chose is still the right one. Widening the body test
+    must not swallow that."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    match.add_robot(make_characteristics(), Pose2d(156, 100, 0), alliance=robot.alliance)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)
