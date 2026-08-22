@@ -650,9 +650,36 @@ class Collect(Tactic):
         # Stations recently given up on drop out -- unless that leaves
         # nothing, in which case every feeder is being denied at once and
         # going back to the nearest one and waiting is the best available
-        # play. Falling back rather than failing also keeps this from
-        # ever being the reason a robot has no target at all.
-        stations = [s for s in stations if s.name not in self._station_cooldowns] or stations
+        # play.
+        #
+        # That fallback stops at a station an opponent is *physically*
+        # parked on, and without that exception the give-up above is a
+        # no-op: the robot abandons the station, re-picks the only one of
+        # its type on the very next tick, and the cooldown does nothing
+        # but reset a clock. Waiting behind a teammate is a queue and
+        # resolves itself; waiting behind an opponent is the thing the
+        # opponent came to do. Engagement only, matching
+        # `_held_by_opponent` -- a mere claim is a race we might still
+        # win, and conceding to one hands a defender every feeder for the
+        # price of announcing it.
+        #
+        # Returning nothing here is the useful answer rather than a gap,
+        # and it is the same answer the piece side already gives: with no
+        # station left, `_pick_target` weighs loose pieces, and failing
+        # that Collect reports FAILURE -- which is what lets the *caller*
+        # switch jobs. Pursue re-arbitrates to the other piece type; a
+        # rule-based strategy falls through to its next rule. No tactic
+        # pinned to one piece type can make that call from inside its own
+        # scope. Measured on shadow/supply seed 1004: both blue robots
+        # queued 78s past an 8s patience at the one REEF ALGAE position a
+        # red defender was sitting on, with two CORAL STATIONS free and
+        # offered, and the match ended 51-234.
+        available = [s for s in stations if s.name not in self._station_cooldowns]
+        if not available:
+            available = [s for s in stations if not self._held_by_opponent(ctx, s)]
+        if not available:
+            return None, math.inf
+        stations = available
 
         # Same rule Score._pick_option applies to scoring regions: take
         # one nobody is working before contesting one. Two robots both
@@ -1073,6 +1100,20 @@ class Collect(Tactic):
         self._station_elapsed += ctx.dt
         if self._station_elapsed < self._station_patience:
             return False
+        # An opponent physically on the feed is its own reason to leave,
+        # with no alternative required. The "somewhere to give up to"
+        # rule below is about preferring a better trip to a worse one,
+        # which presumes this trip will eventually complete -- and behind
+        # a parked defender it will not. Requiring an alternative *of the
+        # same piece type* made that presumption unfalsifiable at the
+        # last feeder of a type: a robot Pursue had pointed at ALGAE sat
+        # out 70 seconds past its patience at the only ALGAE position on
+        # the field because no second ALGAE position existed to leave
+        # for, while the CORAL it could have fetched instead went
+        # uncollected. Releasing hands the choice up to whoever picked
+        # the type, which is the only layer that can change it.
+        if self._held_by_opponent(ctx, self._target_station):
+            return True
         return any(
             station is not self._target_station
             and station.name not in self._station_cooldowns

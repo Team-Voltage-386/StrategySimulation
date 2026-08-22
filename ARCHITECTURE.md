@@ -295,7 +295,9 @@ can run out: `Collect(piece_type="algae")` whose last reachable ALGAE is
 behind a defender has nowhere to go, and no way to know its strategy also
 has a CORAL rule one priority below. So a piece is *not* re-offered when
 it is the last one (unlike a station, where going back and waiting is
-right, because a station is the only source of its type and regenerates).
+usually right, because a station is the only source of its type and
+regenerates -- but see the sixth case below, where "usually" was doing
+more work than it could carry).
 `Collect` reports `FAILURE` instead, and `_FAILED_RULE_SUPPRESSION` in the
 arbiter is what makes that mean something: a rule whose tactic failed
 yields briefly so a lower-priority rule can have the robot. Before that,
@@ -344,6 +346,47 @@ better exist, and no cooldown either, since an empty station is already
 excluded by `station_options` for exactly as long as it is empty. The
 general rule: distinguish *this attempt is failing* from *this target is
 gone*, and only the first is a matter of patience.
+
+The sixth case is a third thing again -- *this target is real, available,
+and unreachable* -- and it is where the fourth case's reasoning had a
+hole. Requiring somewhere to give up *to* is right when the wait is a
+queue, and the station escape asks for that alternative to be of the same
+piece type. At the last feeder of a type the alternative can never
+exist, so the condition is not merely unmet, it is unfalsifiable: the
+robot waits out the match by construction. Measured on `shadow/supply`
+seed 1004, both blue robots queued at the one REEF ALGAE position a red
+defender was physically parked on, 78 seconds past an 8-second patience,
+holding nothing, while two CORAL STATIONS sat free and offered the whole
+time. The match ended 51-234 and 10 pieces; with the escape it ends
+221 and 54 pieces.
+
+What distinguishes the case is *who* is in the way, and that distinction
+already existed (`_held_by_opponent`, engagement rather than a declared
+claim). A teammate on a feed is a queue that is moving -- it loads and
+leaves. An opponent on a feed is not a queue at all, because standing
+there is the entire reason it came. So an opponent physically on the
+feed is its own reason to leave, with no alternative required.
+
+The fix needed a second half to be a fix at all, which is the part worth
+remembering: `_best_station` falls back to the cooled-down list when
+filtering leaves nothing, so releasing the station and re-picking it on
+the next tick would have made the cooldown a clock reset and nothing
+else. The fallback has to decline to resurrect an opponent-held station
+too. Then `_best_station` returns nothing, `_pick_target` weighs loose
+pieces, and failing that `Collect` reports `FAILURE` and the choice goes
+up to whoever picked the piece type -- Pursue re-arbitrating, or a rule
+strategy falling through. A release the next tick undoes is not a
+release.
+
+It was found by the expected-points ranking rather than by defense work,
+which is the other lesson: that ranking discounts CORAL more than ALGAE
+(L4 lands 0.82 of the time, the PROCESSOR 0.95), so it tilted `Pursue`
+toward the piece type whose entire supply is a few one-piece staging
+positions -- and a latent deadlock needing a scarce contested feeder went
+from never firing to one seed in twelve. Changing what a robot prefers is
+a way of finding out which of your escapes were load-bearing. On the
+grid it is worth +21.3 on the one row it fires (`pursue` /
+`shadow/supply`) and leaves every other cell bit-identical.
 
 **A rate can be modulated, but only by something the robot can act
 on.** `Pursue` prices fetching against scoring in points per second

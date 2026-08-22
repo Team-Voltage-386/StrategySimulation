@@ -1516,3 +1516,95 @@ def test_score_repick_still_takes_the_richer_target_when_it_lands():
     tactic = _score_tactic_holding_piece(match, robot, region="goal")
     assert tactic._current.action == "rich"
 
+
+def _lone_feeder_match(**field_overrides):
+    """One feeder of the collected type and nothing else of it -- the
+    shape in which "give up only if there is somewhere better" becomes
+    "never give up"."""
+    feeder = IntakeLocation(
+        name="only_feeder", vertices=((260, 90), (280, 90), (280, 110), (260, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    field = make_field(intake_locations=(feeder,), **field_overrides)
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    return match, feeder
+
+
+def _park_on(match, station, alliance):
+    """A robot physically on the feed -- what `_held_by_opponent` and
+    `_served_by_teammate` both test, as opposed to merely claiming it."""
+    return match.add_robot(make_characteristics(), Pose2d(270, 100, 0), alliance=alliance)
+
+
+def _wait_out_patience(tactic, ctx, seconds=30.0):
+    for _ in range(int(seconds / ctx.dt)):
+        tactic.tick(ctx)
+
+
+def test_collect_stops_queueing_behind_an_opponent_at_the_only_feeder():
+    """The escape's "somewhere to give up to" rule presumes the trip
+    will eventually complete. Behind a parked defender it will not, and
+    at the last feeder of a type there is nowhere better by definition,
+    so the presumption was unfalsifiable and the robot waited out the
+    match. Releasing hands the choice up to whoever chose the piece
+    type -- the only layer that can change it."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "red")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_station is feeder
+
+    status = Status.RUNNING
+    for _ in range(int(30.0 / ctx.dt)):
+        status = tactic.tick(ctx)
+        if status is Status.FAILURE:
+            break
+    # Nothing of this type left to try, so the tactic fails upward
+    # rather than standing there -- that is what lets Pursue re-arbitrate
+    # to the other piece type, or a rule strategy fall to its next rule.
+    assert status is Status.FAILURE
+    assert "only_feeder" in tactic._station_cooldowns
+
+
+def test_collect_keeps_queueing_behind_a_teammate():
+    """The control. A teammate on the feed is a queue that is moving --
+    it loads and leaves -- so the wait is worth having and none of the
+    above should fire."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "blue")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    for _ in range(int(30.0 / ctx.dt)):
+        assert tactic.tick(ctx) is Status.RUNNING
+    assert tactic._target_station is feeder
+    assert not tactic._station_cooldowns
+
+
+def test_a_feeder_an_opponent_holds_is_not_resurrected_by_the_fallback():
+    """Without this the release above is a no-op: `_best_station` falls
+    back to the cooled-down list when that leaves nothing, so the robot
+    re-picks the one feeder of its type on the very next tick and the
+    cooldown does nothing but reset a clock."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "red")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic._station_cooldowns["only_feeder"] = 20.0
+    assert tactic._best_station(ctx)[0] is None
+
+    # A teammate holding it instead is still a queue, so the fallback
+    # still offers it -- the exception is about *who* is in the way.
+    friendly, friendly_feeder = _lone_feeder_match()
+    ours = friendly.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(friendly, friendly_feeder, "blue")
+    friendly_ctx = BehaviorContext(robot=ours, dt=1.0 / 60.0, match=friendly)
+    friendly_tactic = tactics.Collect(piece_type=WIDGET)
+    friendly_tactic._station_cooldowns["only_feeder"] = 20.0
+    assert friendly_tactic._best_station(friendly_ctx)[0] is friendly_feeder
