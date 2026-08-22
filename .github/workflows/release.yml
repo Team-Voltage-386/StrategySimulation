@@ -31,6 +31,15 @@ jobs:
       - name: Build SparkySim
         run: pyinstaller --noconfirm --clean packaging\sparky_sim.spec
 
+      # Guides are generated, not committed (see apps/build_guide.py) --
+      # this runs on windows-latest specifically because QWidget.grab()
+      # works headlessly there (native Qt plugin, widget laid out but
+      # never shown) without the offscreen-platform font trap that hits
+      # other OSes. Built from the exact tagged commit so screenshots and
+      # callouts can't drift from the code they document.
+      - name: Build user guides
+        run: python -m apps.build_guide
+
       - name: Zip build output
         id: zip
         shell: pwsh
@@ -39,8 +48,14 @@ jobs:
           Compress-Archive -Path "dist\SparkySim\*" -DestinationPath "dist\$zipName" -Force
           echo "zip_path=dist\$zipName" >> $env:GITHUB_OUTPUT
 
+          $docsZipName = "SparkySim_Guides_$($env:GITHUB_REF_NAME).zip"
+          Compress-Archive -Path "docs\*_guide.html" -DestinationPath "dist\$docsZipName" -Force
+          echo "docs_zip_path=dist\$docsZipName" >> $env:GITHUB_OUTPUT
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.zip.outputs.zip_path }}
+          files: |
+            ${{ steps.zip.outputs.zip_path }}
+            ${{ steps.zip.outputs.docs_zip_path }}
           generate_release_notes: true
