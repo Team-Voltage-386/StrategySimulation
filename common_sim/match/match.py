@@ -32,9 +32,12 @@ from common_sim.geometry import Pose2d
 # should not hinge on a sub-millimeter numerical artifact.
 _CONTACT_TOLERANCE = 0.25
 
-# How far past a robot's circumscribed circle Match._trapped_behind looks
-# for whatever is backing it up (in). Slack on purpose: a robot being
-# driven into a wall has nowhere to go some inches before it arrives.
+# Slack for Match._trapped_behind, in inches, on purpose: a robot being
+# driven into something has nowhere to go some inches before it arrives.
+# It buys that slack twice over, once per backstop -- how far past a
+# robot's circumscribed circle the probe looks for an obstacle or a
+# third robot, and how close the robot's own bumpers have to come to the
+# perimeter to count as against it.
 _PIN_BACKSTOP_PROBE = 2.0
 
 
@@ -580,12 +583,39 @@ class Match:
         reach = math.hypot(c.width, c.length) / 2.0 + _PIN_BACKSTOP_PROBE
         point = (victim.pose.x + dx / distance * reach, victim.pose.y + dy / distance * reach)
 
-        if not (0.0 <= point[0] <= self.field.width and 0.0 <= point[1] <= self.field.height):
+        # The perimeter is asked about the victim's own bumpers rather
+        # than the probe point, because it is the one backstop the probe
+        # gets wrong: the point is a full body-radius out, and the field
+        # rectangle happily contains points no robot's *body* could ever
+        # occupy. A robot jammed into a corner with an inch of bumper
+        # clearance on both walls probes to somewhere still nominally
+        # in-bounds and reads as free to retreat -- so a defender leaning
+        # on it committed no pin, never had to release under
+        # `Defend._respect_pin_limit`, and held it there for the rest of
+        # the match. Measured on shadow/supply seed 5010: 129s
+        # motionless while commanding 142 in/s, in contact throughout.
+        if self._against_the_wall(victim, dx, dy):
             return True
         if any(point_in_polygon(point, o.vertices) for o in self.field.obstacles):
             return True
         return any(point_in_polygon(point, other.footprint())
                    for other in self.robots if other is not victim and other is not offender)
+
+    def _against_the_wall(self, victim: Robot, dx: float, dy: float) -> bool:
+        """Whether `victim`'s bumpers are on the perimeter, on a side the
+        push (`dx`, `dy`, pointing away from the offender) is driving it
+        into. Only walls the push actually points at count: a robot
+        shoved *along* a wall is being moved down it, not held against
+        it."""
+        footprint = victim.footprint()
+        xs = [p[0] for p in footprint]
+        ys = [p[1] for p in footprint]
+        return (
+            (dx < 0.0 and min(xs) <= _PIN_BACKSTOP_PROBE)
+            or (dx > 0.0 and max(xs) >= self.field.width - _PIN_BACKSTOP_PROBE)
+            or (dy < 0.0 and min(ys) <= _PIN_BACKSTOP_PROBE)
+            or (dy > 0.0 and max(ys) >= self.field.height - _PIN_BACKSTOP_PROBE)
+        )
 
     def pin_seconds(self, offender: Robot, victim: Robot) -> float:
         """Seconds of unbroken pin `offender` has accumulated against

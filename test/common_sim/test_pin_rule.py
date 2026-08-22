@@ -4,6 +4,10 @@ The pin rule: how long one robot may prevent another from *moving*
 distinction between denying motion and denying access, and Defend's
 obligation to let a mark go before the clock runs out.
 """
+import math
+
+import pytest
+
 from common_sim.control import tactics, world_view
 from common_sim.control.behavior import BehaviorContext
 from common_sim.field.field_config import FieldConfig, PinRule, ScoringRegion
@@ -89,6 +93,36 @@ def test_blocking_the_way_is_not_pinning():
     defender, victim = _shove(match, seconds=10.0, victim_command=(0.0, 150.0), victim_x=150.0)
     assert victim.pose.y > 150.0, "victim should have driven around, not stayed put"
     assert match.pin_fouls == {}
+
+
+def test_a_robot_jammed_into_a_corner_is_trapped_even_where_the_field_still_is():
+    """`_trapped_behind` probes a point a full body-radius out, and a
+    robot wedged into a corner probes to somewhere the field rectangle
+    still contains -- but no robot's *body* could ever sit there. Read
+    off the raw rectangle, the victim looked free to retreat and the
+    defender leaning on it was committing no pin, forever."""
+    match = make_match()
+    # Turned 45 degrees, so a bumper corner points at each wall and the
+    # chassis sits an inch off both -- the pose the sim actually produced.
+    victim = match.add_robot(make_characteristics(), Pose2d(20.8, 20.8, math.pi / 4), alliance="blue")
+    offender = match.add_robot(make_characteristics(), Pose2d(43, 38, 0), alliance="red")
+
+    dx, dy = victim.pose.x - offender.pose.x, victim.pose.y - offender.pose.y
+    reach = math.hypot(28.0, 28.0) / 2.0 + 2.0
+    distance = math.hypot(dx, dy)
+    probe = (victim.pose.x + dx / distance * reach, victim.pose.y + dy / distance * reach)
+    assert 0.0 <= probe[0] and 0.0 <= probe[1], "the probe point is the one that used to answer"
+
+    assert match._trapped_behind(victim, offender)
+
+
+def test_a_robot_shoved_along_a_wall_it_is_not_being_driven_into_is_not_trapped():
+    """Only walls the push points at back a robot up. One being moved
+    *down* a wall is being moved, which is the opposite of pinned."""
+    match = make_match()
+    victim = match.add_robot(make_characteristics(), Pose2d(15, 100, 0), alliance="blue")
+    offender = match.add_robot(make_characteristics(), Pose2d(15, 72, 0), alliance="red")
+    assert not match._trapped_behind(victim, offender)
 
 
 def test_a_robot_that_is_not_trying_to_move_is_not_being_pinned():
@@ -204,6 +238,41 @@ def test_defend_releases_a_mark_it_has_been_holding_too_long():
     # And it has not run away: it is still the thing standing between the
     # mark and the goal it wants.
     assert defender.pose.x > mark.pose.x
+
+
+def test_defend_backs_off_toward_its_own_side_not_through_the_mark():
+    """A shadow block point sits between the mark and what the mark
+    wants, so a defender that arrived from the far side holds a point on
+    the other side of the robot it is touching. Backing off along *that*
+    line is backing off through the mark -- the release makes the shove
+    harder, which is how a defender held a victim in a corner for 129s."""
+    match = make_match()
+    mark = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    defender = match.add_robot(make_characteristics(), Pose2d(178, 100, 0), alliance="red")
+    tactic = tactics.Defend(target="goal", mode="shadow", standoff=24.0)
+    ctx = BehaviorContext(robot=defender, dt=1.0 / 60.0, match=match)
+
+    # A block point on the mark's far side from the defender.
+    x, y = tactic._back_off_from(ctx, mark, 130.0, 100.0)
+
+    assert x > mark.pose.x, "retreat should be on the side the defender occupies"
+    assert math.hypot(x - mark.pose.x, y - mark.pose.y) >= world_view.protection_keepout(defender, mark) - 1e-6
+
+
+def test_defend_still_backs_off_along_the_block_line_it_is_standing_on():
+    """The common case is unchanged: the defender is on the same side as
+    the point it holds, and keeps the angle it earned."""
+    match = make_match()
+    mark = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    defender = match.add_robot(make_characteristics(), Pose2d(178, 100, 0), alliance="red")
+    tactic = tactics.Defend(target="goal", mode="shadow", standoff=24.0)
+    ctx = BehaviorContext(robot=defender, dt=1.0 / 60.0, match=match)
+
+    x, y = tactic._back_off_from(ctx, mark, 165.0, 100.0)
+
+    keepout = world_view.protection_keepout(defender, mark)
+    assert math.hypot(x - mark.pose.x, y - mark.pose.y) == pytest.approx(keepout)
+    assert y == pytest.approx(100.0)
 
 
 def test_pin_pressure_is_zero_on_a_field_without_the_rule():

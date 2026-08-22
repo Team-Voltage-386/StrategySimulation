@@ -2427,21 +2427,40 @@ class Defend(Tactic):
         """Push a block point out to a distance where the two chassis
         cannot touch at any relative heading, along the line it already
         sat on. Shared by the two rules that require a defender to stop
-        making contact without giving up the mark."""
+        making contact without giving up the mark.
+
+        That line is the block point's, not the defender's, so it only
+        means "further out" while the defender is on the same side of the
+        mark as the point it is holding. In `shadow` mode it need not be:
+        the block point sits between the mark and the region the mark
+        wants, and a defender that arrived from the far side is told to
+        retreat straight *through* the robot it is supposed to stop
+        touching -- so it leans harder the moment the pin clock demands
+        it let go. Measured on shadow/supply seed 5010, where the mark
+        was against the corner and the station it wanted was in it: the
+        retreat point came out at (-8.6, -8.6), outside the field, behind
+        both. The release then held the victim motionless for 129s.
+
+        So the mark's bearing to the defender wins whenever the two
+        disagree. The defender keeps the side it actually occupies, which
+        is the side it can withdraw along."""
         keepout = world_view.protection_keepout(ctx.robot, opponent)
-        dx, dy = x - opponent.pose.x, y - opponent.pose.y
+        ox, oy = opponent.pose.x, opponent.pose.y
+        dx, dy = x - ox, y - oy
         distance = math.hypot(dx, dy)
         if distance >= keepout:
             return (x, y)
-        if distance < 1e-6:
-            # Standing on top of the mark: no line to back off along, so
-            # retreat toward where we came from.
-            dx, dy = ctx.robot.pose.x - opponent.pose.x, ctx.robot.pose.y - opponent.pose.y
+        own_x, own_y = ctx.robot.pose.x - ox, ctx.robot.pose.y - oy
+        if distance < 1e-6 or dx * own_x + dy * own_y <= 0.0:
+            # Standing on top of the mark, or holding a point on its far
+            # side: either way there is no line here to back off along,
+            # so retreat toward where we came from.
+            dx, dy = own_x, own_y
             distance = math.hypot(dx, dy)
             if distance < 1e-6:
                 return (x, y)
         scale = keepout / distance
-        return (opponent.pose.x + dx * scale, opponent.pose.y + dy * scale)
+        return (ox + dx * scale, oy + dy * scale)
 
     def tick(self, ctx: BehaviorContext) -> Status:
         self._mark_elapsed += ctx.dt
