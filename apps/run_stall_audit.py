@@ -69,9 +69,11 @@ def audit_trial(job: TrialJob) -> TrialOutcome:
     last = [(r.pose.x, r.pose.y) for r in robots]
     still = [0.0] * len(robots)
     asking = [0.0] * len(robots)
+    spinning = [0.0] * len(robots)
     longest = [0.0] * len(robots)
     frozen_at = [None] * len(robots)
     commanded = [0.0] * len(robots)
+    commanded_spin = [0.0] * len(robots)
     ended_at = [0.0] * len(robots)
     elapsed = 0.0
 
@@ -84,19 +86,23 @@ def audit_trial(job: TrialJob) -> TrialOutcome:
             if moved > STILL_EPSILON:
                 still[i] = 0.0
                 asking[i] = 0.0
+                spinning[i] = 0.0
                 continue
             still[i] += job.dt
             asking[i] += robot.commanded_speed * job.dt
+            spinning[i] += robot.commanded_angular_speed * job.dt
             if still[i] > longest[i]:
                 longest[i] = still[i]
                 frozen_at[i] = (round(robot.pose.x, 1), round(robot.pose.y, 1))
                 commanded[i] = asking[i] / still[i]
+                commanded_spin[i] = spinning[i] / still[i]
                 ended_at[i] = elapsed
 
     stalls = [
         {"robot": job.robots[i].label, "alliance": robots[i].alliance,
          "seconds": round(longest[i], 1), "at": frozen_at[i],
          "commanded": round(commanded[i], 1),
+         "spin": round(commanded_spin[i], 2),
          "ended": round(ended_at[i], 1), "duration": round(elapsed, 1)}
         for i in range(len(robots))
     ]
@@ -136,7 +142,7 @@ def main() -> None:
     findings = [
         (stall["seconds"], out.params["red"], out.seed, stall["robot"],
          stall["at"], out.params["blue_points"], stall["commanded"],
-         stall["duration"] - stall["ended"])
+         stall["spin"], stall["duration"] - stall["ended"])
         for out in outcomes
         for stall in out.params["stalls"]
         if stall["alliance"] == "blue" and stall["seconds"] >= args.threshold
@@ -152,14 +158,14 @@ def main() -> None:
         return
 
     print(f"{'secs':>6}  {'red plan':<16} {'seed':>6}  {'robot':<6} "
-          f"{'frozen at':<16} {'asking':>7} {'left':>6}  {'blue pts':>8}")
-    for seconds, red, seed, robot, at, points, asked, left in findings:
+          f"{'frozen at':<16} {'asking':>7} {'spin':>6} {'left':>6}  {'blue pts':>8}")
+    for seconds, red, seed, robot, at, points, asked, spin, left in findings:
         where = f"({at[0]:.0f},{at[1]:.0f})" if at else "-"
         print(f"{seconds:6.1f}  {red:<16} {seed:>6}  {robot:<6} {where:<16} "
-              f"{asked:7.1f} {left:6.1f}  {points:8.0f}")
+              f"{asked:7.1f} {spin:6.2f} {left:6.1f}  {points:8.0f}")
 
     by_row: dict[str, int] = defaultdict(int)
-    for _, red, seed, _, _, _, _, _ in findings:
+    for _, red, seed, _, _, _, _, _, _ in findings:
         by_row[red] += 1
     print(f"\n{len(findings)} stall(s) over {total} matches. By red plan:")
     for red in RED_PLANS:

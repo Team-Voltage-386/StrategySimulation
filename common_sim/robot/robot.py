@@ -188,8 +188,19 @@ class Robot:
 
     @property
     def commanded_speed(self) -> float:
-        """How fast this robot is *asking* to go, in/s."""
+        """How fast this robot is *asking* to go, in/s.
+
+        Translation only -- a robot asking for rotation and nothing else
+        reads 0.0 here. Anything deciding whether a motionless robot is
+        waiting or being held has to read `commanded_angular_speed` too;
+        see DRY_RUN_LOG.md (F3) for the 110-second stall that was
+        invisible to this number on its own."""
         return self.chassis.commanded_velocity.length
+
+    @property
+    def commanded_angular_speed(self) -> float:
+        """How fast this robot is *asking* to rotate, rad/s, unsigned."""
+        return abs(self.chassis.commanded_omega)
 
     @property
     def speed(self) -> float:
