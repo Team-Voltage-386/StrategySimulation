@@ -80,6 +80,7 @@ RED_PLANS = (
 BLUE_PLANS: dict[str, tuple[str, ...]] = {
     "cycle_coral": ("cycle_coral",),
     "pursue": ("pursue",),
+    "pursue_tuned": ("pursue_tuned",),
     "cycle_coral_evasive": ("cycle_coral_evasive",),
     "algae+coral": ("algae_processor", "cycle_coral"),
 }
