@@ -79,9 +79,13 @@ common_sim/
                                 station supply, opponents, defenders, denial targets, region contention
     navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
     utility.py                 Outcome: any candidate action priced in points/second, deposits and pickups
-                                 alike (a pickup's value is `enables`, the deposit it sets up). Generates
+                                 alike (a pickup's value is `enables`, the deposit it sets up). Ranking
+                                 currency is `expected_rate` -- points discounted by how often this robot
+                                 lands the attempt; `value_rate` is the same number gross. Generates
                                  and prices only -- it does not choose
-    planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
+    planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default, ranks on
+                                 expected_rate, so a flaky high-value target loses to a reliable cheaper
+                                 one at the travel times where that is true), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
     tactics.py                   Collect/Score/Pursue/Defend/RunScript/Idle -- Behaviors that replan their own target
                                    Pursue arbitrates fetch-vs-score on utility.py's rate, then runs Collect or
@@ -362,27 +366,52 @@ a defender camps the feeder, against roughly a wash elsewhere. That is
 the shape to expect from an honest term, and the reason to measure per
 row rather than on a grand mean.
 
-*Reliability* was the instructive failure. `success_probability` sits on
-every `Outcome` and multiplying it in is textbook expected value, but at
-weight 1.0 it lost 48.9 points summed across the grid, so it ships at
-0.0. The reason is worth keeping: `Pursue` chooses *which job*, and
-reliability differs mostly between *actions within* a job (L4 misses far
-more often than L1). Handing the priced action down to `Score` -- the
-obvious fix, and the exact mirror of handing the piece type down to
-`Collect` -- cost 51 points a match under `block/scoring`. Piece type is
-a genuine either/or; which action to score is not, because the robot
-puts down everything it carries eventually. That makes it a *sequencing*
-question, and sequencing is what the planner is for: pinned to a
-one-step argmax the robot committed to PROCESSOR on 68 of 93 re-picks
-and scored 32 pieces where the planner scored 43. A term is only worth
-its tick if some robot can act on it at the layer that computes it.
+*Reliability* took three tries and is the one worth reading. Multiplying
+`success_probability` in is textbook expected value, but as a weight on
+`Pursue` alone it lost 48.9 points summed across the grid. The reason is
+that `Pursue` chooses *which job*, while reliability differs mostly
+between *actions within* a job (L4 misses far more often than L1).
+Handing the priced action down to `Score` -- the obvious fix, the exact
+mirror of handing the piece type down to `Collect` -- cost 51 points a
+match under `block/scoring`: piece type is a genuine either/or, but which
+action to score is not, because the robot puts down everything it carries
+eventually. That makes it a *sequencing* question.
 
-None of this clears the bar `Pursue` was aiming at. It beats
-`cycle_coral` undefended (248.2 against 243.8) and on `shadow/supply`,
-and loses every `block/*` row, worst by 43.6 on `block/any`. The
-utility layer is a better *representation* -- every weight is a flat
+Sequencing is what the planner is for, so that is where the discount
+belongs, and putting it there is the third try. `Outcome.expected_rate`
+(points times probability, over seconds) is now the ranking currency
+everywhere a deposit is chosen -- `GreedyRatePlanner`, `Score`'s re-pick,
+and `best_score_for_type`, the payoff half of a pickup. Reliability then
+reaches the branch choice with nobody pinning anything, and it reaches
+every strategy rather than just `Pursue`. `value_rate` survives beside it
+as the gross number for reporting.
+
+Two things fall out of that. `Pursue`'s weight defaults to 1.0 now, not
+because it wins -- it is worth about 5 points summed, inside a sum's
+noise -- but because at anything less the tactic prices scoring at the
+richest target's gross value while its own `Score` child performs a
+cheaper, likelier one, and the fetch-versus-score comparison is made in a
+currency nobody spends. The older -48.9 was mostly that mismatch. And the
+discount is *asymmetric across piece types* -- CORAL's best action lands
+0.82 of the time against the PROCESSOR's 0.95 -- so it quietly re-weights
+which piece a robot goes for, which is how it surfaced the deadlock in
+"Every commitment needs an expiry" above. A term is only worth its tick
+if some robot can act on it at the layer that computes it; and a term
+that changes what a robot prefers will find out which of your escapes
+were load-bearing.
+
+None of this clears the bar `Pursue` was aiming at, and expected-points
+ranking did not move it closer. Summed over the seven red plans the whole
+package is -20.0 for `pursue` and +6.6 for `cycle_coral`, both inside the
+noise of a seven-row sum, with one real win (`block/supply` +21.0) and a
+scatter of small losses; the strategy sweep is flat to within a point or
+two on all four entries. `Pursue` now loses every row to `cycle_coral`,
+undefended included (244.5 against 249.1), where it used to win that one.
+The utility layer is a better *representation* -- every weight is a flat
 float `Param`, so a search tunes a strategy's reasoning with no new
-search code -- but on this bench it is not yet a better *player*.
+search code -- and it is now internally consistent, in that the currency
+a job is priced in is the currency its target is chosen in. On this bench
+it is still not a better *player*.
 
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-

@@ -522,14 +522,29 @@ def test_time_fit_is_neutral_when_the_clock_is_unknown():
 
 
 def test_reliability_weight_discounts_a_deposit_that_may_miss():
-    """`success_probability` has been populated on every Outcome since
-    Phase A and multiplied into nothing. At weight 1.0 a deposit that
-    lands three times in four is worth three quarters of its points; at
-    0.0 the ranking is exactly what it was before this existed."""
+    """At weight 1.0 a deposit that lands three times in four is worth
+    three quarters of its points; at 0.0 the points are taken gross, as
+    if every attempt landed."""
     assert tactics.Pursue(reliability_weight=1.0)._reliability(0.75) == 0.75
     assert tactics.Pursue(reliability_weight=1.0)._reliability(1.0) == 1.0
     assert tactics.Pursue(reliability_weight=0.0)._reliability(0.75) == 1.0
     assert tactics.Pursue(reliability_weight=0.5)._reliability(0.5) == 0.75
+
+
+def test_the_default_weight_prices_a_job_in_the_currency_it_is_spent_in():
+    """1.0 by default, so `_score_rate`'s numerator is exactly
+    `Outcome.expected_rate`'s -- the quantity the planner underneath
+    actually ranks targets by.
+
+    Any lower and the two layers disagree: this tactic would price
+    scoring at the gross value of the richest target while its own Score
+    child went and performed a cheaper, likelier one, making the
+    fetch-versus-score comparison in a currency nobody spends. The
+    default is that coherence, not a measured gain -- it is worth about
+    5 points summed across the defense bench's seven rows, inside a
+    sum's noise."""
+    assert tactics.Pursue().reliability_weight == 1.0
+    assert tactics.Pursue()._reliability(0.75) == 0.75
 
 
 def test_an_unreliable_rich_deposit_loses_to_a_sure_cheap_one():

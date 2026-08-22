@@ -1473,3 +1473,46 @@ def test_collect_gives_up_when_the_last_station_runs_dry():
     match.station_supply[NEAR_FEEDER] = 0
     status = tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
     assert status is Status.FAILURE
+
+
+def _two_action_match(**characteristics_overrides):
+    """One region, two ways to use it -- `rich` better on gross points
+    per second, `cheap` better once the misses are counted -- with the
+    region pinned so `_pick_option` goes through the re-pick path rather
+    than the planner."""
+    goal = ScoringRegion(
+        name="goal", vertices=((380, 40), (420, 40), (420, 160), (380, 160)),
+        actions=frozenset({"cheap", "rich"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(width=500, height=200, scoring_regions=(goal,))
+    rules = TableScoringRules({("cheap", "auto"): 4.0, ("rich", "auto"): 5.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot = match.add_robot(
+        make_characteristics(deposit_time_by_action={"cheap": 1.0, "rich": 1.8},
+                             **characteristics_overrides),
+        Pose2d(20, 100, 0),
+    )
+    return match, robot
+
+
+def test_score_repicks_on_expected_points_like_the_plan_did():
+    """`_best_valued` is the re-pick path -- a pinned region, or the
+    planner's choice turning out to be crowded. It ranks on expected
+    points for the same reason the planner does, and it has to be the
+    *same* reason: a re-pick ranking on a different quantity would
+    quietly undo the plan it is re-picking within."""
+    match, robot = _two_action_match(
+        scoring_reliability_by_action={"cheap": 0.9, "rich": 0.82},
+    )
+    tactic = _score_tactic_holding_piece(match, robot, region="goal")
+    assert tactic._current.action == "cheap"
+
+
+def test_score_repick_still_takes_the_richer_target_when_it_lands():
+    """Control for the test above -- same geometry, a robot that never
+    misses. Its failure would mean the fixture's travel time has drifted
+    out of the window where the two rankings disagree at all."""
+    match, robot = _two_action_match()
+    tactic = _score_tactic_holding_piece(match, robot, region="goal")
+    assert tactic._current.action == "rich"
+

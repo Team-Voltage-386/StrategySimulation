@@ -8,7 +8,7 @@ given several pieces in hand, which one goes where, and in what order.
 
 `ScoringOption` and `build_option` are re-exported rather than moved out
 of sight, because they were this module's public surface long before
-utility.py existed and Score still imports them from here.
+utility.py existed and callers still import them from here.
 """
 from __future__ import annotations
 
@@ -51,10 +51,27 @@ class GreedyRatePlanner(ScorePlanner):
     it'll take to score all of them, without needing a combinatorial
     search.
 
-    Ranks on `value_rate` alone. `Outcome` also carries a success
-    probability and, for pickups, a lookahead; neither is consulted here.
-    Weighing those is a change to what the robot does, and belongs to a
-    caller that can be measured against this one.
+    Ranks on `Outcome.expected_rate` -- points discounted by how often
+    this robot lands that particular attempt, over the seconds it costs.
+    Not on gross points, because a plan made in gross points is a plan
+    the robot will not be paid for: a REEFSCAPE L4 outranks L1 on points
+    per second by enough that a robot missing one L4 in five still plans
+    every piece there, and the misses are invisible to the thing that
+    chose them.
+
+    This is also what lets reliability reach the decision *without*
+    anyone pinning an action from outside. Pursue tried that -- pricing
+    the action itself and handing it down, the way it hands Collect a
+    piece type -- and it cost 51 points a match, because which action to
+    score is a sequencing question (the robot puts down everything it
+    carries eventually) rather than the either/or a piece type is. The
+    planner is where sequencing already lives, so it is where the
+    discount belongs.
+
+    `enables` is still not consulted here: a pickup's lookahead is a
+    second outcome rather than a discount on this one, and weighing it
+    changes which *job* the robot does, which is Pursue's decision and
+    measured there.
 
     Route congestion/blockage is deliberately excluded here -- it would
     enter as an extra term in travel_time once navigation can report a
@@ -66,18 +83,15 @@ class GreedyRatePlanner(ScorePlanner):
         ordered: list[ScoringOption] = []
 
         while remaining_pieces:
-            candidates = [
-                outcome.payload
-                for outcome in utility.score_outcomes(match, robot, pos, pieces=remaining_pieces)
-            ]
+            candidates = utility.score_outcomes(match, robot, pos, pieces=remaining_pieces)
             if not candidates:
                 break
             # Applied per piece, not to the finished plan: a robot
             # holding one piece has exactly one candidate per region, so
             # filtering afterward would always hit the fallback and the
             # exclusion would silently do nothing.
-            wanted = [o for o in candidates if (o.region.name, o.action) not in exclude] if exclude else []
-            best = max(wanted or candidates, key=lambda o: o.value_rate)
+            wanted = [o for o in candidates if (o.payload.region.name, o.payload.action) not in exclude] if exclude else []
+            best = max(wanted or candidates, key=lambda o: o.expected_rate).payload
             ordered.append(best)
             remaining_pieces.remove(best.piece)
             pos = polygon_centroid(best.region.vertices)

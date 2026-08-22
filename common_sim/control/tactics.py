@@ -16,7 +16,7 @@ from common_sim.control import utility, world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
 from common_sim.control.navigation import NavigateTo, clear_standoff, estimate_travel_time
 from common_sim.control.param import Param
-from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
+from common_sim.control.planning import GreedyRatePlanner, ScorePlanner
 from common_sim.field.field_config import IntakeLocation, point_in_polygon, polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
 from common_sim.robot.characteristics import SIDE_OUTWARD
@@ -1333,11 +1333,19 @@ class Score(Tactic):
         return self._best_valued(ctx, roomy)
 
     def _best_valued(self, ctx: BehaviorContext, legal) -> object | None:
+        """The best of `legal` by expected points per second.
+
+        The same ranking `GreedyRatePlanner` uses, and it has to be: this
+        is the re-pick path -- a pinned region/action, or the planner's
+        own choice turning out to be crowded -- so a re-pick ranking on
+        a different quantity than the plan would quietly undo it, and
+        the robot would price one target and drive to another."""
         if not legal:
             return None
         pos = (ctx.robot.pose.x, ctx.robot.pose.y)
-        built = [build_option(ctx.match, ctx.robot, o, pos) for o in legal]
-        return max(built, key=lambda o: o.value_rate)
+        travel = utility.TravelCache(ctx.match.field, ctx.robot.characteristics)
+        built = [utility.score_outcome(ctx.match, ctx.robot, o, pos, travel) for o in legal]
+        return max(built, key=lambda o: o.expected_rate).payload
 
     def _reconsider_target(self, ctx: BehaviorContext) -> None:
         """Re-open the choice of what to score and where once the current
@@ -1465,6 +1473,22 @@ CLAIM_PENALTY = 0.2
 # obstacle-routed estimate, short enough that it does not start refusing
 # work with twenty seconds left.
 TIME_FIT_SLACK = 4.0
+
+
+# How much of a deposit's miss rate Pursue charges it for (see
+# `Pursue._reliability`). 1.0 is full expected value, which makes this
+# tactic's numerator identical to the `Outcome.expected_rate` the
+# planner beneath it already ranks targets by -- so the job Pursue
+# prices is the job its Score child performs.
+#
+# The default is that coherence rather than a measured gain: on the 2v2
+# defense bench, 8 seeds, 1.0 against 0.0 is -1.5 / +13.8 / -14.3 / +1.9
+# / -9.3 / +1.0 / +3.4 across the seven red plans, summing to -5.0 --
+# inside the noise of a seven-row sum. What the measurement settles is
+# the older number: the same weight lost 48.9 summed while the planner
+# still ranked on gross points, so nearly all of that was the two layers
+# disagreeing rather than expected value being wrong.
+RELIABILITY_WEIGHT = 1.0
 
 
 class _Ranking(NamedTuple):
@@ -1614,7 +1638,7 @@ class Pursue(Tactic):
         Param("min_commit", kind="float", default=2.0, min=0.0, suffix=" s"),
         Param("lookahead_weight", kind="float", default=1.0, min=0.0, max=2.0),
         Param("time_fit_slack", kind="float", default=TIME_FIT_SLACK, min=0.0, suffix=" s"),
-        Param("reliability_weight", kind="float", default=0.0, min=0.0, max=1.0),
+        Param("reliability_weight", kind="float", default=RELIABILITY_WEIGHT, min=0.0, max=1.0),
         Param("contest_penalty", kind="float", default=CONTEST_PENALTY, min=0.0, max=1.0),
         Param("claim_penalty", kind="float", default=CLAIM_PENALTY, min=0.0, max=1.0),
     )
@@ -1625,7 +1649,7 @@ class Pursue(Tactic):
         min_commit: float = 2.0,
         lookahead_weight: float = 1.0,
         time_fit_slack: float = TIME_FIT_SLACK,
-        reliability_weight: float = 0.0,
+        reliability_weight: float = RELIABILITY_WEIGHT,
         contest_penalty: float = CONTEST_PENALTY,
         claim_penalty: float = CLAIM_PENALTY,
         replan_period: float = 0.5,
@@ -1706,12 +1730,29 @@ class Pursue(Tactic):
         """The fraction of a deposit's points to expect, given how often
         it actually lands.
 
-        `success_probability` has been populated on every Outcome since
-        Phase A and multiplied into nothing, deliberately: utility.py
-        generates candidates and folding reliability into a ranking is a
-        behavior change. This is where it becomes one, behind a weight
-        that is 0.0 by default -- so the ranking is Phase B's exactly
-        until somebody configures a robot that misses."""
+        Defaults to the full discount (weight 1.0), which makes this
+        factor exactly `Outcome.expected_rate`'s -- and that is the
+        point of the default rather than a measured gain. `Pursue`
+        decides whether a job is worth doing; the planner underneath it
+        decides which target to do it at, and ranks on expected points.
+        At any weight below 1.0 the two disagree: this tactic prices
+        scoring at L4's five points and its own Score child then goes
+        and performs L3 for four, so the fetch-versus-score comparison
+        is made in a currency nobody spends.
+
+        Measured, that coherence is worth roughly nothing on the defense
+        bench -- 5 points summed across seven rows, well inside a sum's
+        noise -- and it is kept anyway, because two options that measure
+        the same are not equally good if one of them is internally
+        inconsistent. What the measurement *does* settle is the older
+        result: at weight 1.0 against a planner still ranking on gross
+        points this lost 48.9 summed, and nearly all of that was the
+        mismatch rather than expected value itself.
+
+        The weight survives as a weight because how far to trust a
+        reliability estimate is a real question -- these numbers are
+        illustrative, not fitted to event data -- and because a flat
+        float Param is tunable by `strategy_params` for free."""
         return 1.0 - self.reliability_weight * (1.0 - probability)
 
     def _pressure(self, prospects: "_Prospects", *features) -> float:
