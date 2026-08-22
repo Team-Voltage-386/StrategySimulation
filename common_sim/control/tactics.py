@@ -618,7 +618,26 @@ class Collect(Tactic):
         slot and both back off to queue outside -- and since neither is
         ever physically there to break the tie (`_holds_station` only
         protects an incumbent once it has arrived), they defer to each
-        other forever instead of the faster one actually going in."""
+        other forever instead of the faster one actually going in.
+
+        Only *our own* robots are raced. An opponent's declared intent
+        cannot take the slot, because it cannot take the piece: intake
+        locations are alliance-scoped (`world_view.station_options`), so
+        a red robot announcing a blue feeder is not queueing for it. Its
+        body still counts, via `engaged` above -- a defender parked on
+        the feed is a real obstruction, and `_held_by_opponent` is the
+        escape for that. Its *intent* counted for nothing and had to
+        stop counting for something.
+
+        Measured on blue={pursue_tuned} vs block/any, seed 5014: a
+        defender sat 20 inches off blue_reef_algae_2 declaring it,
+        never engaging, with an ETA of 0.46s against the two blue
+        robots' 0.77s. It out-raced both, so neither had room, so both
+        backed off one footprint and queued -- behind a robot that was
+        never going to arrive -- for 108 seconds of a 150 second match,
+        over the last ALGAE their alliance had. Blue scored 56. This is
+        the same denial `_held_by_opponent` exists to refuse, bought for
+        the same price it refuses to pay: the cost of announcing."""
         match, robot = ctx.match, ctx.robot
         if _robot_engaged_with_station(robot, station):
             return True
@@ -632,6 +651,7 @@ class Collect(Tactic):
         claimants = [
             r for r in match.robots
             if r is not robot and r not in engaged
+            and r.alliance == robot.alliance
             and getattr(getattr(r, "intent", None), "target_region", None) == station.name
         ]
         if not claimants:

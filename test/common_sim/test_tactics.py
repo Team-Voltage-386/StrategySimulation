@@ -4,7 +4,9 @@ from common_sim.control import tactics
 from common_sim.control.behavior import BehaviorContext, Sequence, Status, Wait
 from common_sim.control.navigation import convex_overlap, footprint_polygon
 from common_sim.control.strategy import Strategy, StrategyController
-from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
+from common_sim.field.field_config import (
+    FieldConfig, IntakeLocation, Obstacle, ScoringRegion, polygon_centroid,
+)
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.scoring import TableScoringRules
@@ -870,6 +872,69 @@ def test_collect_teammates_do_not_deadlock_on_a_single_remaining_station():
 
     assert len(robot_a.held_pieces) >= 1
     assert len(robot_b.held_pieces) >= 1
+
+
+def test_collect_ignores_an_opponents_claim_on_a_station_it_cannot_use():
+    """An opponent's *declared* intent must not cost us a slot.
+
+    The capacity race exists so two teammates racing one feeder don't
+    defer to each other forever. But it raced every claimant, and a
+    defender that declares a feeder and parks near it -- never entering,
+    so never `engaged` and never `_held_by_opponent` -- posts the
+    shortest ETA and wins a race it has no intention of running. Both
+    our robots then read the one slot as taken and back off a footprint
+    to queue behind a robot that will never arrive.
+
+    It cannot take the slot because it cannot take the piece: intake
+    locations are alliance-scoped. Measured on block/any seed 5014, this
+    froze both blue robots for 108 seconds over their last ALGAE and
+    ended 56-point matches.
+    """
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "feeder"
+
+    # Closer to the feeder than we are, so it wins any ETA race, but
+    # clear of it -- the stance a denier actually takes.
+    denier = match.add_robot(make_characteristics(), Pose2d(100, 100, 0), alliance="red")
+    denier.controller = _FakeController(target_region="feeder")
+    assert not tactics._robot_engaged_with_station(denier, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)
+    assert tactic._station_has_room_for(ctx, station)
+    # Room means aim for the feed itself, not one footprint short of it.
+    aim_x, aim_y = tactic._station_aim(ctx)
+    feed_x, feed_y = polygon_centroid(station.vertices)
+    assert math.hypot(aim_x - feed_x, aim_y - feed_y) < 1e-6
+
+
+def test_collect_still_yields_to_an_opponent_standing_on_the_feed():
+    """The body still counts, only the announcement stopped counting.
+    A defender actually parked in the station occupies real capacity,
+    and leaving is then the right answer -- which is what
+    `_held_by_opponent` is for."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    occupier = match.add_robot(make_characteristics(), Pose2d(140, 100, 0), alliance="red")
+    assert tactics._robot_engaged_with_station(occupier, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._station_has_room_for(ctx, station)
+    assert tactic._held_by_opponent(ctx, station)
 
 
 def test_collect_leaves_a_blocked_station_for_a_free_one():
