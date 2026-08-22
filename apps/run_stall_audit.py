@@ -68,8 +68,10 @@ def audit_trial(job: TrialJob) -> TrialOutcome:
     robots = list(match.robots)
     last = [(r.pose.x, r.pose.y) for r in robots]
     still = [0.0] * len(robots)
+    asking = [0.0] * len(robots)
     longest = [0.0] * len(robots)
     frozen_at = [None] * len(robots)
+    commanded = [0.0] * len(robots)
 
     while not match.ended:
         match.step(job.dt)
@@ -78,15 +80,19 @@ def audit_trial(job: TrialJob) -> TrialOutcome:
             last[i] = (robot.pose.x, robot.pose.y)
             if moved > STILL_EPSILON:
                 still[i] = 0.0
+                asking[i] = 0.0
                 continue
             still[i] += job.dt
+            asking[i] += robot.commanded_speed * job.dt
             if still[i] > longest[i]:
                 longest[i] = still[i]
                 frozen_at[i] = (round(robot.pose.x, 1), round(robot.pose.y, 1))
+                commanded[i] = asking[i] / still[i]
 
     stalls = [
         {"robot": job.robots[i].label, "alliance": robots[i].alliance,
-         "seconds": round(longest[i], 1), "at": frozen_at[i]}
+         "seconds": round(longest[i], 1), "at": frozen_at[i],
+         "commanded": round(commanded[i], 1)}
         for i in range(len(robots))
     ]
     return TrialOutcome(
@@ -124,7 +130,7 @@ def main() -> None:
     # on the alliance we are not grading is not what this is looking for.
     findings = [
         (stall["seconds"], out.params["red"], out.seed, stall["robot"],
-         stall["at"], out.params["blue_points"])
+         stall["at"], out.params["blue_points"], stall["commanded"])
         for out in outcomes
         for stall in out.params["stalls"]
         if stall["alliance"] == "blue" and stall["seconds"] >= args.threshold
@@ -140,17 +146,27 @@ def main() -> None:
         return
 
     print(f"{'secs':>6}  {'red plan':<16} {'seed':>6}  {'robot':<6} "
-          f"{'frozen at':<16} {'blue pts':>8}")
-    for seconds, red, seed, robot, at, points in findings:
+          f"{'frozen at':<16} {'asking':>7}  {'blue pts':>8}")
+    for seconds, red, seed, robot, at, points, asked in findings:
         where = f"({at[0]:.0f},{at[1]:.0f})" if at else "-"
-        print(f"{seconds:6.1f}  {red:<16} {seed:>6}  {robot:<6} {where:<16} {points:8.0f}")
+        print(f"{seconds:6.1f}  {red:<16} {seed:>6}  {robot:<6} {where:<16} "
+              f"{asked:7.1f}  {points:8.0f}")
 
     by_row: dict[str, int] = defaultdict(int)
-    for _, red, seed, _, _, _ in findings:
+    for _, red, seed, _, _, _, _ in findings:
         by_row[red] += 1
     print(f"\n{len(findings)} stall(s) over {total} matches. By red plan:")
     for red in RED_PLANS:
         print(f"  {red:<16} {by_row[red]:3d}")
+    print("\n`asking` is mean commanded speed, in/s, over the frozen window,")
+    print("and it splits the two things a stall can be. Near zero is a robot")
+    print("that chose to wait -- sometimes correct, and not this tool's")
+    print("business. A large number is a robot being held: it is asking for")
+    print("the full drivetrain and getting nothing, which is a physical fact")
+    print("rather than a judgement about strategy, and is where the last two")
+    print("bugs actually lived. Sort your attention by this column, not by")
+    print("which tactic was running -- the corner pin looked like a `Score`")
+    print("bug for an afternoon and was two bugs in the match rules.")
     print("\nTrace the worst before reading anything into the means: a row "
           "whose deficit is a handful of frozen matches is not a row that "
           "wants tuning.")
