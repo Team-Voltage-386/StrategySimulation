@@ -88,3 +88,49 @@ def test_greedy_planner_returns_empty_when_nothing_held():
     match = Match(field, TableScoringRules({}), MatchConfig())
     robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
     assert GreedyRatePlanner().plan(match, robot) == []
+
+
+def _two_action_setup(**characteristics_overrides):
+    """One region, two ways to use it: `rich` pays more per second on
+    gross points, and less once the misses are counted. The REEFSCAPE
+    L3-vs-L4 shape, which is where the distinction actually bites."""
+    goal = ScoringRegion(
+        name="goal", vertices=((380, -60), (420, -60), (420, 60), (380, 60)),
+        actions=frozenset({"cheap", "rich"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(width=500, height=200, scoring_regions=(goal,))
+    rules = TableScoringRules({("cheap", "auto"): 4.0, ("rich", "auto"): 5.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000))
+    characteristics = make_characteristics(
+        piece_capacity=1, deposit_time_by_action={"cheap": 1.0, "rich": 1.8},
+        **characteristics_overrides,
+    )
+    robot = match.add_robot(characteristics, Pose2d(0, 0, 0))
+    piece = match.spawn_piece(WIDGET, (0, 0))
+    piece.held_by = robot
+    robot.held_pieces.append(piece)
+    return match, robot
+
+
+def test_greedy_planner_ranks_on_expected_points():
+    """A plan made in gross points is a plan the robot will not be paid
+    for. `rich` wins on points per second and loses on points per second
+    actually landed, and the planner has to follow the second one --
+    otherwise reliability can only reach the decision by somebody
+    pinning an action from outside, which is what Pursue tried and what
+    cost 51 points a match."""
+    match, robot = _two_action_setup(
+        scoring_reliability_by_action={"cheap": 0.9, "rich": 0.82},
+    )
+    plan = GreedyRatePlanner().plan(match, robot)
+    assert [o.action for o in plan] == ["cheap"]
+
+
+def test_greedy_planner_still_takes_the_richer_target_when_it_lands():
+    """The control for the test above: identical geometry and points, a
+    robot that never misses. If this one ever fails, the fixture's
+    travel time has drifted out of the window where the two rankings
+    disagree at all and the test above has stopped testing anything."""
+    match, robot = _two_action_setup()
+    plan = GreedyRatePlanner().plan(match, robot)
+    assert [o.action for o in plan] == ["rich"]

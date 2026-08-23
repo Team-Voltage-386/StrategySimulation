@@ -1,0 +1,29 @@
+{
+  "name": "pursue_tuned",
+  "rules": [
+    {
+      "name": "pursue",
+      "trigger": {
+        "type": "Always",
+        "for_duration": null
+      },
+      "tactic": {
+        "type": "Pursue",
+        "switch_margin": 1.1350119081936954,
+        "min_commit": 1.1825335019495962,
+        "lookahead_weight": 1.3461282282258913,
+        "time_fit_slack": 2.515498307076129,
+        "reliability_weight": 0.723042823831263,
+        "contest_penalty": 0.6153506560022972,
+        "claim_penalty": 0.41183917558337396
+      },
+      "priority": 10,
+      "min_duration": 7.500101933996869,
+      "cooldown": 8.935132571339262,
+      "once": false
+    }
+  ],
+  "fallback": {
+    "type": "Idle"
+  }
+}

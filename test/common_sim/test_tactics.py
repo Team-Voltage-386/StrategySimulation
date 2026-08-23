@@ -4,7 +4,9 @@ from common_sim.control import tactics
 from common_sim.control.behavior import BehaviorContext, Sequence, Status, Wait
 from common_sim.control.navigation import convex_overlap, footprint_polygon
 from common_sim.control.strategy import Strategy, StrategyController
-from common_sim.field.field_config import FieldConfig, IntakeLocation, Obstacle, ScoringRegion
+from common_sim.field.field_config import (
+    FieldConfig, IntakeLocation, Obstacle, ScoringRegion, polygon_centroid,
+)
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.match.scoring import TableScoringRules
@@ -872,6 +874,69 @@ def test_collect_teammates_do_not_deadlock_on_a_single_remaining_station():
     assert len(robot_b.held_pieces) >= 1
 
 
+def test_collect_ignores_an_opponents_claim_on_a_station_it_cannot_use():
+    """An opponent's *declared* intent must not cost us a slot.
+
+    The capacity race exists so two teammates racing one feeder don't
+    defer to each other forever. But it raced every claimant, and a
+    defender that declares a feeder and parks near it -- never entering,
+    so never `engaged` and never `_held_by_opponent` -- posts the
+    shortest ETA and wins a race it has no intention of running. Both
+    our robots then read the one slot as taken and back off a footprint
+    to queue behind a robot that will never arrive.
+
+    It cannot take the slot because it cannot take the piece: intake
+    locations are alliance-scoped. Measured on block/any seed 5014, this
+    froze both blue robots for 108 seconds over their last ALGAE and
+    ended 56-point matches.
+    """
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "feeder"
+
+    # Closer to the feeder than we are, so it wins any ETA race, but
+    # clear of it -- the stance a denier actually takes.
+    denier = match.add_robot(make_characteristics(), Pose2d(100, 100, 0), alliance="red")
+    denier.controller = _FakeController(target_region="feeder")
+    assert not tactics._robot_engaged_with_station(denier, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)
+    assert tactic._station_has_room_for(ctx, station)
+    # Room means aim for the feed itself, not one footprint short of it.
+    aim_x, aim_y = tactic._station_aim(ctx)
+    feed_x, feed_y = polygon_centroid(station.vertices)
+    assert math.hypot(aim_x - feed_x, aim_y - feed_y) < 1e-6
+
+
+def test_collect_still_yields_to_an_opponent_standing_on_the_feed():
+    """The body still counts, only the announcement stopped counting.
+    A defender actually parked in the station occupies real capacity,
+    and leaving is then the right answer -- which is what
+    `_held_by_opponent` is for."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    occupier = match.add_robot(make_characteristics(), Pose2d(140, 100, 0), alliance="red")
+    assert tactics._robot_engaged_with_station(occupier, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._station_has_room_for(ctx, station)
+    assert tactic._held_by_opponent(ctx, station)
+
+
 def test_collect_leaves_a_blocked_station_for_a_free_one():
     # Committed to a station an opponent then parks in: waiting is
     # pointless while the other feeder is open.
@@ -1418,3 +1483,342 @@ def test_score_re_picks_when_its_target_never_completes():
         tactic.tick(ctx)
         ctx.elapsed += ctx.dt
     assert tactic._current is not committed
+
+
+def test_collect_lets_go_of_a_station_that_has_run_dry():
+    """A committed station that runs out is not a trip going badly, it
+    is a target that has stopped being a target -- so it is dropped at
+    once, the way a piece somebody else picked up is.
+
+    The robot is parked on the feed on purpose, because that is the case
+    every other release path misses: `_station_stalled` stops its clock
+    while the robot is being served, on the theory that an intake under
+    way should finish, and `_better_station_exists` wants the committed
+    station to be *full*, which an empty one is not. Measured before the
+    fix: a robot reached a REEFSCAPE REEF ALGAE position, found it
+    emptied, and sat on it for the remaining 126 seconds of the match."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station.name == "near_feeder"
+
+    match.station_supply[NEAR_FEEDER] = 0
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert tactic._target_station.name == "far_feeder"
+
+
+def test_a_station_that_ran_dry_is_not_put_on_cooldown():
+    """Cooldown is for a station this robot failed to get served at, so
+    it stops going back. An empty one needs no such memory: it is
+    already excluded by `world_view.station_options` for exactly as long
+    as it is empty, and a station an emitter refills should be available
+    again the tick it is."""
+    field = make_field(intake_locations=(NEAR_FEEDER, FAR_FEEDER))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    match.station_supply[NEAR_FEEDER] = 0
+    tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert not tactic._station_cooldowns
+
+
+def test_collect_gives_up_when_the_last_station_runs_dry():
+    """Nothing left to collect at all -- which is a FAILURE the arbiter
+    above can act on (strategy._FAILED_RULE_SUPPRESSION), not a wait."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(60, 100, 0))
+
+    tactic = _collect_tactic_at_stations(match, robot)
+    assert tactic._target_station is not None
+
+    match.station_supply[NEAR_FEEDER] = 0
+    status = tactic.tick(BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match))
+    assert status is Status.FAILURE
+
+
+def _two_action_match(**characteristics_overrides):
+    """One region, two ways to use it -- `rich` better on gross points
+    per second, `cheap` better once the misses are counted -- with the
+    region pinned so `_pick_option` goes through the re-pick path rather
+    than the planner."""
+    goal = ScoringRegion(
+        name="goal", vertices=((380, 40), (420, 40), (420, 160), (380, 160)),
+        actions=frozenset({"cheap", "rich"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(width=500, height=200, scoring_regions=(goal,))
+    rules = TableScoringRules({("cheap", "auto"): 4.0, ("rich", "auto"): 5.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000))
+    robot = match.add_robot(
+        make_characteristics(deposit_time_by_action={"cheap": 1.0, "rich": 1.8},
+                             **characteristics_overrides),
+        Pose2d(20, 100, 0),
+    )
+    return match, robot
+
+
+def test_score_repicks_on_expected_points_like_the_plan_did():
+    """`_best_valued` is the re-pick path -- a pinned region, or the
+    planner's choice turning out to be crowded. It ranks on expected
+    points for the same reason the planner does, and it has to be the
+    *same* reason: a re-pick ranking on a different quantity would
+    quietly undo the plan it is re-picking within."""
+    match, robot = _two_action_match(
+        scoring_reliability_by_action={"cheap": 0.9, "rich": 0.82},
+    )
+    tactic = _score_tactic_holding_piece(match, robot, region="goal")
+    assert tactic._current.action == "cheap"
+
+
+def test_score_repick_still_takes_the_richer_target_when_it_lands():
+    """Control for the test above -- same geometry, a robot that never
+    misses. Its failure would mean the fixture's travel time has drifted
+    out of the window where the two rankings disagree at all."""
+    match, robot = _two_action_match()
+    tactic = _score_tactic_holding_piece(match, robot, region="goal")
+    assert tactic._current.action == "rich"
+
+
+def _lone_feeder_match(**field_overrides):
+    """One feeder of the collected type and nothing else of it -- the
+    shape in which "give up only if there is somewhere better" becomes
+    "never give up"."""
+    feeder = IntakeLocation(
+        name="only_feeder", vertices=((260, 90), (280, 90), (280, 110), (260, 110)),
+        piece_type=WIDGET, starting_pieces=5,
+    )
+    field = make_field(intake_locations=(feeder,), **field_overrides)
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    return match, feeder
+
+
+def _park_on(match, station, alliance):
+    """A robot physically on the feed -- what `_held_by_opponent` and
+    `_served_by_teammate` both test, as opposed to merely claiming it."""
+    return match.add_robot(make_characteristics(), Pose2d(270, 100, 0), alliance=alliance)
+
+
+def _wait_out_patience(tactic, ctx, seconds=30.0):
+    for _ in range(int(seconds / ctx.dt)):
+        tactic.tick(ctx)
+
+
+def test_collect_stops_queueing_behind_an_opponent_at_the_only_feeder():
+    """The escape's "somewhere to give up to" rule presumes the trip
+    will eventually complete. Behind a parked defender it will not, and
+    at the last feeder of a type there is nowhere better by definition,
+    so the presumption was unfalsifiable and the robot waited out the
+    match. Releasing hands the choice up to whoever chose the piece
+    type -- the only layer that can change it."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "red")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic.tick(ctx)
+    assert tactic._target_station is feeder
+
+    status = Status.RUNNING
+    for _ in range(int(30.0 / ctx.dt)):
+        status = tactic.tick(ctx)
+        if status is Status.FAILURE:
+            break
+    # Nothing of this type left to try, so the tactic fails upward
+    # rather than standing there -- that is what lets Pursue re-arbitrate
+    # to the other piece type, or a rule strategy fall to its next rule.
+    assert status is Status.FAILURE
+    assert "only_feeder" in tactic._station_cooldowns
+
+
+def test_collect_keeps_queueing_behind_a_teammate():
+    """The control. A teammate on the feed is a queue that is moving --
+    it loads and leaves -- so the wait is worth having and none of the
+    above should fire."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "blue")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    for _ in range(int(30.0 / ctx.dt)):
+        assert tactic.tick(ctx) is Status.RUNNING
+    assert tactic._target_station is feeder
+    assert not tactic._station_cooldowns
+
+
+def test_a_feeder_an_opponent_holds_is_not_resurrected_by_the_fallback():
+    """Without this the release above is a no-op: `_best_station` falls
+    back to the cooled-down list when that leaves nothing, so the robot
+    re-picks the one feeder of its type on the very next tick and the
+    cooldown does nothing but reset a clock."""
+    match, feeder = _lone_feeder_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(match, feeder, "red")
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    tactic = tactics.Collect(piece_type=WIDGET)
+    tactic._station_cooldowns["only_feeder"] = 20.0
+    assert tactic._best_station(ctx)[0] is None
+
+    # A teammate holding it instead is still a queue, so the fallback
+    # still offers it -- the exception is about *who* is in the way.
+    friendly, friendly_feeder = _lone_feeder_match()
+    ours = friendly.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    _park_on(friendly, friendly_feeder, "blue")
+    friendly_ctx = BehaviorContext(robot=ours, dt=1.0 / 60.0, match=friendly)
+    friendly_tactic = tactics.Collect(piece_type=WIDGET)
+    friendly_tactic._station_cooldowns["only_feeder"] = 20.0
+    assert friendly_tactic._best_station(friendly_ctx)[0] is friendly_feeder
+
+
+# A feeder on the far side of the STRUCTURE from the robot's start, so
+# the only way there is around it -- and a robot that ends up with its
+# bumper against the obstacle is not going to arrive.
+BEHIND_FEEDER = IntakeLocation(
+    name="behind_feeder", vertices=((205, 82), (241, 82), (241, 118), (205, 118)),
+    piece_type=WIDGET, starting_pieces=5,
+)
+
+
+def test_collect_releases_a_station_it_is_wedged_short_of():
+    """The third instance of "committed to a target the robot can never
+    reach", after the emptied REEF ALGAE position and the denied feeder.
+
+    Measured on blue={pursue_tuned} vs block/supply: a robot routing to
+    an ALGAE staging position on the far REEF face wedged its bumper on
+    the hex and commanded ~107 in/s into it for 120s of a 150s match.
+    Every other release is blind to it -- the station is not full, not
+    empty, and has no opponent on it -- so the elapsed clock overruns and
+    then `_better_station_exists` asks for somewhere else of the same
+    type to go, which the alliance's last ALGAE position does not have.
+    Three of 24 seeds collapsed to 55-64 points against a 212 median.
+    """
+    field = make_field(intake_locations=(BEHIND_FEEDER,), obstacles=(STRUCTURE,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    # Parked against the structure, one feeder, no alternative to leave
+    # for -- exactly the shape that made the commitment permanent.
+    robot = match.add_robot(make_characteristics(), Pose2d(139, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot, feeders=(BEHIND_FEEDER,))
+    assert tactic._target_station is not None
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN * 2 + 1.0)
+    assert tactic._target_station is None or tactic._station_cooldowns, (
+        "a robot wedged on field geometry must let go of the station it "
+        "cannot reach, even with no alternative of that type"
+    )
+
+
+def test_collect_still_waits_out_a_defender_in_open_space():
+    """The other half of the same decision, and the reason the release
+    above is gated on being against an obstacle: a robot held off the
+    only feeder by a *defender* is stationary too, and from inside the
+    tactic the two look identical. A defender moves eventually and
+    touring the field instead measured as a loss, so this one must keep
+    waiting -- clear of geometry, nothing is released."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    # Clear of the wall by a comfortable margin, not by inches: this
+    # asserts the *unwedged* branch, so a robot that is only barely clear
+    # would let the test keep passing while measuring something else.
+    robot = match.add_robot(make_characteristics(), Pose2d(28, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot, feeders=(NEAR_FEEDER,))
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._wedged(ctx)
+
+    _run_collect(tactic, match, robot, tactics._STATION_PATIENCE_MIN * 2 + 1.0)
+    assert tactic._target_station is not None
+    assert not tactic._station_cooldowns
+
+
+def test_collect_counts_the_field_boundary_as_geometry_it_can_wedge_on():
+    """The walls are geometry too, and are not in `field.obstacles` --
+    that list holds the REEFs, while the boundary is just `width` and
+    `height`. Testing obstacles alone left the corners uncovered, which
+    is the worst place to miss: a robot in a corner is against two
+    surfaces at once and least able to shake itself loose.
+
+    Found by `apps/run_stall_audit`, which reported a robot motionless at
+    (21,21) for 129 seconds of a 150 second match with the nearest listed
+    obstacle 149 inches away."""
+    field = make_field(intake_locations=(NEAR_FEEDER,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    corner = match.add_robot(make_characteristics(), Pose2d(6, 6, 0))
+    tactic = _collect_tactic_at_stations(match, corner, feeders=(NEAR_FEEDER,))
+    assert tactic._wedged(BehaviorContext(robot=corner, dt=1.0 / 60.0, match=match))
+
+    # ...and a robot the same distance from the middle of nowhere is not.
+    open_field = match.add_robot(make_characteristics(), Pose2d(150, 100, 0))
+    other = _collect_tactic_at_stations(match, open_field, feeders=(NEAR_FEEDER,))
+    assert not other._wedged(BehaviorContext(robot=open_field, dt=1.0 / 60.0, match=match))
+
+
+def test_collect_yields_to_an_opponent_whose_bumpers_cover_the_feed():
+    """Engagement is the sim's *dispensing* test and it is alliance-
+    scoped, so against an opponent it collapses to "is its centre in the
+    polygon". A station 20in across and a chassis 28in wide means a
+    defender parked squarely over one sits outside that test with its
+    bumpers on the spot.
+
+    Measured on block/scoring seed 5035: a defender at (177,206) against
+    a polygon ending at x=176.4 read as absent, and the robot whose only
+    approach it occupied orbited for 110 seconds -- ten times its
+    patience -- because this predicate is that robot's escape."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    # Centre 6in clear of the polygon, so the old test says absent --
+    # but a 28in chassis reaches 14in, so the feed is under its bumpers.
+    blocker = match.add_robot(make_characteristics(), Pose2d(156, 100, 0), alliance="red")
+    assert not tactics._robot_engaged_with_station(blocker, station)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert tactic._held_by_opponent(ctx, station)
+
+
+def test_collect_does_not_call_a_passing_opponent_a_blocked_feed():
+    """The radius is the inscribed half-extent -- the distance inside
+    which an overlap is certain -- because this decides whether to
+    abandon a trip. A robot merely near the feeder is not holding it,
+    and treating it as though it were hands away the same denial for
+    free that the claim rules already refuse to pay for."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    passer = match.add_robot(make_characteristics(), Pose2d(180, 100, 0), alliance="red")
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)
+
+
+def test_collect_treats_a_teammate_on_the_feed_as_a_queue_not_a_blockage():
+    """The whole distinction the escape turns on. A teammate covering
+    the feed will load and leave, so the wait is a queue that is moving
+    and the trip we chose is still the right one. Widening the body test
+    must not swallow that."""
+    station = IntakeLocation(
+        name="feeder", vertices=((130, 90), (150, 90), (150, 110), (130, 110)),
+        piece_type=WIDGET, starting_pieces=50,
+    )
+    field = make_field(intake_locations=(station,))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _collect_tactic_at_stations(match, robot)
+
+    match.add_robot(make_characteristics(), Pose2d(156, 100, 0), alliance=robot.alliance)
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    assert not tactic._held_by_opponent(ctx, station)

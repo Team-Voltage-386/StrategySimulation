@@ -11,7 +11,13 @@
         "type": "Pursue",
         "switch_margin": 0.25,
         "min_commit": 2.0,
-        "lookahead_weight": 1.0
+        "lookahead_weight": 1.0,
+        "time_fit_slack": 4.0,
+        "reliability_weight": 1.0,
+        "contest_penalty": 0.5,
+        "claim_penalty": 0.2,
+        "scarcity_weight": 0.0,
+        "scarcity_floor": 3.0
       },
       "priority": 10,
       "min_duration": 0.0,

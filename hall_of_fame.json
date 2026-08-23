@@ -1,0 +1,106 @@
+[
+  {
+    "name": "algae_processor_tuned",
+    "payload": {
+      "name": "algae_processor_tuned",
+      "rules": [
+        {
+          "name": "score_algae",
+          "trigger": {
+            "type": "AtCapacity",
+            "for_duration": null,
+            "piece_type": "algae"
+          },
+          "tactic": {
+            "type": "Score",
+            "region": null,
+            "action": "processor"
+          },
+          "priority": 10,
+          "min_duration": 7.106792299468244,
+          "cooldown": 5.620160573861978,
+          "once": false
+        },
+        {
+          "name": "score_coral",
+          "trigger": {
+            "type": "AtCapacity",
+            "for_duration": null,
+            "piece_type": "coral"
+          },
+          "tactic": {
+            "type": "Score",
+            "region": null,
+            "action": null
+          },
+          "priority": 9,
+          "min_duration": 4.773051762825381,
+          "cooldown": 0.0,
+          "once": false
+        },
+        {
+          "name": "collect_algae",
+          "trigger": {
+            "type": "AllOf",
+            "for_duration": null,
+            "triggers": [
+              {
+                "type": "PiecesHeld",
+                "for_duration": null,
+                "piece_type": "algae",
+                "min_count": null,
+                "max_count": 0
+              },
+              {
+                "type": "PiecesAvailable",
+                "for_duration": null,
+                "piece_type": "algae",
+                "min_count": 1,
+                "max_count": null,
+                "within": null
+              }
+            ]
+          },
+          "tactic": {
+            "type": "Collect",
+            "piece_type": "algae",
+            "mode": "nearest",
+            "cluster_radius": 32.89345073919902,
+            "max_range": null,
+            "opposing_side": "last_resort"
+          },
+          "priority": 6,
+          "min_duration": 2.2420634298978315,
+          "cooldown": 0.6492498380850265,
+          "once": false
+        },
+        {
+          "name": "collect_coral",
+          "trigger": {
+            "type": "PiecesHeld",
+            "for_duration": null,
+            "piece_type": "coral",
+            "min_count": null,
+            "max_count": 0
+          },
+          "tactic": {
+            "type": "Collect",
+            "piece_type": "coral",
+            "mode": "nearest",
+            "cluster_radius": 67.62909086770156,
+            "max_range": null,
+            "opposing_side": "last_resort"
+          },
+          "priority": 5,
+          "min_duration": 5.2863428042477665,
+          "cooldown": 0.0,
+          "once": false
+        }
+      ],
+      "fallback": {
+        "type": "Idle"
+      }
+    },
+    "fitness": 260.1041666666667
+  }
+]

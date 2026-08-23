@@ -80,12 +80,34 @@ class Outcome:
 
     @property
     def value_rate(self) -> float:
-        """Immediate points per second. Deliberately ignores
-        `success_probability` and `enables`: this is the exact quantity
-        `ScoringOption.value_rate` has always been, including the 1e-6
-        floor, so ranking on it is unchanged. Folding in the other terms
-        is a decision, and decisions live in the consumer."""
+        """Immediate points per second, as if every attempt landed. The
+        exact quantity `ScoringOption.value_rate` has always been,
+        including the 1e-6 floor.
+
+        This is the *gross* number and deliberately not the ranking one
+        -- see `expected_rate`. It stays because a decision log, a
+        what-if, or anything reporting on a candidate wants the points
+        the target is worth separately from this robot's odds of getting
+        them."""
         return self.points / max(1e-6, self.duration)
+
+    @property
+    def expected_rate(self) -> float:
+        """Points per second *as they will actually be paid out*:
+        `value_rate` discounted by how often the attempt lands.
+
+        This is the currency to rank in. The two rates differ only for a
+        robot that misses, which is exactly the case where ranking on
+        the gross number is wrong: a REEFSCAPE L4 pays five points to
+        L1's two, but at 0.82 against 0.98 the choice between them stops
+        being a question about the points table and becomes one about
+        this robot's mechanism -- and the points table is the only thing
+        `value_rate` can see.
+
+        Still ignores `enables`, which is not a discount but a second
+        outcome, and combining the two is the consumer's decision (see
+        `Pursue._cycle_rate`)."""
+        return self.points * self.success_probability / max(1e-6, self.duration)
 
 
 class TravelCache:
@@ -154,9 +176,26 @@ def _score_outcome(option: ScoringOption, robot: "Robot", piece_type: str) -> Ou
         label=f"score {option.action} @ {option.region.name}",
         points=option.points,
         duration=option.travel_time + option.deposit_time,
-        success_probability=robot.characteristics.reliability_for(piece_type),
+        success_probability=robot.characteristics.reliability_for(piece_type, option.action),
         payload=option,
     )
+
+
+def score_outcome(match, robot: "Robot", legal, from_pos: tuple[float, float], travel: TravelCache | None = None) -> Outcome:
+    """Price one already-chosen legal deposit, from `from_pos`.
+
+    The Outcome-currency twin of `build_option`, and the one a caller
+    that means to *rank* candidates wants: a ScoringOption knows points
+    and seconds but not this robot's odds, so ranking on it prefers a
+    target the robot misses. `build_option` stays public for a caller
+    that only needs the arithmetic (`Score._commit` prices its patience
+    budget off travel + deposit, which reliability has no bearing on).
+
+    A `legal` with no piece -- the hypothetical pickup in
+    `best_score_for_type` -- is priced on the action's own difficulty
+    alone, since there is no piece yet to ask what type it is."""
+    piece_type = legal.piece.piece_type if legal.piece is not None else None
+    return _score_outcome(build_option(match, robot, legal, from_pos, travel), robot, piece_type)
 
 
 def score_outcomes(match, robot: "Robot", from_pos=None, pieces=None, travel: TravelCache | None = None) -> list[Outcome]:
@@ -193,6 +232,11 @@ def best_score_for_type(match, robot: "Robot", piece_type: str, from_pos, travel
     ScoringOption carries `piece=None` -- the piece genuinely does not
     exist yet, and inventing one would make the option look executable.
 
+    Ranked on `expected_rate`, like every other choice between deposits
+    -- the payoff half of a pickup has to be valued the way the deposit
+    will actually be chosen when the robot gets there, or the fetch is
+    priced against a plan nobody will follow.
+
     None when there is nowhere legal to put that type, in which case
     collecting it is worth nothing at all right now."""
     travel = travel or TravelCache(match.field, robot.characteristics)
@@ -200,7 +244,7 @@ def best_score_for_type(match, robot: "Robot", piece_type: str, from_pos, travel
     for region, action in world_view.scoring_slots_for_type(match, robot, piece_type):
         legal = world_view.LegalScoringOption(region=region, action=action, piece=None)
         candidate = _score_outcome(build_option(match, robot, legal, from_pos, travel), robot, piece_type)
-        if best is None or candidate.value_rate > best.value_rate:
+        if best is None or candidate.expected_rate > best.expected_rate:
             best = candidate
     return best
 

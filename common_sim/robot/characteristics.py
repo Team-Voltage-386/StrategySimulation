@@ -94,6 +94,20 @@ class RobotCharacteristics:
     # empty dict (the default) never rolls any dice and costs nothing.
     scoring_reliability_by_type: dict[str, float] = field(default_factory=dict)
 
+    # How often a given scoring *action* lands, as a multiplier on the
+    # per-type reliability above -- e.g. {"l4": 0.82, "l1": 0.98} for a
+    # robot that puts CORAL on the top branch less surely than in the
+    # trough. An action missing from this dict does not scale its type's
+    # number at all (1.0), so an empty dict (the default) leaves the
+    # per-type behavior exactly as it was.
+    #
+    # A multiplier rather than an override so the two axes stay
+    # independent and both stay meaningful: the type says how good this
+    # robot's mechanism for that game piece is, the action says how hard
+    # that particular target is. Overriding would silently kill the
+    # per-type control the moment any action was configured.
+    scoring_reliability_by_action: dict[str, float] = field(default_factory=dict)
+
     # Which physical side(s) can intake/score which piece types, e.g.
     # {"back": SideManipulators(intake_piece_types={"coral"}),
     #  "front": SideManipulators(score_piece_types={"coral"}),
@@ -118,8 +132,15 @@ class RobotCharacteristics:
             return self.piece_capacity_by_type.get(piece_type, 0)
         return self.piece_capacity
 
-    def reliability_for(self, piece_type: str) -> float:
-        return self.scoring_reliability_by_type.get(piece_type, 1.0)
+    def reliability_for(self, piece_type: str, action: str | None = None) -> float:
+        """How often a scoring attempt lands. `action`, when known,
+        scales the piece type's own reliability by that action's -- see
+        `scoring_reliability_by_action`. Both default to 1.0, so an
+        unconfigured robot still scores every time."""
+        base = self.scoring_reliability_by_type.get(piece_type, 1.0)
+        if action is None:
+            return base
+        return base * self.scoring_reliability_by_action.get(action, 1.0)
 
     def side_intake_accepts(self, side: str, piece_type: str, source: str | None = None) -> bool:
         """`source`, when given ("field" or "station"), additionally

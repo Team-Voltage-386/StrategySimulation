@@ -8,10 +8,11 @@ deposits around is what flips which job wins, so most of these assert
 "which child is running", not a score.
 """
 import math
+from types import SimpleNamespace
 
 from common_sim.control import tactics, utility
 from common_sim.control.behavior import BehaviorContext, Status
-from common_sim.control.strategy import Rule, Strategy, StrategyController
+from common_sim.control.strategy import Intent, Rule, Strategy, StrategyController
 from common_sim.control.triggers import Always
 from common_sim.field.field_config import FieldConfig, IntakeLocation, ScoringRegion
 from common_sim.geometry import Pose2d
@@ -27,7 +28,7 @@ RICH = "rich"
 POINTS = {("drop_cheap", "auto"): 2.0, ("drop_rich", "auto"): 30.0}
 
 
-def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100)) -> FieldConfig:
+def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100), feeder_pieces: int | None = 99) -> FieldConfig:
     def box(cx, cy, half=20):
         return ((cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half))
 
@@ -40,7 +41,7 @@ def make_field(*, feeder_at=(20, 100), rich_goal_at=(60, 100)) -> FieldConfig:
         actions=frozenset({"drop_rich"}), piece_types=frozenset({RICH}),
     )
     feeder = IntakeLocation(
-        name="feeder", vertices=box(*feeder_at), piece_type=RICH, starting_pieces=99,
+        name="feeder", vertices=box(*feeder_at), piece_type=RICH, starting_pieces=feeder_pieces,
     )
     return FieldConfig(
         width=1200, height=200, scoring_regions=(cheap_goal, rich_goal), intake_locations=(feeder,),
@@ -62,11 +63,14 @@ def make_characteristics(**overrides):
     return RobotCharacteristics(**defaults)
 
 
-def make_match(field=None) -> Match:
+def make_match(field=None, duration: float = 2000.0) -> Match:
+    # All of it auto: POINTS is keyed on the "auto" phase, so a match
+    # that ticked into teleop would price every deposit at zero. Total
+    # duration is what the time-fit tests move, via `match.elapsed`.
     return Match(
         field or make_field(),
         TableScoringRules(dict(POINTS)),
-        MatchConfig(auto_duration=1000, teleop_duration=1000),
+        MatchConfig(auto_duration=duration, teleop_duration=0.0),
     )
 
 
@@ -79,6 +83,13 @@ def give(match, robot, piece_type, position=(0, 0)):
 
 def context(match, robot, dt=1.0 / 60.0) -> BehaviorContext:
     return BehaviorContext(robot=robot, dt=dt, match=match)
+
+
+def neutral_prospects():
+    """A context that discounts nothing -- unlimited clock, nobody on
+    any field feature -- for the tests that are about the raw pricing
+    rather than about the modulation."""
+    return SimpleNamespace(remaining=None, contention=lambda feature: (0, 0))
 
 
 def settle(tactic, ctx, ticks=1):
@@ -129,7 +140,7 @@ def test_a_pickup_with_nowhere_to_put_it_is_worth_nothing():
         kind="collect", label="x", points=0.0, duration=1.0,
         success_probability=1.0, payload=None, enables=None,
     )
-    assert tactic._cycle_rate(worthless) == 0.0
+    assert tactic._cycle_rate(neutral_prospects(), worthless) == 0.0
 
 
 def test_cycle_rate_prices_the_drive_out_and_the_drive_back():
@@ -141,10 +152,10 @@ def test_cycle_rate_prices_the_drive_out_and_the_drive_back():
                              success_probability=1.0, payload=None)
     pickup = utility.Outcome(kind="collect", label="c", points=0.0, duration=2.0,
                              success_probability=1.0, payload=None, enables=payoff)
-    assert tactic._cycle_rate(pickup) == 30.0 / 6.0
+    assert tactic._cycle_rate(neutral_prospects(), pickup) == 30.0 / 6.0
 
     tactic.lookahead_weight = 0.5
-    assert tactic._cycle_rate(pickup) == 0.5 * 30.0 / 6.0
+    assert tactic._cycle_rate(neutral_prospects(), pickup) == 0.5 * 30.0 / 6.0
 
 
 # --- commitment ------------------------------------------------------
@@ -183,7 +194,7 @@ def test_switch_margin_ignores_a_job_that_is_only_marginally_better():
         give(match, robot, CHEAP)
         tactic = tactics.Pursue(switch_margin=margin, min_commit=0.0)
         ctx = context(match, robot)
-        tactic._rank_with_type = lambda _ctx: (10.0, collect_rate, RICH)
+        tactic._rank_jobs = lambda _ctx: tactics._Ranking(10.0, collect_rate, RICH)
         tactic._select(ctx, tactic._score)
         tactic._arbitrate(ctx)
         return tactic.active_tactic
@@ -430,3 +441,342 @@ def test_pricing_a_batch_matches_pricing_each_option_alone():
         alone = utility.build_option(match, robot, legal, (0.0, 0.0))
         assert cached == alone
         assert not math.isnan(cached.travel_time)
+
+
+# --- context modulation ----------------------------------------------
+#
+# Four terms, all of them multipliers on a job's expected points before
+# it is divided by the seconds it occupies. Each is asserted twice: once
+# on the arithmetic in isolation, and once as a job the robot does or
+# does not take -- a weight that moves a number but never a decision is
+# not worth the tick it costs.
+
+
+def far_fetch_field(feeder_pieces: int | None = 99):
+    """A quick, cheap deposit underfoot and a rich one at the end of a
+    long trip. Fetching wins on rate when there is time for it, which is
+    what makes it possible to show the clock -- or scarcity -- taking it
+    away."""
+    return make_field(feeder_at=(600, 100), rich_goal_at=(640, 100), feeder_pieces=feeder_pieces)
+
+
+def job_durations(match, robot):
+    """(best score's seconds, best fetch cycle's seconds) as utility.py
+    prices them -- so a time-fit test can put the deadline *between* the
+    two jobs instead of guessing at a number that happens to work."""
+    travel = utility.TravelCache(match.field, robot.characteristics)
+    score = min(o.duration for o in utility.score_outcomes(match, robot, travel=travel))
+    cycles = [
+        o.duration + o.enables.duration
+        for o in utility.collect_outcomes(match, robot, travel=travel)
+        if o.enables is not None
+    ]
+    return score, min(cycles)
+
+
+def test_a_job_that_cannot_finish_before_the_buzzer_is_worth_nothing():
+    """The term that is arithmetic rather than taste. A fetch is priced
+    on the deposit it enables, and a deposit that happens after the
+    match has ended scores nothing -- so with the clock nearly out, a
+    robot holding something it can put down now must stop setting off
+    across the field for a richer cycle it will never finish."""
+    match = make_match(far_fetch_field())
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0))
+    give(match, robot, CHEAP)
+
+    score_seconds, cycle_seconds = job_durations(match, robot)
+    assert score_seconds < cycle_seconds  # a claim about the fixture, not the tactic
+
+    # With the whole match left, the rich cycle is the better rate.
+    tactic = tactics.Pursue(time_fit_slack=0.0)
+    settle(tactic, context(match, robot))
+    assert isinstance(tactic.active_tactic, tactics.Collect)
+
+    # Now leave time for one job but not the other.
+    match.elapsed = match.config.total_duration - (score_seconds + cycle_seconds) / 2.0
+    tactic = tactics.Pursue(time_fit_slack=0.0)
+    settle(tactic, context(match, robot))
+    assert isinstance(tactic.active_tactic, tactics.Score)
+
+
+def test_time_fit_ramps_over_the_slack_window():
+    """Full value with `time_fit_slack` seconds to spare, nothing at all
+    when the job exactly fills the clock, and a straight line between --
+    the estimate is an estimate, and a hard cliff would have a job worth
+    everything on one tick and nothing on the next."""
+    tactic = tactics.Pursue(time_fit_slack=4.0)
+    prospects = SimpleNamespace(remaining=10.0)
+
+    assert tactic._time_fit(prospects, 1.0) == 1.0    # 9s to spare
+    assert tactic._time_fit(prospects, 6.0) == 1.0    # exactly 4s to spare
+    assert tactic._time_fit(prospects, 8.0) == 0.5    # halfway into the ramp
+    assert tactic._time_fit(prospects, 10.0) == 0.0   # fills the clock exactly
+    assert tactic._time_fit(prospects, 25.0) == 0.0   # never had a chance
+
+
+def test_time_fit_is_neutral_when_the_clock_is_unknown():
+    """A duck-typed match with no config -- world_view tolerates one all
+    through, and a missing clock must not silently zero every job on the
+    board."""
+    tactic = tactics.Pursue(time_fit_slack=4.0)
+    assert tactic._time_fit(SimpleNamespace(remaining=None), 999.0) == 1.0
+
+
+def test_reliability_weight_discounts_a_deposit_that_may_miss():
+    """At weight 1.0 a deposit that lands three times in four is worth
+    three quarters of its points; at 0.0 the points are taken gross, as
+    if every attempt landed."""
+    assert tactics.Pursue(reliability_weight=1.0)._reliability(0.75) == 0.75
+    assert tactics.Pursue(reliability_weight=1.0)._reliability(1.0) == 1.0
+    assert tactics.Pursue(reliability_weight=0.0)._reliability(0.75) == 1.0
+    assert tactics.Pursue(reliability_weight=0.5)._reliability(0.5) == 0.75
+
+
+def test_the_default_weight_prices_a_job_in_the_currency_it_is_spent_in():
+    """1.0 by default, so `_score_rate`'s numerator is exactly
+    `Outcome.expected_rate`'s -- the quantity the planner underneath
+    actually ranks targets by.
+
+    Any lower and the two layers disagree: this tactic would price
+    scoring at the gross value of the richest target while its own Score
+    child went and performed a cheaper, likelier one, making the
+    fetch-versus-score comparison in a currency nobody spends. The
+    default is that coherence, not a measured gain -- it is worth about
+    5 points summed across the defense bench's seven rows, inside a
+    sum's noise."""
+    assert tactics.Pursue().reliability_weight == 1.0
+    assert tactics.Pursue()._reliability(0.75) == 0.75
+
+
+def test_an_unreliable_rich_deposit_loses_to_a_sure_cheap_one():
+    """The same flip end to end: the rich cycle out-rates the piece in
+    hand until you charge it for how often the deposit misses."""
+    match = make_match(far_fetch_field())
+    characteristics = make_characteristics(scoring_reliability_by_type={RICH: 0.02})
+    robot = match.add_robot(characteristics, Pose2d(150, 100, 0))
+    give(match, robot, CHEAP)
+
+    ignoring = tactics.Pursue(reliability_weight=0.0)
+    settle(ignoring, context(match, robot))
+    assert isinstance(ignoring.active_tactic, tactics.Collect)
+
+    charging = tactics.Pursue(reliability_weight=1.0)
+    settle(charging, context(match, robot))
+    assert isinstance(charging.active_tactic, tactics.Score)
+
+
+def mark_as_defender(match, region_name, alliance="red", at=(0, 0)):
+    """A robot on `alliance` publishing an intent that declares it is
+    denying `region_name`. Built by hand rather than by running Defend,
+    because the Intent is what everything downstream actually reads --
+    see world_view.region_denied_by."""
+    robot = match.add_robot(make_characteristics(), Pose2d(at[0], at[1], 0), alliance=alliance)
+    robot.controller = SimpleNamespace(
+        intent=Intent(tactic_name="Defend", target_region=region_name, defending=True)
+    )
+    return robot
+
+
+def test_a_defender_on_the_supply_makes_fetching_the_worse_job():
+    """Job-level, which is the only level that can answer it. Collect
+    can pick a different feeder and Score a different face, but neither
+    can decide that *fetching at all* has stopped being worth it while
+    the thing already in hand can still be put down."""
+    match = make_match(far_fetch_field())
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    give(match, robot, CHEAP)
+
+    unopposed = tactics.Pursue(contest_penalty=0.9)
+    settle(unopposed, context(match, robot))
+    assert isinstance(unopposed.active_tactic, tactics.Collect)
+
+    mark_as_defender(match, "feeder", at=(600, 100))
+    opposed = tactics.Pursue(contest_penalty=0.9)
+    settle(opposed, context(match, robot))
+    assert isinstance(opposed.active_tactic, tactics.Score)
+
+
+def test_a_denier_is_not_also_counted_as_a_crowd():
+    """Every denier is an occupant by construction -- both read the same
+    `intent.target_region` -- so charging a region for both would price
+    one defender as two robots, and the two penalties are meant to be
+    tunable against each other."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    mark_as_defender(match, "cheap_goal", at=(600, 100))
+
+    prospects = tactics._Prospects(match, robot)
+    region = next(r for r in match.field.scoring_regions if r.name == "cheap_goal")
+    assert prospects.contention(region) == (1, 0)
+
+
+def test_a_teammate_working_a_region_is_a_crowd_not_a_denial():
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    mate = match.add_robot(make_characteristics(), Pose2d(600, 100, 0), alliance="blue")
+    mate.controller = SimpleNamespace(intent=Intent(tactic_name="Score", target_region="cheap_goal"))
+
+    prospects = tactics._Prospects(match, robot)
+    region = next(r for r in match.field.scoring_regions if r.name == "cheap_goal")
+    assert prospects.contention(region) == (0, 1)
+    assert tactics.Pursue(contest_penalty=0.5, claim_penalty=0.25)._pressure(prospects, region) == 0.75
+
+
+def test_pressure_compounds_per_robot():
+    tactic = tactics.Pursue(contest_penalty=0.5, claim_penalty=0.5)
+    prospects = SimpleNamespace(contention=lambda feature: (2, 1))
+    assert tactic._pressure(prospects, object()) == 0.125
+
+
+def test_pressure_ignores_a_feature_nobody_can_claim():
+    """A loose piece on the floor is not a region: it has no name for a
+    defender to declare and no polygon to stand in. Priced at no
+    discount rather than skipped, so the two pickup sources stay
+    comparable."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    piece = match.spawn_piece(RICH, (400, 100))
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.contention(piece) == (0, 0)
+    assert tactics.Pursue(contest_penalty=1.0, claim_penalty=1.0)._pressure(prospects, piece) == 1.0
+
+
+def test_contention_is_asked_once_per_feature(monkeypatch):
+    """`region_occupants` walks every robot on the field and runs a
+    point-in-polygon per one. An arbitration prices a deposit per
+    (region, action) pair, so on REEFSCAPE's four levels the same six
+    faces come round four times each -- the same redundancy TravelCache
+    exists for."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    region = next(r for r in match.field.scoring_regions if r.name == "cheap_goal")
+
+    calls = []
+    real = tactics.world_view.region_occupants
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(tactics.world_view, "region_occupants", counted)
+    prospects = tactics._Prospects(match, robot)
+    for _ in range(5):
+        prospects.contention(region)
+    assert len(calls) == 1
+
+
+# --- scarcity ----------------------------------------------------------
+#
+# What `_pressure` cannot see: not who is standing on a feature this
+# instant, but whether the type itself is running out field-wide. A
+# station camped for the whole match and one bumped for five seconds
+# look identical to `_pressure` the moment the bump ends; scarcity is
+# what lets the effect outlast the denier.
+
+
+def test_remaining_supply_counts_loose_pieces_and_station_stock():
+    """The count `_scarcity` discounts against: what's still sitting loose
+    on the field plus what the station has left to hand out, not just one
+    or the other."""
+    match = make_match(make_field(feeder_pieces=5))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    match.spawn_piece(RICH, (400, 100))
+    match.spawn_piece(RICH, (500, 100))
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) == 7.0
+
+
+def test_remaining_supply_is_none_when_a_station_is_unmetered():
+    """An unlimited station cannot run low by definition, so there is
+    nothing here for the term to ramp against."""
+    match = make_match(make_field(feeder_pieces=None))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) is None
+
+
+def test_remaining_supply_is_fully_known_without_a_station():
+    """CHEAP has no intake location in the test field at all, so its
+    supply is exactly its loose pieces -- a known count, not `None`.
+    Unmetered only means "some tracked location for this type is
+    unlimited"; having no location at all is the opposite case."""
+    match = make_match()
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(CHEAP) == 0.0
+
+
+def test_remaining_supply_ignores_the_opponents_station():
+    """The opponent's stock of the same type is a different resource --
+    counting it in would make this robot's own supply look healthier
+    than it actually is."""
+    def box(cx, cy, half=20):
+        return ((cx - half, cy - half), (cx + half, cy - half), (cx + half, cy + half), (cx - half, cy + half))
+
+    blue_feeder = IntakeLocation(
+        name="blue_feeder", vertices=box(20, 100), piece_type=RICH, starting_pieces=1, alliance="blue",
+    )
+    red_feeder = IntakeLocation(
+        name="red_feeder", vertices=box(1180, 100), piece_type=RICH, starting_pieces=50, alliance="red",
+    )
+    field = FieldConfig(width=1200, height=200, scoring_regions=(), intake_locations=(blue_feeder, red_feeder))
+    match = make_match(field)
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+
+    prospects = tactics._Prospects(match, robot)
+    assert prospects.remaining_supply(RICH) == 1.0
+
+
+def test_scarcity_is_inert_at_the_default_weight():
+    """0.0 by default, so a strategy nobody has tuned for this term pays
+    nothing for it -- the same shape `reliability_weight` and
+    `lookahead_weight` default to."""
+    prospects = SimpleNamespace(remaining_supply=lambda piece_type: 0.0)
+    assert tactics.Pursue()._scarcity(prospects, RICH) == 1.0
+
+
+def test_scarcity_ramps_toward_the_floor_as_supply_runs_out():
+    """Full value with `scarcity_floor` or more left, a straight line
+    down from there -- the same ramp shape as `_time_fit`, for the same
+    reason: the count that matters is an estimate, and a hard cliff would
+    make one more piece on the field worth everything."""
+    tactic = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 4.0), RICH) == 1.0
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 2.0), RICH) == 0.5
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 0.0), RICH) == 0.0
+
+
+def test_scarcity_is_partial_below_full_weight():
+    """Below 1.0 the discount stops short of the floor's full bite -- the
+    same shape `_reliability` uses for the same reason: how much to
+    trust the signal is a separate question from what it says."""
+    tactic = tactics.Pursue(scarcity_weight=0.5, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: 0.0), RICH) == 0.5
+
+
+def test_scarcity_is_neutral_when_the_type_is_unmetered():
+    tactic = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=4.0)
+    assert tactic._scarcity(SimpleNamespace(remaining_supply=lambda pt: None), RICH) == 1.0
+
+
+def test_a_nearly_exhausted_feeder_makes_fetching_the_worse_job():
+    """The case scarcity exists for: not a defender standing at the
+    feeder this instant, but the feeder itself down to its last piece.
+    Ignoring that keeps a robot setting off for a resource about to run
+    out from under it instead of banking what it already holds."""
+    match = make_match(far_fetch_field(feeder_pieces=1))
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 100, 0), alliance="blue")
+    give(match, robot, CHEAP)
+
+    unaware = tactics.Pursue()
+    settle(unaware, context(match, robot))
+    assert isinstance(unaware.active_tactic, tactics.Collect)
+
+    aware = tactics.Pursue(scarcity_weight=1.0, scarcity_floor=10.0)
+    settle(aware, context(match, robot))
+    assert isinstance(aware.active_tactic, tactics.Score)
+

@@ -300,3 +300,147 @@ def test_collect_outcomes_empty_when_no_supply_exists():
     match = make_match(make_field(intake_locations=()))
     robot = match.add_robot(make_characteristics(), Pose2d(0, 0, 0))
     assert utility.collect_outcomes(match, robot) == []
+
+
+def test_reliability_scales_the_type_by_the_action():
+    """Two axes that have to stay independent: the type says how good
+    this robot's mechanism for that game piece is, the action says how
+    hard that particular target is. A REEF branch and a trough take the
+    same CORAL, so a per-type number alone cannot tell them apart."""
+    characteristics = make_characteristics(
+        scoring_reliability_by_type={WIDGET: 0.8},
+        scoring_reliability_by_action={"score_widget": 0.5},
+    )
+    assert characteristics.reliability_for(WIDGET, "score_widget") == 0.4
+    # An action nobody configured does not scale its type at all, and
+    # asking without an action is the old per-type question unchanged.
+    assert characteristics.reliability_for(WIDGET, "something_else") == 0.8
+    assert characteristics.reliability_for(WIDGET) == 0.8
+    assert make_characteristics().reliability_for(WIDGET, "score_widget") == 1.0
+
+
+def test_score_outcomes_charge_the_action_they_would_attempt():
+    """The number a tactic plans on has to be the number the sim rolls
+    against, or every context weight built on it is measuring a
+    different robot than the one playing."""
+    match = make_match()
+    characteristics = make_characteristics(
+        scoring_reliability_by_type={WIDGET: 0.8},
+        scoring_reliability_by_action={"score_widget": 0.5},
+    )
+    robot = match.add_robot(characteristics, Pose2d(0, 0, 0))
+    give(match, robot)
+    outcome = utility.score_outcomes(match, robot)[0]
+    assert outcome.success_probability == 0.4
+    assert outcome.success_probability == characteristics.reliability_for(WIDGET, outcome.payload.action)
+
+
+def test_the_sim_rolls_against_the_action_being_attempted():
+    """`piece.target_action` is settled by the time a deposit completes
+    -- it is what `_try_score` scores against -- so the roll can and
+    must use it."""
+    match = make_match()
+    robot = match.add_robot(
+        make_characteristics(scoring_reliability_by_action={"sure_thing": 1.0, "never": 0.0}),
+        Pose2d(0, 0, 0),
+    )
+    piece = match.spawn_piece(WIDGET, (0, 0))
+
+    piece.target_action = "never"
+    assert match._roll_scoring_success(robot, piece) is False
+    piece.target_action = "sure_thing"
+    assert match._roll_scoring_success(robot, piece) is True
+
+
+# --- expected_rate ---------------------------------------------------
+
+
+def _outcome(points, duration, probability):
+    return utility.Outcome(
+        kind="score", label="x", points=points, duration=duration,
+        success_probability=probability, payload=None,
+    )
+
+
+def test_expected_rate_discounts_by_how_often_the_attempt_lands():
+    """The ranking currency. `value_rate` stays beside it as the gross
+    number, so anything reporting on a candidate can still say what the
+    target pays separately from this robot's odds of collecting it."""
+    sure = _outcome(6.0, 2.0, 1.0)
+    assert sure.expected_rate == sure.value_rate == 3.0
+
+    flaky = _outcome(6.0, 2.0, 0.5)
+    assert flaky.expected_rate == 1.5
+    assert flaky.value_rate == 3.0  # gross is untouched
+
+    # The same 1e-6 floor: a free attempt is very good, not a crash.
+    assert _outcome(1.0, 0.0, 0.5).expected_rate == 0.5 / 1e-6
+    # A target this robot never lands is worth nothing, however much it
+    # pays -- which is the whole difference from `value_rate`.
+    assert _outcome(100.0, 1.0, 0.0).expected_rate == 0.0
+
+
+# --- score_outcome (one already-chosen candidate) --------------------
+
+
+def test_score_outcome_prices_one_named_legal_option():
+    """The Outcome-currency twin of `build_option`, for a caller that
+    has already narrowed to one candidate and still needs it priced the
+    way the planner priced it -- same numbers, same reliability."""
+    match = make_match()
+    characteristics = make_characteristics(scoring_reliability_by_action={"score_widget": 0.6})
+    robot = match.add_robot(characteristics, Pose2d(0, 0, 0))
+    give(match, robot)
+
+    legal = world_view.scoring_options(match, robot)[0]
+    priced = utility.score_outcome(match, robot, legal, (0.0, 0.0))
+    assert priced == utility.score_outcomes(match, robot)[0]
+    assert priced.success_probability == 0.6
+    assert priced.payload == utility.build_option(match, robot, legal, (0.0, 0.0))
+
+
+# --- ranking on expected points --------------------------------------
+
+
+def _two_action_match():
+    """One region, two ways to use it: `rich` pays more per second than
+    `cheap` on gross points, and less once the misses are counted. The
+    REEFSCAPE L3-vs-L4 shape, which is where this actually bites."""
+    goal = ScoringRegion(
+        name="goal", vertices=((380, -60), (420, -60), (420, 60), (380, 60)),
+        actions=frozenset({"cheap", "rich"}), piece_types=frozenset({WIDGET}),
+    )
+    match = Match(
+        FieldConfig(width=500, height=200, scoring_regions=(goal,)),
+        TableScoringRules({("cheap", "auto"): 4.0, ("rich", "auto"): 5.0}),
+        MatchConfig(auto_duration=1000, teleop_duration=1000),
+    )
+    return match
+
+
+def _two_action_characteristics(**overrides):
+    return make_characteristics(
+        deposit_time_by_action={"cheap": 1.0, "rich": 1.8},
+        **overrides,
+    )
+
+
+def test_the_lookahead_payoff_is_ranked_on_expected_points():
+    """`best_score_for_type` is what a pickup is worth going to get, so
+    it has to name the deposit the robot will actually make when it
+    arrives -- the expected-points one. Ranking the payoff on gross
+    points prices the fetch against a plan nobody follows."""
+    match = _two_action_match()
+    misses = match.add_robot(
+        _two_action_characteristics(scoring_reliability_by_action={"cheap": 0.9, "rich": 0.82}),
+        Pose2d(0, 0, 0),
+    )
+    assert utility.best_score_for_type(match, misses, WIDGET, (0.0, 0.0)).payload.action == "cheap"
+
+    # The flip is the reliability and nothing else: same geometry, same
+    # points, a robot that never misses takes the richer target. If this
+    # one ever fails, the fixture's travel time has drifted out of the
+    # window where the two rankings disagree at all, and the assertion
+    # above has stopped testing anything.
+    never_misses = match.add_robot(_two_action_characteristics(), Pose2d(0, 0, 0))
+    assert utility.best_score_for_type(match, never_misses, WIDGET, (0.0, 0.0)).payload.action == "rich"

@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, NamedTuple, NamedTuple
 
 from common_sim.control import utility, world_view
 from common_sim.control.behavior import Behavior, BehaviorContext, Status
-from common_sim.control.navigation import NavigateTo, clear_standoff, estimate_travel_time
+from common_sim.control.navigation import (
+    NavigateTo, clear_standoff, estimate_travel_time, polygon_distance,
+)
 from common_sim.control.param import Param
-from common_sim.control.planning import GreedyRatePlanner, ScorePlanner, build_option
+from common_sim.control.planning import GreedyRatePlanner, ScorePlanner
 from common_sim.field.field_config import IntakeLocation, point_in_polygon, polygon_centroid
 from common_sim.geometry import Pose2d, wrap_angle
 from common_sim.robot.characteristics import SIDE_OUTWARD
@@ -259,6 +261,26 @@ _PIECE_PATIENCE_MIN = 8.0
 # and well under the intake reach it is trying to close.
 _PIECE_PROGRESS_EPSILON = 3.0
 
+# The same ratchet, for a committed *station* (see `_station_stalled`).
+#
+# The piece escape's docstring used to say the station escape did not need
+# a progress test. That was wrong, and the case it misses is not subtle: a
+# robot routing around the REEF to an ALGAE staging position on the far
+# face can wedge its bumper against the hex and command ~107 in/s into it
+# for the rest of the match without moving an inch. Every existing release
+# is blind to that -- the station is not full, not empty, and has no
+# opponent on it, so the elapsed clock runs past its patience and then
+# stops at `_better_station_exists`, which wants somewhere else of the
+# same type to go. Once the alliance's other five ALGAE positions are
+# consumed there is nowhere, and the commitment becomes permanent.
+#
+# Measured on blue={pursue_tuned} vs block/supply, 24 seeds: 3 of them
+# collapsed to 55-64 points against a 212 median, one robot frozen for
+# 120s of a 150s match. Distance to the aim point, not to the centroid,
+# so queueing a footprint back (see `_station_aim`) is not read as a
+# stall.
+_STATION_PROGRESS_EPSILON = 3.0
+
 # How long a piece given up on stays out of the running -- longer than the
 # patience above, for the reason `_FAILED_STATION_COOLDOWN` spells out at
 # length: a give-up has to outlast the trip it sends you on, or the robot
@@ -459,6 +481,8 @@ class Collect(Tactic):
         # has to outlive one collect cycle to mean anything.
         self._station_elapsed = 0.0
         self._station_patience = _STATION_PATIENCE_MIN
+        self._station_closest = math.inf
+        self._station_stuck = 0.0
         self._station_cooldowns: dict[str, float] = {}
 
         # The same escape for a committed loose piece (see
@@ -476,6 +500,8 @@ class Collect(Tactic):
         self._target_station = None
         self._start_held_count = None
         self._station_elapsed = 0.0
+        self._station_closest = math.inf
+        self._station_stuck = 0.0
         self._piece_elapsed = 0.0
         self._piece_closest = math.inf
         self._reconsider.reset()
@@ -605,7 +631,26 @@ class Collect(Tactic):
         slot and both back off to queue outside -- and since neither is
         ever physically there to break the tie (`_holds_station` only
         protects an incumbent once it has arrived), they defer to each
-        other forever instead of the faster one actually going in."""
+        other forever instead of the faster one actually going in.
+
+        Only *our own* robots are raced. An opponent's declared intent
+        cannot take the slot, because it cannot take the piece: intake
+        locations are alliance-scoped (`world_view.station_options`), so
+        a red robot announcing a blue feeder is not queueing for it. Its
+        body still counts, via `engaged` above -- a defender parked on
+        the feed is a real obstruction, and `_held_by_opponent` is the
+        escape for that. Its *intent* counted for nothing and had to
+        stop counting for something.
+
+        Measured on blue={pursue_tuned} vs block/any, seed 5014: a
+        defender sat 20 inches off blue_reef_algae_2 declaring it,
+        never engaging, with an ETA of 0.46s against the two blue
+        robots' 0.77s. It out-raced both, so neither had room, so both
+        backed off one footprint and queued -- behind a robot that was
+        never going to arrive -- for 108 seconds of a 150 second match,
+        over the last ALGAE their alliance had. Blue scored 56. This is
+        the same denial `_held_by_opponent` exists to refuse, bought for
+        the same price it refuses to pay: the cost of announcing."""
         match, robot = ctx.match, ctx.robot
         if _robot_engaged_with_station(robot, station):
             return True
@@ -619,6 +664,7 @@ class Collect(Tactic):
         claimants = [
             r for r in match.robots
             if r is not robot and r not in engaged
+            and r.alliance == robot.alliance
             and getattr(getattr(r, "intent", None), "target_region", None) == station.name
         ]
         if not claimants:
@@ -642,13 +688,48 @@ class Collect(Tactic):
                    for other in ctx.match.robots)
 
     def _held_by_opponent(self, ctx: BehaviorContext, station: IntakeLocation) -> bool:
-        """Whether an opponent is physically on `station`. Engagement
-        only, not a declared claim: a claim is a race we might win (see
-        `_station_has_room_for`), and treating one as possession hands a
-        defender both feeders for the price of announcing them."""
-        return any(other.alliance != ctx.robot.alliance
-                   and _robot_engaged_with_station(other, station)
-                   for other in ctx.match.robots)
+        """Whether an opponent's *body* is on `station`.
+
+        Bodies only, never a declared claim: a claim is a race we might
+        win (see `_station_has_room_for`), and treating one as
+        possession hands a defender both feeders for the price of
+        announcing them.
+
+        Engagement alone is too narrow a test for a body, though.
+        `_robot_engaged_with_station` is the sim's dispensing check, and
+        `nearby_station()` is alliance-scoped -- it never names a blue
+        location for a red robot -- so against an opponent it collapses
+        to "is its centre inside the polygon". A REEFSCAPE ALGAE
+        position is 20in across and a chassis is 28in, so a defender
+        parked squarely over one sits outside that test while its
+        bumpers cover the spot.
+
+        Measured on block/scoring seed 5035: a defender at (177,206),
+        against a polygon whose x ends at 176.4, read as absent. The
+        robot whose only approach it occupied orbited 25-45in out for
+        110 seconds -- past ten times its patience -- because this
+        predicate is the escape for exactly that case and could not see
+        it. Its teammate, deferring to the claim it kept publishing,
+        froze 58in out for 76 seconds.
+
+        So ask the footprint. The radius is the *inscribed* half-extent,
+        the distance inside which an overlap is certain, rather than
+        `_wedged`'s circumscribed one: this decides whether to abandon a
+        trip, so it should fire only when the spot is definitely covered
+        and not merely when it might be. A robot passing nearby is not
+        holding anything, and the clock this sits behind
+        (`_station_patience`) has already established that we have not
+        been closing for a while."""
+        for other in ctx.match.robots:
+            if other.alliance == ctx.robot.alliance:
+                continue
+            if _robot_engaged_with_station(other, station):
+                return True
+            characteristics = other.characteristics
+            half_extent = min(characteristics.width, characteristics.length) / 2.0
+            if polygon_distance((other.pose.x, other.pose.y), station.vertices) <= half_extent:
+                return True
+        return False
 
     def _best_station(self, ctx: BehaviorContext) -> tuple[IntakeLocation | None, float]:
         match, robot = ctx.match, ctx.robot
@@ -663,9 +744,36 @@ class Collect(Tactic):
         # Stations recently given up on drop out -- unless that leaves
         # nothing, in which case every feeder is being denied at once and
         # going back to the nearest one and waiting is the best available
-        # play. Falling back rather than failing also keeps this from
-        # ever being the reason a robot has no target at all.
-        stations = [s for s in stations if s.name not in self._station_cooldowns] or stations
+        # play.
+        #
+        # That fallback stops at a station an opponent is *physically*
+        # parked on, and without that exception the give-up above is a
+        # no-op: the robot abandons the station, re-picks the only one of
+        # its type on the very next tick, and the cooldown does nothing
+        # but reset a clock. Waiting behind a teammate is a queue and
+        # resolves itself; waiting behind an opponent is the thing the
+        # opponent came to do. Engagement only, matching
+        # `_held_by_opponent` -- a mere claim is a race we might still
+        # win, and conceding to one hands a defender every feeder for the
+        # price of announcing it.
+        #
+        # Returning nothing here is the useful answer rather than a gap,
+        # and it is the same answer the piece side already gives: with no
+        # station left, `_pick_target` weighs loose pieces, and failing
+        # that Collect reports FAILURE -- which is what lets the *caller*
+        # switch jobs. Pursue re-arbitrates to the other piece type; a
+        # rule-based strategy falls through to its next rule. No tactic
+        # pinned to one piece type can make that call from inside its own
+        # scope. Measured on shadow/supply seed 1004: both blue robots
+        # queued 78s past an 8s patience at the one REEF ALGAE position a
+        # red defender was sitting on, with two CORAL STATIONS free and
+        # offered, and the match ended 51-234.
+        available = [s for s in stations if s.name not in self._station_cooldowns]
+        if not available:
+            available = [s for s in stations if not self._held_by_opponent(ctx, s)]
+        if not available:
+            return None, math.inf
+        stations = available
 
         # Same rule Score._pick_option applies to scoring regions: take
         # one nobody is working before contesting one. Two robots both
@@ -984,6 +1092,8 @@ class Collect(Tactic):
         it started is the same attempt continuing."""
         if station is not self._target_station:
             self._station_elapsed = 0.0
+            self._station_closest = math.inf
+            self._station_stuck = 0.0
             self._station_patience = max(
                 _STATION_PATIENCE_MIN,
                 _STATION_PATIENCE_RATIO * (eta + ctx.robot.characteristics.station_intake_time),
@@ -1013,8 +1123,10 @@ class Collect(Tactic):
         else.
 
         What the budget is spent on is time making no progress, not elapsed
-        time -- see `_PIECE_PROGRESS_EPSILON` for why this escape needs that
-        and the station one does not. Every fresh closest approach restarts
+        time -- see `_PIECE_PROGRESS_EPSILON` for why. `_station_stalled`
+        carries the same ratchet for the same reason; it did not
+        originally, and `_STATION_PROGRESS_EPSILON` records what that
+        cost. Every fresh closest approach restarts
         the clock, so a slow trip that is still closing is never given up
         on, however far the piece is or however awkwardly it is placed.
 
@@ -1053,6 +1165,47 @@ class Collect(Tactic):
         self._piece_elapsed += ctx.dt
         return self._piece_elapsed >= self._piece_patience
 
+    def _wedged(self, ctx: BehaviorContext) -> bool:
+        """Whether the chassis is up against a static obstacle.
+
+        The one signal that separates "a defender is holding me off the
+        feed" from "my bumper is on the REEF", which are otherwise the
+        same observation -- a robot that is not moving and not arriving.
+        Obstacles are field geometry, so unlike a defender they are never
+        going to clear, and a commitment that depends on one moving is a
+        commitment for the rest of the match.
+
+        Deliberately a footprint test, not a contact test: the physics
+        contact set is not exposed here, and a chassis whose half-extent
+        overlaps an obstacle boundary is wedged closely enough for the
+        purpose whether or not a solver pair happens to be live this
+        tick.
+
+        The field boundary counts as much as an `Obstacle` does, and is
+        not one -- `FieldConfig.obstacles` holds the REEFs, while the
+        walls are just `width` and `height`. Testing only the obstacle
+        list missed the corners entirely, which is where a robot ends up
+        wedged against *two* surfaces at once and is least able to
+        recover. Found by `apps/run_stall_audit`: a robot sat at (21,21)
+        for 129 seconds of a 150 second match reading as unwedged, with
+        the nearest listed obstacle 149 inches away."""
+        field = getattr(ctx.match, "field", None)
+        if field is None:
+            return False
+        characteristics = ctx.robot.characteristics
+        half_extent = math.hypot(characteristics.width, characteristics.length) / 2.0
+        x, y = ctx.robot.pose.x, ctx.robot.pose.y
+        width = getattr(field, "width", None)
+        height = getattr(field, "height", None)
+        if width is not None and height is not None and min(
+            x, y, width - x, height - y
+        ) < half_extent:
+            return True
+        return any(
+            polygon_distance((x, y), o.vertices) < half_extent
+            for o in getattr(field, "obstacles", ())
+        )
+
     def _station_stalled(self, ctx: BehaviorContext) -> bool:
         """Whether the committed station has taken long enough without
         delivering that it is worth trying the other one.
@@ -1083,9 +1236,57 @@ class Collect(Tactic):
             return False
         if self._served_by_teammate(ctx, self._target_station):
             return False
+        # The progress ratchet, exactly `_piece_stalled`'s: every fresh
+        # closest approach to the aim point restarts the stuck clock, so a
+        # slow trip that is still closing never spends any of it, and a
+        # robot that has stopped closing spends all of it. Measured
+        # against the *best* approach so far rather than the last one, so
+        # routing around the REEF (which increases the distance before it
+        # decreases) is not mistaken for a stall.
+        aim_x, aim_y = self._station_aim(ctx)
+        distance = math.hypot(aim_x - ctx.robot.pose.x, aim_y - ctx.robot.pose.y)
+        if distance < self._station_closest - _STATION_PROGRESS_EPSILON:
+            self._station_closest = distance
+            self._station_stuck = 0.0
+        else:
+            self._station_stuck += ctx.dt
+
         self._station_elapsed += ctx.dt
         if self._station_elapsed < self._station_patience:
             return False
+        # A trip that has stopped closing *while the chassis is against
+        # static geometry* is not a slow trip, it is a trip that is not
+        # happening: the bumper is on the REEF and the drive is commanding
+        # full speed into it. Released with no alternative required, for
+        # the same reason `_piece_stalled` needs none -- requiring one
+        # makes the escape silent in precisely the case that costs the
+        # most, the last station of a type the arbiter above has pointed
+        # us at. See `_STATION_PROGRESS_EPSILON` for the measurement.
+        #
+        # The obstacle test is what keeps this from swallowing the
+        # deliberate decision beside it (`test_collect_keeps_the_only_
+        # station_however_long_it_takes`): a robot held off a feeder by a
+        # *defender* is stationary too, and from inside this tactic the
+        # two are otherwise identical. Waiting out a defender is right --
+        # it moves eventually, and touring the field instead measured as a
+        # loss. Waiting out the REEF is not; it will still be there at the
+        # buzzer.
+        if self._station_stuck >= self._station_patience and self._wedged(ctx):
+            return True
+        # An opponent physically on the feed is its own reason to leave,
+        # with no alternative required. The "somewhere to give up to"
+        # rule below is about preferring a better trip to a worse one,
+        # which presumes this trip will eventually complete -- and behind
+        # a parked defender it will not. Requiring an alternative *of the
+        # same piece type* made that presumption unfalsifiable at the
+        # last feeder of a type: a robot Pursue had pointed at ALGAE sat
+        # out 70 seconds past its patience at the only ALGAE position on
+        # the field because no second ALGAE position existed to leave
+        # for, while the CORAL it could have fetched instead went
+        # uncollected. Releasing hands the choice up to whoever picked
+        # the type, which is the only layer that can change it.
+        if self._held_by_opponent(ctx, self._target_station):
+            return True
         return any(
             station is not self._target_station
             and station.name not in self._station_cooldowns
@@ -1145,11 +1346,30 @@ class Collect(Tactic):
             self._piece_cooldowns[self._target_piece] = _FAILED_PIECE_COOLDOWN
             self._piece_elapsed = 0.0
             target_lost = True
+        # The station counterpart of "somebody else took the piece": the
+        # supply ran out. Unconditional, like its piece twin -- no
+        # patience clock, no reconsideration cadence, and no requirement
+        # that somewhere better exist -- because this is not a trip going
+        # badly, it is a target that has stopped being a target at all.
+        #
+        # Every other release below is guarded on something that an empty
+        # station does not satisfy, so without this the commitment is
+        # permanent: `_station_stalled` stops its clock while
+        # `_holds_station` is true, on the reasonable theory that an
+        # intake under way should be allowed to finish -- but nothing is
+        # under way, the station has nothing to give -- and
+        # `_better_station_exists` wants the committed station to be
+        # *full*, which an empty one conspicuously is not. Measured on
+        # blue={pursue, pursue} vs block/supply: a robot reached a REEF
+        # ALGAE position at t=24, found it emptied, and sat on it with an
+        # intake it could not fill for the remaining 126 seconds.
+        if self._target_station is not None and not world_view.station_has_supply(ctx.match, self._target_station):
+            target_lost = True
         # Two ways off a committed station. The cheap one: it filled up
         # and another has room, which is strictly better than waiting.
         # Guarded on the other station actually having room so this can't
         # cycle between two equally crowded ones.
-        if self._target_station is not None and reconsider and self._better_station_exists(ctx):
+        elif self._target_station is not None and reconsider and self._better_station_exists(ctx):
             target_lost = True
         # The one that catches a defender: the trip has simply taken too
         # long. A station being denied never reads as full -- the defender
@@ -1327,11 +1547,19 @@ class Score(Tactic):
         return self._best_valued(ctx, roomy)
 
     def _best_valued(self, ctx: BehaviorContext, legal) -> object | None:
+        """The best of `legal` by expected points per second.
+
+        The same ranking `GreedyRatePlanner` uses, and it has to be: this
+        is the re-pick path -- a pinned region/action, or the planner's
+        own choice turning out to be crowded -- so a re-pick ranking on
+        a different quantity than the plan would quietly undo it, and
+        the robot would price one target and drive to another."""
         if not legal:
             return None
         pos = (ctx.robot.pose.x, ctx.robot.pose.y)
-        built = [build_option(ctx.match, ctx.robot, o, pos) for o in legal]
-        return max(built, key=lambda o: o.value_rate)
+        travel = utility.TravelCache(ctx.match.field, ctx.robot.characteristics)
+        built = [utility.score_outcome(ctx.match, ctx.robot, o, pos, travel) for o in legal]
+        return max(built, key=lambda o: o.expected_rate).payload
 
     def _reconsider_target(self, ctx: BehaviorContext) -> None:
         """Re-open the choice of what to score and where once the current
@@ -1426,6 +1654,194 @@ class Score(Tactic):
         return region is not None and region.name == self._current.region.name
 
 
+# How much of a job's value a robot already on the field feature it needs
+# takes away, per robot (see `Pursue._pressure`).
+#
+# An opposing defender declaring your target halves the job. A teammate
+# already working it costs far less, because a teammate is a queue that
+# is moving -- it will load or score and leave -- while an opponent is
+# not a queue at all. That is the same distinction Collect draws in
+# `_station_stalled`, for the same reason.
+#
+# Measured on the 2v2 defense bench, 8 seeds, against the same tactic
+# with both at zero: +23.0 points on block/supply and +8.5 on
+# shadow/supply -- the two rows where a defender camps the feeder, which
+# is what the term is for -- and roughly a wash elsewhere, except
+# block/any at -16.5 which is not explained. Summed across the grid it
+# is +23.8, which at ~5-9 points of standard error per row is a weak
+# result carried by one strong row. Kept because the mechanism is
+# principled and the row it targets moves a lot; both are flat float
+# Params, so Phase F's search tunes them without new code.
+CONTEST_PENALTY = 0.5
+CLAIM_PENALTY = 0.2
+
+
+# How much room a job has to leave on the clock to be worth its full
+# value to Pursue (see `Pursue._time_fit`). A job that will finish with
+# this many seconds to spare is priced at face value; one that exactly
+# fills the time remaining is priced at zero, and the ramp between the
+# two is where an ETA that is a little optimistic gets caught.
+#
+# One CORAL cycle on the REEFSCAPE bench is 8-12s, so this is roughly
+# "half a cycle of slack": long enough to cover the error in an
+# obstacle-routed estimate, short enough that it does not start refusing
+# work with twenty seconds left.
+TIME_FIT_SLACK = 4.0
+
+
+# How much of a deposit's miss rate Pursue charges it for (see
+# `Pursue._reliability`). 1.0 is full expected value, which makes this
+# tactic's numerator identical to the `Outcome.expected_rate` the
+# planner beneath it already ranks targets by -- so the job Pursue
+# prices is the job its Score child performs.
+#
+# The default is that coherence rather than a measured gain: on the 2v2
+# defense bench, 8 seeds, 1.0 against 0.0 is -1.5 / +13.8 / -14.3 / +1.9
+# / -9.3 / +1.0 / +3.4 across the seven red plans, summing to -5.0 --
+# inside the noise of a seven-row sum. What the measurement settles is
+# the older number: the same weight lost 48.9 summed while the planner
+# still ranked on gross points, so nearly all of that was the two layers
+# disagreeing rather than expected value being wrong.
+RELIABILITY_WEIGHT = 1.0
+
+
+# How many pieces of a type left in the alliance's own supply (loose plus
+# what its stations have left to dispense) still count as "plenty" for
+# `Pursue._scarcity` -- at this count or above the discount is off, and it
+# ramps to its floor as the count runs to zero. One REEFSCAPE REEF face
+# stages exactly 1 ALGAE and a CORAL STATION starts with a double-digit
+# handful, so this sits low enough to bind on the ALGAE case and mid-ramp
+# on the CORAL one rather than never firing on either.
+#
+# `scarcity_weight` defaults to 0.0, which makes this constant inert until
+# a search turns the term on -- see the Pursue Ceiling Test artifact for
+# why: the existing terms closed most but not all of the defense-bench
+# gap, and it plateaued specifically on the rows that deny supply, which
+# this term exists to answer.
+SCARCITY_FLOOR = 3.0
+
+
+class _Ranking(NamedTuple):
+    """One arbitration's answer: what each job is worth per second, and
+    which flavour of it was priced.
+
+    The piece type is handed down to Collect, because *what kind of
+    thing is worth fetching* is the value judgement Pursue just made and
+    Collect ranks supply on ETA alone -- it cannot re-derive one from
+    the other.
+
+    There is deliberately no matching action for Score. Handing one down
+    was tried and measured: it cost 51 points a match under
+    `block/scoring`, because `_score_rate` ranks a single next deposit
+    while Score's planner ranks a *sequence* over everything held, and a
+    REEF branch's value depends on what is already on it
+    (`match.region_full`). Piece type is a genuine either/or -- fetch
+    CORAL or fetch ALGAE, not both. Which action to score is not: the
+    robot will put down everything it carries eventually, so that is a
+    sequencing question, and sequencing is what the planner is for.
+    Pinned to the one-step argmax, a robot committed to PROCESSOR on 68
+    of 93 re-picks and scored 32 pieces where the planner scored 43."""
+
+    score_rate: float
+    collect_rate: float
+    collect_type: "str | None"
+
+
+class _Prospects:
+    """The context one arbitration pass values its outcomes in: how much
+    match is left, and how contested each field feature is.
+
+    Both are per-pass rather than per-outcome because neither can change
+    while a pass runs and both are asked over and over inside one.
+    `region_occupants` in particular walks every robot on the field and
+    runs a point-in-polygon per one, while an arbitration prices a
+    deposit per (region, action) pair -- REEFSCAPE's four levels across
+    six REEF faces bring the same six polygons round four times each.
+    The same redundancy `utility.TravelCache` exists for, and the same
+    fix.
+
+    Duck-typed on `match` throughout, as world_view is: a stub match
+    with no `config` reports an unknown clock rather than an expired
+    one, because "the match is over" zeroes every job on the board and
+    is an expensive thing to say by accident.
+    """
+
+    __slots__ = ("match", "robot", "remaining", "_contention", "_supply")
+
+    def __init__(self, match, robot):
+        self.match = match
+        self.robot = robot
+        total = getattr(getattr(match, "config", None), "total_duration", None)
+        self.remaining = None if total is None else total - match.elapsed
+        self._contention: dict[str, tuple[int, int]] = {}
+        self._supply: dict[str, float | None] = {}
+
+    def contention(self, feature) -> tuple[int, int]:
+        """(opposing defenders denying `feature`, everybody else working
+        it), for a scoring region or an intake location -- which are the
+        same `.name` + `.vertices` pair to everything downstream. A
+        ScoringOption is unwrapped to the region it names, so a caller
+        can hand over an Outcome's payload without knowing which kind it
+        got.
+
+        The two counts are disjoint on purpose. A denier declares the
+        feature as its `intent.target_region`, which is exactly what
+        makes `region_occupants` count it too, so charging both raw
+        would price one defender as two robots and leave the two
+        penalties impossible to weigh against each other.
+
+        (0, 0) for anything that is neither: a loose piece on the floor
+        has no name for a defender to declare and no polygon to stand
+        in, so nobody can be denying it."""
+        feature = getattr(feature, "region", feature)
+        name = getattr(feature, "name", None)
+        if name is None or not getattr(feature, "vertices", None):
+            return (0, 0)
+        counts = self._contention.get(name)
+        if counts is None:
+            deniers = len(world_view.region_denied_by(self.match, name, self.robot.alliance))
+            occupants = len(world_view.region_occupants(self.match, feature, exclude=self.robot))
+            counts = self._contention[name] = (deniers, max(0, occupants - deniers))
+        return counts
+
+    def remaining_supply(self, piece_type: str) -> float | None:
+        """How many `piece_type` pieces this robot's alliance could still
+        ever collect -- loose ones on the field plus what its finite
+        intake locations have left to dispense.
+
+        `None` only when some intake location for this type is itself
+        unmetered (absent from `station_supply`, which means "unlimited"
+        -- see `world_view.station_has_supply`): summing a real count
+        against an unknown one would just undercount, not estimate, so
+        the whole type is treated as not scarce. A type with no intake
+        location at all is fully known from its loose pieces alone and
+        never returns `None`.
+
+        Alliance-scoped the same way `world_view.station_options` is: the
+        opponent's stock of the same type is a different resource, and
+        counting it in would make a robot's own supply look healthier
+        than it is."""
+        cached = self._supply.get(piece_type, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        match, robot = self.match, self.robot
+        locations = [
+            loc for loc in getattr(getattr(match, "field", None), "intake_locations", ())
+            if loc.piece_type == piece_type and (loc.alliance is None or loc.alliance == robot.alliance)
+        ]
+        supply = getattr(match, "station_supply", None)
+        if supply is None or any(loc not in supply for loc in locations):
+            result = None
+        else:
+            loose = len(world_view.collectable_pieces(match, piece_type=piece_type, robot=robot))
+            result = float(loose + sum(supply[loc] for loc in locations))
+        self._supply[piece_type] = result
+        return result
+
+
+_MISSING = object()
+
+
 class Pursue(Tactic):
     """Chooses between *fetching* and *scoring* by what each is worth per
     second, then hands the job to Collect or Score to actually do.
@@ -1489,6 +1905,12 @@ class Pursue(Tactic):
         Param("switch_margin", kind="float", default=0.25, min=0.0, max=2.0),
         Param("min_commit", kind="float", default=2.0, min=0.0, suffix=" s"),
         Param("lookahead_weight", kind="float", default=1.0, min=0.0, max=2.0),
+        Param("time_fit_slack", kind="float", default=TIME_FIT_SLACK, min=0.0, suffix=" s"),
+        Param("reliability_weight", kind="float", default=RELIABILITY_WEIGHT, min=0.0, max=1.0),
+        Param("contest_penalty", kind="float", default=CONTEST_PENALTY, min=0.0, max=1.0),
+        Param("claim_penalty", kind="float", default=CLAIM_PENALTY, min=0.0, max=1.0),
+        Param("scarcity_weight", kind="float", default=0.0, min=0.0, max=1.0),
+        Param("scarcity_floor", kind="float", default=SCARCITY_FLOOR, min=0.5, max=12.0),
     )
 
     def __init__(
@@ -1496,11 +1918,23 @@ class Pursue(Tactic):
         switch_margin: float = 0.25,
         min_commit: float = 2.0,
         lookahead_weight: float = 1.0,
+        time_fit_slack: float = TIME_FIT_SLACK,
+        reliability_weight: float = RELIABILITY_WEIGHT,
+        contest_penalty: float = CONTEST_PENALTY,
+        claim_penalty: float = CLAIM_PENALTY,
+        scarcity_weight: float = 0.0,
+        scarcity_floor: float = SCARCITY_FLOOR,
         replan_period: float = 0.5,
     ):
         self.switch_margin = switch_margin
         self.min_commit = min_commit
         self.lookahead_weight = lookahead_weight
+        self.time_fit_slack = time_fit_slack
+        self.reliability_weight = reliability_weight
+        self.contest_penalty = contest_penalty
+        self.claim_penalty = claim_penalty
+        self.scarcity_weight = scarcity_weight
+        self.scarcity_floor = scarcity_floor
         # Five times Score's and Collect's, and not a copy of their
         # cadence by oversight. Those replan a *target* -- which face,
         # which feeder -- and want to react to a defender arriving. This
@@ -1542,71 +1976,192 @@ class Pursue(Tactic):
         self._commit_elapsed = 0.0
         self._reconsider.reset()
 
-    def _cycle_rate(self, outcome) -> float:
+    def _time_fit(self, prospects: "_Prospects", duration: float) -> float:
+        """How much of a job's value survives the clock: all of it with
+        `time_fit_slack` seconds to spare, none once the job no longer
+        fits in what is left, a straight line between.
+
+        This half is arithmetic rather than taste. A fetch is priced on
+        the deposit it enables, and a deposit that happens after the
+        buzzer scores nothing -- so without it a robot holding a piece
+        it could put down right now still sets off across the field at
+        t=147 for a cycle it cannot finish, and the fetch that "wins"
+        the arbitration returns exactly zero points.
+
+        The taste is only in how sharp the edge is. Zero slack makes it
+        a cliff, which is wrong for the reason every other estimate here
+        carries a margin: `duration` is an ETA over an obstacle-routed
+        path, and a job worth everything on one tick and nothing on the
+        next flips back and forth across the boundary."""
+        remaining = prospects.remaining
+        if remaining is None:
+            return 1.0
+        if self.time_fit_slack <= 0.0:
+            return 1.0 if duration < remaining else 0.0
+        return min(1.0, max(0.0, (remaining - duration) / self.time_fit_slack))
+
+    def _reliability(self, probability: float) -> float:
+        """The fraction of a deposit's points to expect, given how often
+        it actually lands.
+
+        Defaults to the full discount (weight 1.0), which makes this
+        factor exactly `Outcome.expected_rate`'s -- and that is the
+        point of the default rather than a measured gain. `Pursue`
+        decides whether a job is worth doing; the planner underneath it
+        decides which target to do it at, and ranks on expected points.
+        At any weight below 1.0 the two disagree: this tactic prices
+        scoring at L4's five points and its own Score child then goes
+        and performs L3 for four, so the fetch-versus-score comparison
+        is made in a currency nobody spends.
+
+        Measured, that coherence is worth roughly nothing on the defense
+        bench -- 5 points summed across seven rows, well inside a sum's
+        noise -- and it is kept anyway, because two options that measure
+        the same are not equally good if one of them is internally
+        inconsistent. What the measurement *does* settle is the older
+        result: at weight 1.0 against a planner still ranking on gross
+        points this lost 48.9 summed, and nearly all of that was the
+        mismatch rather than expected value itself.
+
+        The weight survives as a weight because how far to trust a
+        reliability estimate is a real question -- these numbers are
+        illustrative, not fitted to event data -- and because a flat
+        float Param is tunable by `strategy_params` for free."""
+        return 1.0 - self.reliability_weight * (1.0 - probability)
+
+    def _scarcity(self, prospects: "_Prospects", piece_type: str) -> float:
+        """What is left of a fetch's value as the type it would collect
+        runs low field-wide -- distinct from `_pressure`, which prices
+        who is standing on a feature *this tick* and forgets the instant
+        they leave. A station camped for the whole match and one bumped
+        for five seconds look identical to `_pressure` once the bump
+        ends; this is what lets the denial's effect outlast the denier.
+
+        Skips the lookup entirely at the default weight of 0.0, so a
+        strategy that has never been tuned for this term pays nothing
+        for it and behaves exactly as it did before the term existed."""
+        if self.scarcity_weight <= 0.0:
+            return 1.0
+        remaining = prospects.remaining_supply(piece_type)
+        if remaining is None:
+            return 1.0
+        fraction = min(1.0, remaining / max(1e-6, self.scarcity_floor))
+        return 1.0 - self.scarcity_weight * (1.0 - fraction)
+
+    def _pressure(self, prospects: "_Prospects", *features) -> float:
+        """What is left of a job's value after the robots already on the
+        field features it needs.
+
+        Job-level, and that is the whole reason it lives here rather
+        than one layer down. Score already re-picks among regions that
+        have room and Collect already races teammates for a feeder --
+        but neither can conclude that *this kind of job* has stopped
+        being worth doing. A robot whose every scoring face is being
+        denied should go fetch; one whose supply is camped should put
+        down what it is already holding. Only something holding both
+        jobs at once can say that, and saying it is what this tactic is
+        for.
+
+        Compounds per robot rather than saturating, so a second defender
+        on the same feature costs as much again as the first."""
+        factor = 1.0
+        for feature in features:
+            deniers, crowd = prospects.contention(feature)
+            factor *= (1.0 - self.contest_penalty) ** deniers
+            factor *= (1.0 - self.claim_penalty) ** crowd
+        return factor
+
+    def _expected_rate(self, prospects, points, duration, probability, features) -> float:
+        """Points per second of commitment, after everything the raw
+        Outcome does not know: whether the job fits inside the match,
+        how often the deposit lands, and who else is on the field
+        features it needs.
+
+        Every term is a multiplier on the points, never on the seconds.
+        A contested region does not take longer to score in -- it scores
+        less often -- and keeping the denominator as the honest ETA is
+        what stops these weights from quietly re-pricing the commitment
+        they are supposed to be judging."""
+        value = points * self._reliability(probability) * self._time_fit(prospects, duration)
+        return value * self._pressure(prospects, *features) / max(1e-6, duration)
+
+    def _score_rate(self, prospects: "_Prospects", outcome) -> float:
+        """A deposit's rate: `Outcome.value_rate` with the context terms
+        applied."""
+        return self._expected_rate(
+            prospects, outcome.points, outcome.duration,
+            outcome.success_probability, (outcome.payload,),
+        )
+
+    def _cycle_rate(self, prospects: "_Prospects", outcome) -> float:
         """Points per second for a pickup: the deposit it enables, over
         the whole trip out and back. Zero when there is nowhere legal to
-        put the thing -- collecting it then genuinely buys nothing."""
+        put the thing -- collecting it then genuinely buys nothing.
+
+        Both ends are charged for contention: a camped feeder spoils the
+        trip out, a denied REEF face spoils the trip back, and a fetch
+        has to survive both to be worth making."""
         payoff = outcome.enables
         if payoff is None:
             return 0.0
-        return self.lookahead_weight * payoff.points / max(1e-6, outcome.duration + payoff.duration)
+        piece_type = getattr(outcome.payload, "piece_type", None)
+        scarcity = 1.0 if piece_type is None else self._scarcity(prospects, piece_type)
+        return scarcity * self.lookahead_weight * self._expected_rate(
+            prospects, payoff.points, outcome.duration + payoff.duration,
+            payoff.success_probability, (outcome.payload, payoff.payload),
+        )
 
-    def _rank(self, ctx: BehaviorContext) -> tuple[float, float]:
-        """(best scoring rate, best fetching rate) from where the robot
-        stands right now. Either is 0.0 when that job has no candidate at
-        all, which is also what a candidate worth nothing scores -- the
-        two cases are the same decision here, so they are not
-        distinguished."""
-        score_rate, collect_rate, _ = self._rank_with_type(ctx)
-        return score_rate, collect_rate
+    def _rank_jobs(self, ctx: BehaviorContext) -> _Ranking:
+        """Price both jobs from where the robot stands right now.
 
-    def _rank_with_type(self, ctx: BehaviorContext) -> tuple[float, float, "str | None"]:
-        """`_rank`, plus which piece type the winning pickup was for.
+        A rate of 0.0 means that job has nothing worth doing -- either no
+        candidate at all, or only candidates worth nothing. The two are
+        the same decision here, so they are not distinguished.
 
-        The type is carried out because handing it to Collect is what
-        makes the arbitration mean what it says. Pursue decides *what
-        kind of thing is worth fetching* -- that is the value question it
-        just priced, and the whole difference between a 2-point piece and
-        a 30-point one. Collect decides *which one of that kind, and how*
-        -- contention races, patience clocks, approach geometry -- which
-        is not re-derivable from a rate. Leaving it unset would let
-        Collect fetch the cheap type on a shorter drive and quietly
-        discard the comparison."""
+        Ties within a job go to the first candidate, which is the order
+        `utility` emits them in (piece, then region, then action) -- the
+        same tie-break `max` gave before, kept deliberately so the
+        emission order stays part of the behavior rather than becoming
+        accidental."""
         match, robot = ctx.match, ctx.robot
         travel = utility.TravelCache(match.field, robot.characteristics)
+        prospects = _Prospects(match, robot)
+
         score_rate = max(
-            (outcome.value_rate for outcome in utility.score_outcomes(match, robot, travel=travel)),
+            (self._score_rate(prospects, outcome)
+             for outcome in utility.score_outcomes(match, robot, travel=travel)),
             default=0.0,
         )
+
         collect_rate, collect_type = 0.0, None
         for outcome in utility.collect_outcomes(match, robot, travel=travel):
-            rate = self._cycle_rate(outcome)
+            rate = self._cycle_rate(prospects, outcome)
             if rate > collect_rate:
                 collect_rate, collect_type = rate, getattr(outcome.payload, "piece_type", None)
-        return score_rate, collect_rate, collect_type
+        return _Ranking(score_rate, collect_rate, collect_type)
 
     def _arbitrate(self, ctx: BehaviorContext) -> None:
-        score_rate, collect_rate, collect_type = self._rank_with_type(ctx)
-        if score_rate <= 0.0 and collect_rate <= 0.0:
+        ranking = self._rank_jobs(ctx)
+        if ranking.score_rate <= 0.0 and ranking.collect_rate <= 0.0:
             self._select(ctx, None)
             return
 
         # Ties go to scoring: the points are in hand and the fetch side's
         # rate is a prediction of a trip not yet made.
-        best = self._collect if collect_rate > score_rate else self._score
+        best = self._collect if ranking.collect_rate > ranking.score_rate else self._score
 
         if self._active is not None and self._active is not best:
             # A swap. It has to clear both gates or the incumbent keeps
             # the robot.
             if self._commit_elapsed < self.min_commit:
                 return
-            incumbent = score_rate if self._active is self._score else collect_rate
-            challenger = collect_rate if best is self._collect else score_rate
+            incumbent = ranking.score_rate if self._active is self._score else ranking.collect_rate
+            challenger = ranking.collect_rate if best is self._collect else ranking.score_rate
             if challenger <= incumbent * (1.0 + self.switch_margin):
                 return
 
         if best is self._collect:
-            self._aim_collect_at(ctx, collect_type)
+            self._aim_collect_at(ctx, ranking.collect_type)
         self._select(ctx, best)
 
     def _aim_collect_at(self, ctx: BehaviorContext, piece_type: "str | None") -> None:
@@ -2001,21 +2556,40 @@ class Defend(Tactic):
         """Push a block point out to a distance where the two chassis
         cannot touch at any relative heading, along the line it already
         sat on. Shared by the two rules that require a defender to stop
-        making contact without giving up the mark."""
+        making contact without giving up the mark.
+
+        That line is the block point's, not the defender's, so it only
+        means "further out" while the defender is on the same side of the
+        mark as the point it is holding. In `shadow` mode it need not be:
+        the block point sits between the mark and the region the mark
+        wants, and a defender that arrived from the far side is told to
+        retreat straight *through* the robot it is supposed to stop
+        touching -- so it leans harder the moment the pin clock demands
+        it let go. Measured on shadow/supply seed 5010, where the mark
+        was against the corner and the station it wanted was in it: the
+        retreat point came out at (-8.6, -8.6), outside the field, behind
+        both. The release then held the victim motionless for 129s.
+
+        So the mark's bearing to the defender wins whenever the two
+        disagree. The defender keeps the side it actually occupies, which
+        is the side it can withdraw along."""
         keepout = world_view.protection_keepout(ctx.robot, opponent)
-        dx, dy = x - opponent.pose.x, y - opponent.pose.y
+        ox, oy = opponent.pose.x, opponent.pose.y
+        dx, dy = x - ox, y - oy
         distance = math.hypot(dx, dy)
         if distance >= keepout:
             return (x, y)
-        if distance < 1e-6:
-            # Standing on top of the mark: no line to back off along, so
-            # retreat toward where we came from.
-            dx, dy = ctx.robot.pose.x - opponent.pose.x, ctx.robot.pose.y - opponent.pose.y
+        own_x, own_y = ctx.robot.pose.x - ox, ctx.robot.pose.y - oy
+        if distance < 1e-6 or dx * own_x + dy * own_y <= 0.0:
+            # Standing on top of the mark, or holding a point on its far
+            # side: either way there is no line here to back off along,
+            # so retreat toward where we came from.
+            dx, dy = own_x, own_y
             distance = math.hypot(dx, dy)
             if distance < 1e-6:
                 return (x, y)
         scale = keepout / distance
-        return (opponent.pose.x + dx * scale, opponent.pose.y + dy * scale)
+        return (ox + dx * scale, oy + dy * scale)
 
     def tick(self, ctx: BehaviorContext) -> Status:
         self._mark_elapsed += ctx.dt

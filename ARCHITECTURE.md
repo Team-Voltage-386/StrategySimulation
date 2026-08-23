@@ -65,7 +65,9 @@ common_sim/
                           IntakeLocation / EmitterRegion / ProtectedZone lists
     game_piece.py         GamePiece base: pymunk body/shape + type tag
   robot/
-    characteristics.py    RobotCharacteristics dataclass: speed, accel, size, capacity, intake/deposit time...
+    characteristics.py    RobotCharacteristics dataclass: speed, accel, size, capacity, intake/deposit time,
+                            scoring reliability per piece type and per action (a REEF branch is harder to hit
+                            than a trough; the two multiply)...
     robot.py               Robot base: chassis + mechanisms + pose + alliance + held-piece slots
     mechanisms.py          Intake / Manipulator base classes, parameterized by characteristics
   control/
@@ -73,16 +75,25 @@ common_sim/
     behavior.py             Behavior-tree-lite: Sequence/Parallel/DriveToPose/RunIntake/Wait/Branch nodes
     vision.py                 Simulated AprilTag pose estimation + piece detection, tunable noise/FOV/dropout
     param.py                 Param dataclass: shared PARAM_SCHEMA element for Trigger/Tactic GUI forms
-    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options, opponents, defenders, denial targets
+    world_view.py             Read-only queries over Match: collectable pieces, scoring/station options,
+                                station supply, opponents, defenders, denial targets, region contention
     navigation.py             plan_path (visibility-graph A*), NavigateTo behavior, estimate_travel_time
     utility.py                 Outcome: any candidate action priced in points/second, deposits and pickups
-                                 alike (a pickup's value is `enables`, the deposit it sets up). Generates
+                                 alike (a pickup's value is `enables`, the deposit it sets up). Ranking
+                                 currency is `expected_rate` -- points discounted by how often this robot
+                                 lands the attempt; `value_rate` is the same number gross. Generates
                                  and prices only -- it does not choose
-    planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default), LookaheadPlanner stub
+    planning.py                ScoringOption/ScorePlanner: GreedyRatePlanner (default, ranks on
+                                 expected_rate, so a flaky high-value target loses to a reliable cheaper
+                                 one at the travel times where that is true), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
     tactics.py                   Collect/Score/Pursue/Defend/RunScript/Idle -- Behaviors that replan their own target
                                    Pursue arbitrates fetch-vs-score on utility.py's rate, then runs Collect or
-                                   Score to do it -- the tradeoff a Rule's integer `priority` cannot express
+                                   Score to do it -- the tradeoff a Rule's integer `priority` cannot express.
+                                   Modulates that rate by context the raw Outcome cannot see: whether the job
+                                   still fits in the match (time_fit_slack), how often the deposit lands
+                                   (reliability_weight), and who is already on the field feature it needs
+                                   (contest_penalty/claim_penalty). All flat float Params, so a search tunes them
     strategy.py                   Rule/Strategy/StrategyController: priority arbiter over Trigger->Tactic rules
     strategy_io.py                 Strategy <-> JSON (REGISTRY-driven, round-trips through the GUI editor)
     strategy_params.py              The continuous half of a Rule[] as a flat vector (ParamRef/to_vector/
@@ -136,7 +147,7 @@ game_specific/
   reefscape/                concrete REEFSCAPE field/pieces/scoring (the one game currently plugged in)
     field.py                 concrete FieldConfig instance (alliance-owned scoring regions/stations)
     game_pieces.py             concrete GamePiece subclasses (CORAL, ALGAE)
-    scoring.py                    concrete ScoringRules
+    scoring.py                    concrete ScoringRules + per-action scoring reliability
     strategies/                     example Strategy JSON files (also strategy_io round-trip fixtures):
                                        cycle_coral, algae_processor, endgame_defense, auto_then_cycle,
                                        pursue (one Always -> Pursue rule; the arbitration is the strategy)
@@ -284,7 +295,9 @@ can run out: `Collect(piece_type="algae")` whose last reachable ALGAE is
 behind a defender has nowhere to go, and no way to know its strategy also
 has a CORAL rule one priority below. So a piece is *not* re-offered when
 it is the last one (unlike a station, where going back and waiting is
-right, because a station is the only source of its type and regenerates).
+usually right, because a station is the only source of its type and
+regenerates -- but see the sixth case below, where "usually" was doing
+more work than it could carry).
 `Collect` reports `FAILURE` instead, and `_FAILED_RULE_SUPPRESSION` in the
 arbiter is what makes that mean something: a rule whose tactic failed
 yields briefly so a lower-priority rule can have the robot. Before that,
@@ -312,6 +325,136 @@ whose supply can run out -- is invisible to it. The piece stall showed up
 only on a *mixed* alliance (one ALGAE cycler, one CORAL cycler). A grid
 that varies the defense while holding one offensive shape fixed measures
 that shape, not the tactic.
+
+A fifth case is the one that needs *no* expiry, and getting that wrong
+cost more than any of the four above. A patience clock is for a trip that
+is going badly; it is the wrong instrument entirely for a target that has
+stopped existing. `Collect` committed to a REEFSCAPE REEF ALGAE position,
+which holds exactly one, and arrived to find it already taken -- and then
+sat on it for 126 of 150 seconds. Every release declined, each for a
+locally sensible reason: `_station_stalled` stops its clock while the
+robot is on the feed, because an intake under way should be allowed to
+finish (none was under way); `_better_station_exists` wants the committed
+station to be *full*, which an empty one conspicuously is not; and the
+escape needs somewhere to give up to, which a field with no ALGAE left
+does not have. The sim knew the whole time -- `Match.step` gates
+`Robot.update_station_intake` on the same supply counter and simply
+declines to dispense -- but the control layer had no way to ask. So the
+release is unconditional and mirrors the loose-piece one (`held_by is not
+None or scored`): no clock, no cadence, no requirement that anywhere
+better exist, and no cooldown either, since an empty station is already
+excluded by `station_options` for exactly as long as it is empty. The
+general rule: distinguish *this attempt is failing* from *this target is
+gone*, and only the first is a matter of patience.
+
+The sixth case is a third thing again -- *this target is real, available,
+and unreachable* -- and it is where the fourth case's reasoning had a
+hole. Requiring somewhere to give up *to* is right when the wait is a
+queue, and the station escape asks for that alternative to be of the same
+piece type. At the last feeder of a type the alternative can never
+exist, so the condition is not merely unmet, it is unfalsifiable: the
+robot waits out the match by construction. Measured on `shadow/supply`
+seed 1004, both blue robots queued at the one REEF ALGAE position a red
+defender was physically parked on, 78 seconds past an 8-second patience,
+holding nothing, while two CORAL STATIONS sat free and offered the whole
+time. The match ended 51-234 and 10 pieces; with the escape it ends
+221 and 54 pieces.
+
+What distinguishes the case is *who* is in the way, and that distinction
+already existed (`_held_by_opponent`, engagement rather than a declared
+claim). A teammate on a feed is a queue that is moving -- it loads and
+leaves. An opponent on a feed is not a queue at all, because standing
+there is the entire reason it came. So an opponent physically on the
+feed is its own reason to leave, with no alternative required.
+
+The fix needed a second half to be a fix at all, which is the part worth
+remembering: `_best_station` falls back to the cooled-down list when
+filtering leaves nothing, so releasing the station and re-picking it on
+the next tick would have made the cooldown a clock reset and nothing
+else. The fallback has to decline to resurrect an opponent-held station
+too. Then `_best_station` returns nothing, `_pick_target` weighs loose
+pieces, and failing that `Collect` reports `FAILURE` and the choice goes
+up to whoever picked the piece type -- Pursue re-arbitrating, or a rule
+strategy falling through. A release the next tick undoes is not a
+release.
+
+It was found by the expected-points ranking rather than by defense work,
+which is the other lesson: that ranking discounts CORAL more than ALGAE
+(L4 lands 0.82 of the time, the PROCESSOR 0.95), so it tilted `Pursue`
+toward the piece type whose entire supply is a few one-piece staging
+positions -- and a latent deadlock needing a scarce contested feeder went
+from never firing to one seed in twelve. Changing what a robot prefers is
+a way of finding out which of your escapes were load-bearing. On the
+grid it is worth +21.3 on the one row it fires (`pursue` /
+`shadow/supply`) and leaves every other cell bit-identical.
+
+**A rate can be modulated, but only by something the robot can act
+on.** `Pursue` prices fetching against scoring in points per second
+(`utility.Outcome`), and the obvious next move is to bend that rate by
+context the raw number cannot see. Four such terms exist
+(`_time_fit`, `_reliability`, `_pressure`'s contest and claim halves),
+and measuring them one at a time on the 2v2 defense bench was worth
+more than any of them.
+
+*Time-fit* is not tuning, it is arithmetic: a fetch is priced on the
+deposit it enables, and a deposit after the buzzer scores nothing, so
+without it a robot sets off at t=147 for a cycle that returns zero. It
+measures as neutral (157.8 against 158.2 with it disabled) precisely
+because it only ever binds in the last seconds -- which is the argument
+for keeping it, not against.
+
+*Contest pressure* pays where it was designed to and nowhere else: +23.0
+points on `block/supply` and +8.5 on `shadow/supply`, the two rows where
+a defender camps the feeder, against roughly a wash elsewhere. That is
+the shape to expect from an honest term, and the reason to measure per
+row rather than on a grand mean.
+
+*Reliability* took three tries and is the one worth reading. Multiplying
+`success_probability` in is textbook expected value, but as a weight on
+`Pursue` alone it lost 48.9 points summed across the grid. The reason is
+that `Pursue` chooses *which job*, while reliability differs mostly
+between *actions within* a job (L4 misses far more often than L1).
+Handing the priced action down to `Score` -- the obvious fix, the exact
+mirror of handing the piece type down to `Collect` -- cost 51 points a
+match under `block/scoring`: piece type is a genuine either/or, but which
+action to score is not, because the robot puts down everything it carries
+eventually. That makes it a *sequencing* question.
+
+Sequencing is what the planner is for, so that is where the discount
+belongs, and putting it there is the third try. `Outcome.expected_rate`
+(points times probability, over seconds) is now the ranking currency
+everywhere a deposit is chosen -- `GreedyRatePlanner`, `Score`'s re-pick,
+and `best_score_for_type`, the payoff half of a pickup. Reliability then
+reaches the branch choice with nobody pinning anything, and it reaches
+every strategy rather than just `Pursue`. `value_rate` survives beside it
+as the gross number for reporting.
+
+Two things fall out of that. `Pursue`'s weight defaults to 1.0 now, not
+because it wins -- it is worth about 5 points summed, inside a sum's
+noise -- but because at anything less the tactic prices scoring at the
+richest target's gross value while its own `Score` child performs a
+cheaper, likelier one, and the fetch-versus-score comparison is made in a
+currency nobody spends. The older -48.9 was mostly that mismatch. And the
+discount is *asymmetric across piece types* -- CORAL's best action lands
+0.82 of the time against the PROCESSOR's 0.95 -- so it quietly re-weights
+which piece a robot goes for, which is how it surfaced the deadlock in
+"Every commitment needs an expiry" above. A term is only worth its tick
+if some robot can act on it at the layer that computes it; and a term
+that changes what a robot prefers will find out which of your escapes
+were load-bearing.
+
+None of this clears the bar `Pursue` was aiming at, and expected-points
+ranking did not move it closer. Summed over the seven red plans the whole
+package is -20.0 for `pursue` and +6.6 for `cycle_coral`, both inside the
+noise of a seven-row sum, with one real win (`block/supply` +21.0) and a
+scatter of small losses; the strategy sweep is flat to within a point or
+two on all four entries. `Pursue` now loses every row to `cycle_coral`,
+undefended included (244.5 against 249.1), where it used to win that one.
+The utility layer is a better *representation* -- every weight is a flat
+float `Param`, so a search tunes a strategy's reasoning with no new
+search code -- and it is now internally consistent, in that the currency
+a job is priced in is the currency its target is chosen in. On this bench
+it is still not a better *player*.
 
 **Collision routing goes through `Match`, not global handlers.** The
 reference spikes registered `pymunk` collision handlers with module-
