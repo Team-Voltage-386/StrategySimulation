@@ -17,6 +17,7 @@ unblock anything -- it looks like an ALGAE specialist and cannot do the
 one ALGAE job that gates CORAL points.
 """
 import math
+import random
 
 from common_sim.control.world_view import scoring_slots_for_type
 from common_sim.geometry import Pose2d
@@ -24,7 +25,8 @@ from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import SIDES
 from common_sim.robot.robot import SIDE_OUTWARD
 from game_specific.reefscape.field import (
-    build_field, coral_station_positions, reef_algae_blocked_level, reef_algae_staging_positions,
+    REEF_HEX_APOTHEM, build_field, coral_station_positions, reef_algae_blocked_level,
+    reef_algae_staging_positions, reef_center,
 )
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae
 from game_specific.reefscape.robot import (
@@ -180,6 +182,98 @@ def test_only_robots_wired_to_score_coral_are_offered_reef_slots():
     assert scoring_slots_for_type(match, sweeper, CORAL_TYPE) == []
     assert {a for _, a in scoring_slots_for_type(match, sweeper, ALGAE_TYPE)} == {"processor", "net"}
     assert {a for _, a in scoring_slots_for_type(match, cycler, CORAL_TYPE)} == {"l1", "l2", "l3", "l4"}
+
+
+def test_one_alliance_of_each_archetype_scores_a_level_no_one_robot_could_reach():
+    """The whole point of the gate, on one alliance, in order.
+
+    All three archetypes are on the field together at the blue REEF's -x
+    face, which Figure 6-3 stages at L3. The CORAL scorer cannot open the
+    face and the ALGAE sweeper cannot either -- for different reasons --
+    so L3 there is worth nothing until the cycler does a chore whose
+    payoff it does not collect. The robot that banks the points never
+    touches an ALGAE.
+
+    Friendly collisions are off: three robots crowding one REEF face is a
+    traffic question, and this test is about which robot is *allowed* to
+    do what. Phases are driven by hand rather than through a strategy so
+    the ordering is the assertion, not an emergent outcome.
+
+    The scorer's deposit is made deterministic rather than left on the
+    reference robot's real numbers. `build_characteristics` puts L3 at
+    0.90 reliability, and Match's default RNG is unseeded -- so the
+    honest version of this test fails one run in ten on a dice roll that
+    has nothing to do with the gate it is checking. Reliability 1.0
+    short-circuits before drawing at all (see _roll_scoring_success), so
+    this also keeps the test from consuming an RNG draw."""
+    match = Match(
+        build_field(), REEFSCAPE_SCORING_RULES,
+        MatchConfig(auto_duration=0.0, teleop_duration=1000.0, disable_friendly_collisions=True),
+        rng=random.Random(0),
+    )
+    face_index = 3  # normal (-1, 0): the -x face, approached from open floor
+    face = next(r for r in match.field.scoring_regions if r.name == f"blue_reef_face_{face_index}")
+    algae_zone = next(s for s in match.field.intake_locations if s.name == f"blue_reef_algae_{face_index}")
+    gated_level = reef_algae_blocked_level(face_index)
+    assert gated_level == "l3"
+
+    target = reef_algae_staging_positions("blue")[face_index]
+    approach = (1.0, 0.0)  # this face is reached from -x, driving +x
+
+    # The scorer: parked at the face holding a preloaded CORAL, intake
+    # off, so it can never clear anything for itself.
+    face_center = (reef_center("blue")[0] - REEF_HEX_APOTHEM, reef_center("blue")[1])
+    scorer = match.add_robot(
+        build_characteristics(
+            starting_piece_count=1, preload_piece_type=CORAL_TYPE,
+            scoring_reliability_by_action={},  # see the docstring: the gate is under test, not the dice
+        ),
+        Pose2d(face_center[0] - 17.0, face_center[1], 0.0), alliance="blue",
+    )
+    scorer.set_intake_active(False)
+
+    sweeper = match.add_robot(
+        build_algae_sweeper_characteristics(),
+        _pose_presenting("right", target, approach), alliance="blue",
+    )
+    cycler = match.add_robot(
+        build_station_cycler_characteristics(),
+        _pose_presenting("front", target, approach), alliance="blue",
+    )
+
+    def offered_levels():
+        return {a for r, a in scoring_slots_for_type(match, scorer, CORAL_TYPE) if r is face}
+
+    # 1. Nobody has cleared anything: the scorer is not offered L3 here.
+    assert match.region_blocked(face, gated_level)
+    assert gated_level not in offered_levels()
+
+    # 2. The sweeper tries and cannot -- the ALGAE is staged, not loose.
+    sweeper.set_intake_active(True)
+    _run(match, seconds=6.0)
+    sweeper.set_intake_active(False)
+    assert sweeper.held_pieces == []
+    assert match.station_supply[algae_zone] == 1
+    assert match.region_blocked(face, gated_level)
+
+    # 3. The cycler does the chore.
+    cycler.set_intake_active(True)
+    _run(match, seconds=6.0)
+    cycler.set_intake_active(False)
+    assert [p.piece_type for p in cycler.held_pieces] == [ALGAE_TYPE]
+    assert match.station_supply[algae_zone] == 0
+    assert not match.region_blocked(face, gated_level)
+
+    # 4. The payoff lands on a robot that never touched an ALGAE.
+    assert gated_level in offered_levels()
+    coral = scorer.held_pieces[0]
+    scorer.set_deposit_active(True, action=gated_level)
+    _run(match, seconds=4.0)
+
+    assert coral.scored
+    assert coral.target_action == gated_level
+    assert match.scores["blue"] == 4.0  # Table 6-2: L3 in TELEOP
+    assert scorer.held_pieces == []
 
 
 def test_a_gated_face_offers_only_its_ungated_levels():
