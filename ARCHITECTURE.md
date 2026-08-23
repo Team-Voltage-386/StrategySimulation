@@ -195,6 +195,12 @@ apps/
   run_defense_bench.py      Head-to-head (red plan x blue plan) grid measuring what a full-time defender
                                costs the alliance it defends -- the one thing a one-sided strategy sweep
                                structurally cannot show, since a defender scores nothing itself
+  run_salvage.py             Drive a robot around SALVAGE by hand: field canvas, one human robot,
+                                three AI, and panels showing every action's value *as of right now*,
+                                which zone you are standing in, and what is left of everything finite.
+                                A small MATCH-only window, not a second four-tab app. It takes
+                                keyboard and gamepad *together* rather than picking one -- see the
+                                CombinedInput docstring for the trap that avoids
   run_salvage_bench.py       The same idea on the dry-run game, but *paired*: every blue plan is run on
                                 the same seeds as the baseline and reported as a per-seed difference, which
                                 resolves an order of magnitude better than differencing two means. A second
