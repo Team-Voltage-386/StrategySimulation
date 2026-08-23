@@ -150,13 +150,15 @@ def test_a_region_walled_in_on_every_side_is_an_error():
     problems = problems_of(check(clean_field(scoring_regions=(boxed,), obstacles=walls)), ERROR)
     boxed_problems = [p for p in problems if p.where == "boxed"]
     assert [p.problem for p in boxed_problems] and "no pose exists" in boxed_problems[0].problem
-    # This field also reports the feeder as unroutable, and that report is
-    # correct rather than collateral: the four walls sit closer together
-    # than twice a robot radius, so their inflated outlines overlap, and
-    # `plan_path` will hand back a route straight through them. See
-    # DRY_RUN_LOG.md, F9 -- the checker is reporting what the navigator
-    # actually does, which is the only thing it should ever report.
-    assert {p.where for p in problems} == {"boxed", "feeder"}
+    # The four walls sit closer together than twice a robot radius, so
+    # their inflated outlines overlap. That used to make `plan_path` hand
+    # back a route straight through them -- and this field is how F9
+    # (DRY_RUN_LOG.md) was found: the checker reported the feeder as
+    # unroutable too, because `_route_is_real` correctly caught the bad
+    # route. With F9 fixed, `plan_path` routes around the overlap instead,
+    # so "boxed" (genuinely unworkable -- its pocket is smaller than the
+    # robot) is the only problem left.
+    assert {p.where for p in problems} == {"boxed"}
 
 
 def test_a_gap_narrower_than_the_robot_is_a_note():

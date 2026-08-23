@@ -467,19 +467,26 @@ def plan_path(
                 kept[k] = len(nodes)
                 nodes.append(vertex)
                 node_poly.append(poly_index)
-        # A polygon's own consecutive vertices are always mutually
-        # visible -- that segment *is* the polygon's boundary. Add them
-        # unconditionally rather than through the general _visible()
-        # check below: an edge's midpoint sits exactly on the polygon
-        # boundary, where point_in_polygon's ray-casting is a coin flip
-        # on floating-point noise, which would otherwise randomly sever
-        # the one connection a path needs to hug the obstacle round
-        # (e.g. a robot dead ahead, inflated to a circle-ish polygon).
+        # A polygon's own consecutive vertices are always mutually visible
+        # against *that* polygon -- the segment between them *is* its
+        # boundary -- so they skip the general _visible() check's own
+        # entry rather than run it: an edge's midpoint sits exactly on the
+        # polygon's boundary, where point_in_polygon's ray-casting used to
+        # be a coin flip on floating-point noise (the Cyrus-Beck clipping
+        # `_visible` uses now handles that case exactly, but there is no
+        # reason to pay for testing a polygon against itself). Every
+        # *other* polygon still has to be checked: two obstacles closer
+        # together than twice the robot radius have overlapping inflated
+        # outlines, and one polygon's own boundary edge can then run clean
+        # through the other's interior (F9, DRY_RUN_LOG.md) -- silently
+        # routing a path through it, since a bypassed edge is exempt from
+        # every visibility test A* would otherwise apply.
         # Only between two surviving neighbors, though -- bridging across
         # a dropped one would cut the corner it was there to round.
+        others = [entry for i, entry in enumerate(bounded) if i != poly_index]
         for k in range(n):
             nxt = (k + 1) % n
-            if k in kept and nxt in kept:
+            if k in kept and nxt in kept and _visible(poly[k], poly[nxt], others):
                 boundary_edges.add((kept[k], kept[nxt]))
 
     start_idx, goal_idx = 0, 1

@@ -89,8 +89,9 @@ def build_demo_characteristics(**overrides) -> RobotCharacteristics:
     robot actually starts with, which the headless sweep/bench callers of
     the shared builder deliberately don't get (see that module's
     docstring)."""
+    overrides.setdefault("name", "demo")
     return _build_reference_characteristics(
-        name="demo", starting_piece_count=1, preload_piece_type=CORAL_TYPE, **overrides,
+        starting_piece_count=1, preload_piece_type=CORAL_TYPE, **overrides,
     )
 
 

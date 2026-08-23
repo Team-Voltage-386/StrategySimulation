@@ -256,7 +256,7 @@ partway through cannot currently be expressed without a custom
 so the intent was there.
 
 ### F9 — `plan_path` can route through an obstacle when two are close together
-*Status: **open**, and deliberately not fixed tonight.*
+*Status: **fixed**.*
 
 Found by pointing the new checker at a synthetic test field. A
 polygon's own boundary edges are added to the visibility graph
@@ -280,19 +280,45 @@ which passes through both of the x-range obstacles. Those two endpoints
 are consecutive vertices of the *third* obstacle's inflated outline, so
 the edge was never tested.
 
-The fix is small — test a boundary edge against every polygon except its
-own — but it is not free: `NavigateTo._replan` feeds other robots in as
-`extra_obstacles`, and robot outlines overlap each other and the
-structures constantly, so this would change REEFSCAPE behavior
-substantially. Two behavior changes are already in flight tonight and
-bundling a third would make all three unreadable, which is the trap
-`benchmarks/README.md` and the defense-layer notes both warn about. It
-wants its own measurement.
+The fix was exactly that: a boundary edge is now checked with `_visible`
+against every *other* polygon (own polygon excluded, so the coin-flip
+case `boundary_edges` exists for still doesn't apply) before it's
+trusted, rather than unconditionally. The synthetic repro above no
+longer cuts through either obstacle -- the middle leg now routes around
+at y=50.2 instead of straight across at y=100.2 -- and
+`test_field_validation.py`'s `test_a_region_walled_in_on_every_side_is_an_error`
+(the field this bug was found on) now reports only the region that is
+genuinely unworkable, not the feeder that F9 made falsely look
+unroutable. Full suite (569 tests) is green.
 
-Neither current field triggers it: REEFSCAPE's two hexes are far apart,
-and SALVAGE's closest pair of obstacles is 43 inches apart against a
-39.6-inch diagonal. It is a hazard for a *future* field with clustered
-structures, which is exactly the kind of thing a real game has.
+Neither current field's own *structures* trigger the bug (REEFSCAPE's
+two hexes are far apart, SALVAGE's closest pair is 43in against a 39.6in
+diagonal), but the fix still touches every plan: `NavigateTo._replan`
+feeds other robots in as `extra_obstacles`, and robot outlines overlap
+each other and the structures constantly, so boundary edges that used to
+bypass the check now sometimes don't. That was worth a REEFSCAPE
+defense-bench pass before calling it behavior-neutral there, and it is
+not neutral: 24 seeds, `apps/run_defense_bench.py`, blue points, fix vs.
+pre-fix (same seeds, `git stash` on just the one file) --
+
+    red plan        blue points (post-fix)   blue points (pre-fix)   red fouls
+    none            244-256, +-2                same, +-2               0 both
+    block/*         167-215, -1 to -18          same range              down 1-3
+    shadow/*        171-213, -13 to -32         196-227                 down 5-8
+
+`none` (no defender) is unaffected, as expected -- nothing is close
+enough to overlap. `block/*` (defender holds a fixed position) moves a
+little. `shadow/*` (defender stays glued to its mark) moves a lot in
+one direction, 13 to 32 points down across every blue lineup, red fouls
+down 5-8 with it. That is the exact mechanism: "shadow" is the one mode
+that keeps the defender's inflated footprint overlapping blue's
+constantly, which is precisely the condition F9 needs, and the pre-fix
+numbers were blue routing *through* the overlap -- extra contact (hence
+the higher foul count) but also, incoherently, a *better* score for it.
+Post-fix blue routes around, contact drops, and so does blue's
+production. This is a real balance shift for anyone tuning `shadow` as
+a defensive tactic, not measurement noise -- it moves every one of the
+15 shadow/* x blue-plan cells the same direction.
 
 ---
 
