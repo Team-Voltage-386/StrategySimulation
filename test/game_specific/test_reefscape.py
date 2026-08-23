@@ -66,6 +66,49 @@ def test_reef_offers_six_faces_with_all_four_levels():
         assert face.piece_types == frozenset({CORAL_TYPE})
 
 
+def test_staged_algae_blocks_one_alternating_level_per_face():
+    """Figure 6-3: each face's ALGAE sits between the two branches of one
+    level, alternating L2/L3 around the REEF -- so exactly one level per
+    face is gated, on the ALGAE staged at that same face."""
+    field = build_field()
+    faces = sorted(
+        (r for r in field.scoring_regions if r.name.startswith("blue_reef_face")),
+        key=lambda r: int(r.name.rsplit("_", 1)[1]),
+    )
+    gated = [r.blocked_until_collected for r in faces]
+    assert [sorted(g) for g in gated] == [["l2"], ["l3"], ["l2"], ["l3"], ["l2"], ["l3"]]
+    for i, gate in enumerate(gated):
+        assert set(gate.values()) == {f"blue_reef_algae_{i}"}, "a face must be gated on its own ALGAE"
+
+
+def test_l4_and_l1_are_never_blocked():
+    """The asymmetry is the whole strategic point: nothing is staged on
+    L4, so a robot that refuses to touch ALGAE still has somewhere to put
+    CORAL -- it is just pushed onto slower deposits."""
+    field = build_field()
+    for region in field.scoring_regions:
+        for action in (region.blocked_until_collected or {}):
+            assert action in ("l2", "l3"), f"{region.name} gates {action!r}"
+
+
+def test_reef_face_unblocks_when_its_algae_is_collected():
+    field = build_field()
+    match = Match(field, REEFSCAPE_SCORING_RULES, MatchConfig(auto_duration=15.0, teleop_duration=135.0))
+    face = next(r for r in field.scoring_regions if r.name == "blue_reef_face_0")
+    algae = next(s for s in field.intake_locations if s.name == "blue_reef_algae_0")
+    blocked_level = next(iter(face.blocked_until_collected))
+
+    assert match.region_blocked(face, blocked_level)
+    assert not match.region_blocked(face, "l4"), "L4 has no ALGAE staged on it"
+    # The other alliance's identically-indexed face is gated on its own
+    # ALGAE, so clearing blue's must not open red's.
+    red_face = next(r for r in field.scoring_regions if r.name == "red_reef_face_0")
+
+    match.station_supply[algae] = 0
+    assert not match.region_blocked(face, blocked_level)
+    assert match.region_blocked(red_face, next(iter(red_face.blocked_until_collected)))
+
+
 def test_processor_and_net_regions_accept_only_algae():
     field = build_field()
     by_name = {r.name: r for r in field.scoring_regions}
@@ -81,6 +124,23 @@ def test_scoring_table_matches_manual_table_6_2():
     assert r.points_for("l4", "auto") == 7.0 and r.points_for("l4", "teleop") == 5.0
     assert r.points_for("processor", "auto") == 6.0 and r.points_for("processor", "teleop") == 6.0
     assert r.points_for("net", "auto") == 4.0 and r.points_for("net", "teleop") == 4.0
+
+
+def test_processor_gift_to_opponent_net_is_modeled():
+    """Table 6-2 pays 6 for PROCESSOR against 4 for NET, so on point value
+    alone the sim prefers PROCESSOR unconditionally -- but a scored
+    PROCESSOR ALGAE rolls through to the opponent's own NET. build_field
+    wires that swing in via secondary_awards rather than leaving it out
+    silently (see field.py's module docstring and scoring.py's
+    PROCESSOR_TO_OPPONENT_NET_AWARD)."""
+    field = build_field()
+    assert len(field.secondary_awards) == 1
+    award = field.secondary_awards[0]
+    assert award.action == "processor"
+    assert award.alliance_of == "opponent"
+    assert award.award_action == "net"
+    assert 0.0 <= award.probability <= 1.0
+    assert award.delay > 0.0
 
 
 def _reefscape_characteristics(**overrides) -> RobotCharacteristics:
@@ -182,3 +242,57 @@ def test_algae_processor_scoring_cycle():
 
     assert algae.scored
     assert match.scores["blue"] == 6.0  # manual Table 6-2: PROCESSOR in TELEOP
+
+
+def test_algae_processor_scoring_cycle_pays_opponent_net_after_delay():
+    """Same pipeline as test_algae_processor_scoring_cycle, run far enough
+    past the gift's delay to see the opponent's NET award land.
+    PROCESSOR_CONVERSION_PROBABILITY is currently 1.0 -- score_breakdown
+    measured the real rate above 90%, close enough to treat as certain
+    (see scoring.py) -- so this is deterministic on the field as built
+    rather than needing a forced override. If that constant ever moves
+    off 1.0, pin it back with `replace(field.secondary_awards[0],
+    probability=1.0)` rather than picking a seed that happens to roll
+    True."""
+    field = build_field()
+    award = field.secondary_awards[0]
+    assert award.probability == 1.0, "this test assumes a deterministic gift -- update if that changes"
+    match = Match(field, REEFSCAPE_SCORING_RULES, MatchConfig(auto_duration=0.0, teleop_duration=1000))
+
+    proc_pos = processor_position("blue")
+    robot_half_l = 14.0
+    intake_reach = 6.0
+    pickup_approach_offset = ALGAE_RADIUS + robot_half_l + intake_reach - 2.0
+
+    algae_pos = (proc_pos[0] - 44.0, proc_pos[1] + 71.0)
+    algae = spawn_algae(match, algae_pos)
+
+    start_pose = Pose2d(algae_pos[0] - pickup_approach_offset - 20, algae_pos[1], 0)
+    robot = match.add_robot(_reefscape_characteristics(deposit_time_by_action={"processor": 0.3}), start_pose)
+
+    score_pose = Pose2d(proc_pos[0], proc_pos[1] + 21.0, -math.pi / 2)
+
+    routine = Sequence([
+        DriveToPose(Pose2d(algae_pos[0] - pickup_approach_offset, algae_pos[1], 0), position_tolerance=0.5),
+        RunIntake(timeout=5.0),
+        DriveToPose(score_pose, position_tolerance=1.0, heading_tolerance=0.05),
+        RunManipulator("processor", timeout=5.0),
+    ])
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0)
+    scored_at = None
+    for i in range(3000 + int(award.delay * 60) + 60):
+        routine.tick(ctx)
+        match.step(1.0 / 60.0)
+        ctx.elapsed += 1.0 / 60.0
+        if algae.scored and scored_at is None:
+            scored_at = i
+        if scored_at is not None and i - scored_at > int(award.delay * 60) + 30:
+            break
+
+    assert algae.scored
+    assert match.scores["blue"] == 6.0  # the gift doesn't touch the scoring alliance's own points
+    assert match.scores["red"] == 4.0  # manual Table 6-2: NET, paid to the opponent after the gift's delay
+
+    award_events = match.events.of_kind("secondary_award")
+    assert len(award_events) == 1
+    assert award_events[0].data == {"alliance": "red", "action": "net", "points": 4.0}

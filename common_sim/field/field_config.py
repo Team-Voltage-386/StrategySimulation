@@ -67,6 +67,27 @@ class ScoringRegion:
     # like before this field existed. Enforced by Match, see
     # Match.region_full / Match._try_score.
     capacity_by_action: dict[str, int] | None = None
+    # Per-action gate: action name -> the IntakeLocation name whose supply
+    # must be exhausted before that action becomes available here. Models
+    # a scoring slot that starts the match physically obstructed by a game
+    # piece somebody has to take away first -- REEFSCAPE's ALGAE staged on
+    # the REEF blocking that face's L2 or L3 branches is the motivating
+    # case (see game_specific/reefscape/field.py).
+    #
+    # Deliberately a *separate* concept from capacity_by_action rather
+    # than a zero cap that later grows, because the two fail differently
+    # and a strategy postmortem needs to tell them apart: "full" means the
+    # alliance already banked those points, "blocked" means somebody has
+    # to go do a chore first. Match reports them through separate
+    # predicates (region_full / region_blocked) for that reason.
+    #
+    # The gate only ever opens -- an IntakeLocation's supply counts down
+    # and never refills -- so a robot can never plan a slot that becomes
+    # illegal underneath it, only find a new one legal later.
+    #
+    # None (the default) means no action here is ever gated, which is
+    # every region that predates this field.
+    blocked_until_collected: dict[str, str] | None = None
     # Which alliance owns this region ("red"/"blue"), None if it's
     # neutral/shared. world_view.scoring_options and Match.deposit_region_for
     # both filter on this against Robot.alliance, so a robot never plans to
@@ -256,6 +277,70 @@ class EmitterRegion:
 
 
 @dataclass(frozen=True)
+class SecondaryAward:
+    """A follow-on scoring event triggered by an already-scored piece,
+    resolved by someone other than a robot -- a human player, not a
+    control loop. REEFSCAPE's PROCESSOR is the motivating case: scoring
+    ALGAE there is worth 6 to the scoring alliance immediately (an
+    ordinary ScoringRegion/ScoringRules pair already covers that half),
+    but the manual also has the piece roll through to the *opponent's*
+    PROCESSOR AREA, where their human player can put it in their own NET
+    for 4. Leaving that second half out doesn't just under-model
+    REEFSCAPE, it makes the sim prefer PROCESSOR unconditionally (6 > 4),
+    when the true swing -- own points minus the opponent's expected gain
+    -- only favors it when the opponent converts fewer than half the
+    gifts (6 - 4p vs. a flat 4, equal at p=0.5).
+
+    Generalised rather than special-cased because the shape recurs: 2018
+    EXCHANGE->VAULT (a robot deposits a POWER CUBE, a human player later
+    cashes it in for a boost) and 2022's CARGO recirculating through a
+    HUB into a human-player terminal are the same "scored here, resolved
+    over there, later, by someone else" pattern with different knobs.
+
+    `action` is the ScoringRegion.action whose scoring event triggers
+    this award (e.g. "processor") -- every ScoringRegion offering that
+    action shares the same award, the same way one action name shares
+    one point value via ScoringRules.
+
+    `alliance_of` says who the award pays out to: "scoring" (the
+    alliance that just scored, e.g. VAULT) or "opponent" (REEFSCAPE's
+    PROCESSOR gift) -- matching how `Match.protection_fouls` /
+    `pin_fouls` already land their points under "the other alliance"
+    from whoever triggered them.
+
+    `award_action` is looked up via `Match.scoring_rules.points_for` (at
+    the phase the triggering score happened in) to get the award's point
+    value, rather than this dataclass carrying its own number -- e.g.
+    REEFSCAPE's PROCESSOR gift sets this to "net", so the award is worth
+    exactly what a NET deposit is worth and the two can never drift
+    apart the way two independently-typed constants could.
+
+    `probability` is the human player's conversion rate -- how often the
+    thing actually gets cashed in. 1.0 (the default) makes it
+    deterministic, matching a mechanic like VAULT where the human player
+    is not meaningfully fallible, and short-circuits the same way
+    `RobotCharacteristics.reliability_for` does so a game that doesn't
+    use this never perturbs `Match`'s RNG draw sequence. An opponent's
+    conversion rate is a property of *their* human player, not this
+    field, so it belongs on real data rather than a guess where that
+    data exists -- REEFSCAPE's PROCESSOR gift also lands on the default,
+    but because score_breakdown (processor counts against netAlgaeCount)
+    measured it above 90%, not because it was left unmeasured; see
+    game_specific/reefscape/scoring.py for the number and the tradeoff
+    of treating it as certain.
+
+    `delay` is how long after the triggering score the award resolves,
+    in seconds -- Match._step_secondary_awards pays it out then, the
+    same kind of lag EmitterRegion.return_delay already models for a
+    piece physically cycling back onto the field."""
+    action: str
+    alliance_of: str  # "scoring" | "opponent"
+    award_action: str
+    probability: float = 1.0
+    delay: float = 0.0
+
+
+@dataclass(frozen=True)
 class FieldConfig:
     width: float
     height: float
@@ -265,6 +350,9 @@ class FieldConfig:
     intake_locations: tuple[IntakeLocation, ...] = field(default_factory=tuple)
     emitter_regions: tuple[EmitterRegion, ...] = field(default_factory=tuple)
     protected_zones: tuple[ProtectedZone, ...] = field(default_factory=tuple)
+    # Empty (the default) means no scored action triggers a follow-on
+    # award and Match never rolls or schedules one -- see SecondaryAward.
+    secondary_awards: tuple[SecondaryAward, ...] = field(default_factory=tuple)
     # None (the default) means the game has no pin rule and Match never
     # runs the check at all -- pinning is then simply legal.
     pin_rule: PinRule | None = None

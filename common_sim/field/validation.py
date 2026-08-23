@@ -101,7 +101,9 @@ def validate_field(
     problems += _check_polygons(field)
     problems += _check_piece_types(field)
     problems += _check_regions(field, scoring_rules)
+    problems += _check_gates(field)
     problems += _check_emitters(field)
+    problems += _check_secondary_awards(field, scoring_rules)
     problems += _check_reachability(field, robot_width, robot_length, reference_point)
     problems += _check_pinch_points(field, robot_width, robot_length)
     return problems
@@ -219,6 +221,41 @@ def _check_piece_types(field: FieldConfig) -> list[FieldProblem]:
     return problems
 
 
+def _check_gates(field: FieldConfig) -> list[FieldProblem]:
+    """ScoringRegion.blocked_until_collected sanity. Every failure here
+    is one a match would otherwise express as a scoring action that
+    quietly never becomes available -- which reads on a results table as
+    a strategy choosing not to use it, not as a broken field."""
+    problems = []
+    locations_by_name = {s.name: s for s in field.intake_locations}
+    for region in field.scoring_regions:
+        for action, location_name in sorted((region.blocked_until_collected or {}).items()):
+            if action not in region.actions:
+                problems.append(FieldProblem(
+                    ERROR, region.name,
+                    f"blocked_until_collected gates {action!r}, which this region does not offer",
+                    f"Its actions are {sorted(region.actions)}. The gate is dead: "
+                    "Match.region_blocked only ever asks about an action it accepted.",
+                ))
+            location = locations_by_name.get(location_name)
+            if location is None:
+                problems.append(FieldProblem(
+                    ERROR, region.name,
+                    f"blocked_until_collected points {action!r} at unknown intake location {location_name!r}",
+                    "Match resolves these by name at construction and raises on a miss, "
+                    "so this field cannot start a match at all.",
+                ))
+            elif location.starting_pieces is None:
+                problems.append(FieldProblem(
+                    ERROR, region.name,
+                    f"{action!r} is gated on {location_name!r}, which has unlimited supply",
+                    "The gate opens when the location runs dry, and an unlimited location "
+                    "never does -- so this action is unscoreable for the whole match. Give "
+                    "the location a finite starting_pieces count.",
+                ))
+    return problems
+
+
 def _check_regions(field: FieldConfig, scoring_rules) -> list[FieldProblem]:
     problems = []
     for region in field.scoring_regions:
@@ -288,6 +325,43 @@ def _check_emitters(field: FieldConfig) -> list[FieldProblem]:
                 problems.append(FieldProblem(
                     WARNING, emitter.name,
                     f"active window ({start:g}, {end:g}) never opens"))
+    return problems
+
+
+def _check_secondary_awards(field: FieldConfig, scoring_rules) -> list[FieldProblem]:
+    actions = {action for r in field.scoring_regions for action in r.actions}
+    problems = []
+    for award in field.secondary_awards:
+        where = f"secondary award on {award.action!r}"
+        if award.action not in actions:
+            problems.append(FieldProblem(
+                WARNING, where,
+                f"no scoring region offers action {award.action!r}",
+                "This award can never trigger -- Match._try_score only rolls it from an "
+                "actual scoring event on that action name.",
+            ))
+        if scoring_rules is not None and all(
+            scoring_rules.points_for(award.award_action, phase) == 0.0 for phase in ("auto", "teleop")
+        ):
+            problems.append(FieldProblem(
+                WARNING, where,
+                f"award_action {award.award_action!r} is worth 0 points in every phase",
+                "Match._try_score looks the award's value up via points_for(award_action, "
+                "phase), so this award silently pays out nothing whenever it lands.",
+            ))
+        if award.alliance_of not in ("scoring", "opponent"):
+            problems.append(FieldProblem(
+                ERROR, where,
+                f"alliance_of is {award.alliance_of!r}, not 'scoring'/'opponent'",
+                "Match._try_score only checks for 'scoring'; anything else silently pays "
+                "out to the opponent, same as a real typo would.",
+            ))
+        if not (0.0 <= award.probability <= 1.0):
+            problems.append(FieldProblem(
+                ERROR, where, f"probability is {award.probability!r}, must be in [0, 1]"))
+        if award.delay < 0.0:
+            problems.append(FieldProblem(
+                ERROR, where, f"delay is {award.delay!r}, must be >= 0"))
     return problems
 
 

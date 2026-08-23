@@ -6,8 +6,12 @@ pipeline (drive -> intake -> deposit -> score) works before any
 game_specific code exists.
 """
 import math
+import random
 
-from common_sim.field.field_config import FieldConfig, ScoringRegion
+import pytest
+
+from common_sim.control.world_view import scoring_slots_for_type
+from common_sim.field.field_config import FieldConfig, IntakeLocation, ScoringRegion, SecondaryAward
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig, Phase
 from common_sim.match.scoring import TableScoringRules
@@ -308,6 +312,197 @@ def test_region_full_is_false_without_capacity_configured():
     match = Match(field, make_scoring_rules())
     region = field.scoring_regions[0]
     assert match.region_full(region, "score_widget") is False
+
+
+def _gated_field(starting_pieces: int | None = 1) -> FieldConfig:
+    """A goal whose "score_widget" action is blocked until the depot next
+    to it has been emptied -- the synthetic-game shape of REEFSCAPE's
+    ALGAE sitting on a REEF branch."""
+    region = ScoringRegion(
+        name="goal",
+        vertices=((80, -60), (250, -60), (250, 160), (80, 160)),
+        actions=frozenset({"score_widget"}),
+        piece_types=frozenset({WIDGET}),
+        blocked_until_collected={"score_widget": "depot"},
+    )
+    depot = IntakeLocation(
+        name="depot", vertices=((0, -60), (60, -60), (60, 60), (0, 60)),
+        piece_type=WIDGET, starting_pieces=starting_pieces,
+    )
+    return FieldConfig(width=300, height=200, scoring_regions=(region,), intake_locations=(depot,))
+
+
+def test_region_blocked_until_its_location_runs_dry():
+    field = _gated_field()
+    match = Match(field, make_scoring_rules())
+    region, depot = field.scoring_regions[0], field.intake_locations[0]
+
+    assert match.region_blocked(region, "score_widget")
+    # Not the same failure as being full -- the two are reported apart on
+    # purpose, so a postmortem can tell a banked score from an unfinished chore.
+    assert match.region_full(region, "score_widget") is False
+
+    match.station_supply[depot] = 0
+    assert match.region_blocked(region, "score_widget") is False
+
+
+def test_blocked_region_refuses_to_score():
+    """Two runs of one identical deposit, differing only in whether the
+    gate has opened -- separate matches so the second isn't reading points
+    off the first one's abandoned piece."""
+    def deposit_one(open_the_gate: bool):
+        field = _gated_field()
+        match = Match(field, make_scoring_rules(), MatchConfig(auto_duration=1000, teleop_duration=1000))
+        if open_the_gate:
+            match.station_supply[field.intake_locations[0]] = 0
+        robot = match.add_robot(make_characteristics(), Pose2d(150, 0, 0))
+        piece = match.spawn_piece(WIDGET, (165, 0))
+        robot.set_intake_active(True)
+        for _ in range(60):
+            match.step(1.0 / 60.0)
+            if robot.held_pieces:
+                break
+        robot.set_intake_active(False)
+        robot.set_deposit_active(True, action="score_widget")
+        run_ticks(match, 30)
+        return piece, match
+
+    blocked, blocked_match = deposit_one(open_the_gate=False)
+    assert not blocked.scored, "gate should suppress the score while the depot is stocked"
+    assert blocked_match.scores.get("blue", 0.0) == 0.0
+
+    opened, opened_match = deposit_one(open_the_gate=True)
+    assert opened.scored, "the same deposit should score once the gate opens"
+    assert opened_match.scores["blue"] > 0.0
+
+
+def test_blocked_action_is_hidden_from_planning():
+    """The gate has to reach the planner, not just the scoring check --
+    otherwise a robot happily drives to a slot it cannot use and the
+    failure shows up as a mystery miss instead of a re-plan."""
+    field = _gated_field()
+    match = Match(field, make_scoring_rules())
+    robot = match.add_robot(make_characteristics(), Pose2d(150, 0, 0))
+
+    assert scoring_slots_for_type(match, robot, WIDGET) == []
+
+    match.station_supply[field.intake_locations[0]] = 0
+    assert [action for _, action in scoring_slots_for_type(match, robot, WIDGET)] == ["score_widget"]
+
+
+def test_ungated_region_is_never_blocked():
+    field = make_field()
+    match = Match(field, make_scoring_rules())
+    assert match.region_blocked(field.scoring_regions[0], "score_widget") is False
+
+
+def test_gate_naming_an_unknown_location_fails_at_construction():
+    """Loud at construction rather than silently never-blocked -- a typo
+    here would otherwise read as a scoring action nobody chose to use."""
+    region = ScoringRegion(
+        name="goal", vertices=((80, -60), (250, -60), (250, 160), (80, 160)),
+        actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+        blocked_until_collected={"score_widget": "nonexistent"},
+    )
+    field = FieldConfig(width=300, height=200, scoring_regions=(region,))
+    with pytest.raises(KeyError):
+        Match(field, make_scoring_rules())
+
+
+def test_secondary_award_pays_opponent_after_delay():
+    """SecondaryAward's motivating case is REEFSCAPE's PROCESSOR gift: a
+    piece scored on one action creates a delayed, probabilistic follow-on
+    award for the *other* alliance -- modeling a human player, not a
+    robot, doing the converting. Exercised directly against `_try_score` /
+    `step`, the same way test_utility.py drives `_roll_scoring_success`
+    directly, since driving a robot through a second scoring cycle just to
+    trigger this would test navigation, not the award."""
+    region = ScoringRegion(
+        name="giver", vertices=((80, -60), (250, -60), (250, 60), (80, 60)),
+        actions=frozenset({"give"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(
+        width=300, height=200, scoring_regions=(region,),
+        secondary_awards=(
+            SecondaryAward(action="give", alliance_of="opponent", award_action="take", probability=1.0, delay=1.0),
+        ),
+    )
+    rules = TableScoringRules({("give", "auto"): 6.0, ("take", "auto"): 4.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000))
+    piece = match.spawn_piece(WIDGET, (0, 0))
+    piece.target_action = "give"
+    piece.last_holder_alliance = "blue"
+
+    match._try_score(piece, region, explicit=True)
+    assert match.scores["blue"] == 6.0
+    assert match.scores.get("red", 0.0) == 0.0, "the award hasn't resolved yet"
+
+    run_ticks(match, 59)  # just under the 1s delay
+    assert match.scores.get("red", 0.0) == 0.0
+
+    run_ticks(match, 2)  # crosses the 1s delay
+    assert match.scores["red"] == 4.0
+    assert match.scores["blue"] == 6.0, "the scoring alliance's own points are untouched"
+
+    award_events = match.events.of_kind("secondary_award")
+    assert len(award_events) == 1
+    assert award_events[0].data == {"alliance": "red", "action": "take", "points": 4.0}
+
+
+def test_secondary_award_alliance_of_scoring_pays_the_scoring_alliance():
+    """The other half of alliance_of: a mechanic like 2018's EXCHANGE ->
+    VAULT, where the human player payout belongs to whoever triggered it,
+    not the opponent."""
+    region = ScoringRegion(
+        name="exchange", vertices=((80, -60), (250, -60), (250, 60), (80, 60)),
+        actions=frozenset({"exchange"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(
+        width=300, height=200, scoring_regions=(region,),
+        secondary_awards=(
+            SecondaryAward(action="exchange", alliance_of="scoring", award_action="vault", probability=1.0, delay=0.0),
+        ),
+    )
+    rules = TableScoringRules({("exchange", "auto"): 0.0, ("vault", "auto"): 5.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000))
+    piece = match.spawn_piece(WIDGET, (0, 0))
+    piece.target_action = "exchange"
+    piece.last_holder_alliance = "blue"
+
+    match._try_score(piece, region, explicit=True)
+    run_ticks(match, 1)  # 0.0 delay still needs a step() to resolve
+
+    assert match.scores["blue"] == 5.0
+    assert match.scores.get("red", 0.0) == 0.0
+
+
+def test_secondary_award_probability_gates_the_award():
+    """probability=0.0 means the human player never converts it -- no
+    award ever gets scheduled, checked against a fixed RNG so the test
+    isn't flaky."""
+    region = ScoringRegion(
+        name="giver", vertices=((80, -60), (250, -60), (250, 60), (80, 60)),
+        actions=frozenset({"give"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(
+        width=300, height=200, scoring_regions=(region,),
+        secondary_awards=(
+            SecondaryAward(action="give", alliance_of="opponent", award_action="take", probability=0.0, delay=0.0),
+        ),
+    )
+    rules = TableScoringRules({("give", "auto"): 6.0, ("take", "auto"): 4.0})
+    match = Match(field, rules, MatchConfig(auto_duration=1000, teleop_duration=1000), rng=random.Random(0))
+    piece = match.spawn_piece(WIDGET, (0, 0))
+    piece.target_action = "give"
+    piece.last_holder_alliance = "blue"
+
+    match._try_score(piece, region, explicit=True)
+    run_ticks(match, 5)
+
+    assert match.scores["blue"] == 6.0
+    assert match.scores.get("red", 0.0) == 0.0
+    assert match._pending_secondary_awards == []
+    assert match.events.of_kind("secondary_award") == []
 
 
 def test_starting_piece_count_preloads_robot():

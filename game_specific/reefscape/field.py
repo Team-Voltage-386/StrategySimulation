@@ -11,7 +11,11 @@ mobility bonus -- both are position/time-based bonuses rather than
 piece-deposit scoring, which is a different mechanic than
 common_sim's current ScoringRegion model covers. CORAL (REEF L1-L4)
 and ALGAE (PROCESSOR/NET) scoring, which is the core scoring loop and
-the point of this dry run, are fully modeled.
+the point of this dry run, are fully modeled -- including the PROCESSOR's
+gift to the opponent's NET, via secondary_awards (see
+game_specific/reefscape/scoring.py's PROCESSOR_TO_OPPONENT_NET_AWARD),
+and the ALGAE staged on the REEF blocking that face's L2 or L3 branches
+until somebody clears it (see REEF_ALGAE_BLOCKED_LEVELS).
 """
 from __future__ import annotations
 
@@ -21,6 +25,7 @@ from common_sim.field.field_config import (
     EmitterRegion, FieldConfig, IntakeLocation, Obstacle, PinRule, ProtectedZone, ScoringRegion,
 )
 from game_specific.reefscape.game_pieces import ALGAE_RADIUS, ALGAE_TYPE, CORAL_TYPE
+from game_specific.reefscape.scoring import PROCESSOR_TO_OPPONENT_NET_AWARD
 
 # Game Manual (V13) doesn't cap CORAL station supply -- 30 is a
 # dry-run placeholder (a generous multiple of what one match could plausibly
@@ -149,15 +154,54 @@ REEF_LEVEL_CAPACITY = {
 
 # 6.3.4.2.A: 1 ALGAE is staged lightly on the REEF at each of its 6
 # faces before the MATCH (12 total field-wide, alternating L2/L3 branch
-# height per Figure 6-3 -- a height distinction this sim doesn't model,
-# since REEF face scoring is already flattened to one zone per face, see
-# _reef_scoring_regions). Modeled as a per-face collection region (an
+# height per Figure 6-3). REEF face scoring is flattened to one zone per
+# face (see _reef_scoring_regions), so that alternation is carried as
+# *which action the face's ALGAE blocks* rather than as a z-coordinate --
+# see REEF_ALGAE_BLOCKED_LEVELS below, which is where the L2/L3
+# distinction actually earns its keep. Modeled as a per-face collection region (an
 # IntakeLocation with starting_pieces=1) rather than a physical loose
 # piece resting against the hex obstacle, matching how a CORAL STATION
 # is modeled -- a robot dwells in the zone to pick the ALGAE up. The
 # staging point sits just outside the REEF's solid hex face so it
 # doesn't spawn/collide inside the obstacle.
 REEF_ALGAE_STAGING_CLEARANCE = ALGAE_RADIUS + 4.0
+
+# 6.3.4.2.A / Figure 6-3: the staged ALGAE doesn't sit decoratively next
+# to the face, it rests *between the two branches* of one level -- L2 on
+# some faces, L3 on the others, alternating around the REEF. Until a
+# robot takes it away, no CORAL can be scored on that face at that level.
+# Both branches of the level are obstructed by the one ALGAE, and a face's
+# whole L2/L3 capacity here is exactly those 2 branches
+# (REEF_BRANCHES_PER_LEVEL), so gating the action for the face is the
+# faithful model rather than an approximation.
+#
+# This is the mechanic that makes a pure CORAL cycle pay a real price:
+# L2 and L3 are the sim's *preferred* levels on points-per-second (see
+# robot.py's DEFAULT_DEPOSIT_TIMES against scoring.py's per-action
+# reliabilities -- L2 clears ~4.8 pts/s against L4's ~2.3), so a robot
+# that never touches ALGAE is denied its two best levels on half the
+# faces each and pushed onto slower L4/L1 deposits. Removing an ALGAE
+# costs a detour and a place to put it; whether that detour pays is the
+# question this models rather than assumes.
+#
+# L4 is deliberately never gated -- nothing is staged up there, and that
+# asymmetry is the whole strategic shape of the real game.
+REEF_ALGAE_BLOCKED_LEVELS = ("l2", "l3")
+
+
+def reef_algae_blocked_level(face_index: int) -> str:
+    """Which CORAL level face `face_index`'s staged ALGAE obstructs,
+    alternating around the REEF per Figure 6-3."""
+    return REEF_ALGAE_BLOCKED_LEVELS[face_index % len(REEF_ALGAE_BLOCKED_LEVELS)]
+
+
+def reef_algae_location_name(alliance: str, face_index: int) -> str:
+    """Name of the IntakeLocation holding face `face_index`'s staged
+    ALGAE. Defined here (rather than spelled out at each site) because
+    build_field's intake_locations and _reef_scoring_regions' gates have
+    to agree on it exactly -- a typo on either side would read as a face
+    that simply never unblocks."""
+    return f"{alliance}_reef_algae_{face_index}"
 
 
 def _hex_vertices(center: tuple[float, float], apothem: float) -> tuple[tuple[float, float], ...]:
@@ -206,6 +250,9 @@ def _reef_scoring_regions(name_prefix: str, center: tuple[float, float], allianc
         regions.append(ScoringRegion(
             name=f"{name_prefix}_face_{i}", vertices=vertices, actions=REEF_LEVELS, piece_types=frozenset({CORAL_TYPE}),
             capacity_by_action=dict(REEF_LEVEL_CAPACITY), alliance=alliance,
+            blocked_until_collected={
+                reef_algae_blocked_level(i): reef_algae_location_name(alliance, i),
+            },
         ))
     return tuple(regions)
 
@@ -348,7 +395,7 @@ def build_field() -> FieldConfig:
         for i, pos in enumerate(coral_station_positions(alliance))
     ) + tuple(
         IntakeLocation(
-            name=f"{alliance}_reef_algae_{i}",
+            name=reef_algae_location_name(alliance, i),
             vertices=_rect(pos, 20.0, 20.0),
             piece_type=ALGAE_TYPE,
             starting_pieces=1,
@@ -381,6 +428,7 @@ def build_field() -> FieldConfig:
         width=FIELD_LENGTH, height=FIELD_WIDTH,
         obstacles=obstacles, scoring_regions=scoring_regions, intake_locations=intake_locations,
         emitter_regions=emitter_regions, protected_zones=protected_zones,
+        secondary_awards=(PROCESSOR_TO_OPPONENT_NET_AWARD,),
         pin_rule=PinRule(
             max_seconds=PIN_MAX_SECONDS,
             release_seconds=PIN_RELEASE_SECONDS,
