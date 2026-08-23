@@ -1,0 +1,292 @@
+<title>SWEEP Tab Handbook</title>
+
+<!--
+  The SWEEP tab's user guide. This file is PROSE ONLY -- edit it freely,
+  it is never overwritten.
+
+  Built with:  python -m apps.build_guide --guide sweep
+
+  Placeholders this template fills in:
+
+      {{SHOT:setup}}     {{TAGS:setup}}
+      {{SHOT:results}}   {{TAGS:results}}
+      {{SHOT:plots}}     {{TAGS:plots}}
+      {{NAV}}   {{STYLE}}   {{GENERATED}}
+
+  {{TAGS:...}} is generated from doc_tags.document(...) calls next to the
+  widgets themselves (gui_utils/sweep_panel.py, apps/sweep_tab.py) --
+  edit an explanation there, not here. {{STYLE}} and {{NAV}} are shared
+  with the other three guides; see docs/guide_style.css and
+  apps/build_guide.py's GUIDES list.
+-->
+
+{{STYLE}}
+
+<div class="page">
+
+{{NAV}}
+
+<header class="masthead">
+  <p class="eyebrow">sparky-sim &middot; field guide</p>
+  <h1>The SWEEP tab</h1>
+  <p class="standfirst">
+    One match tells you what happened once. SWEEP runs hundreds of them at once, varying one or
+    two things about a robot, and lets you see how the score actually responds -- the difference
+    between "I watched it and it seemed faster" and an answer you can defend.
+  </p>
+  <p class="standfirst">
+    No statistics background assumed. The one idea worth understanding going in: <em>a single
+    match is not a measurement, it's a sample</em> -- and everything about how this tab is built
+    follows from that.
+  </p>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">1</span><a href="#idea">Why one match isn't enough</a></li>
+    <li><span class="n">2</span><a href="#setup">Walkthrough: setting up a sweep</a></li>
+    <li><span class="n">3</span><a href="#trap">The trap: repetitions that all look the same</a></li>
+    <li><span class="n">4</span><a href="#results">Walkthrough: the results table</a></li>
+    <li><span class="n">5</span><a href="#plots">Walkthrough: the plots</a></li>
+    <li><span class="n">6</span><a href="#recipes">Three recipes</a></li>
+    <li><span class="n">7</span><a href="#trouble">When something looks wrong</a></li>
+    <li><span class="n">8</span><a href="#next">After a sweep: what next</a></li>
+    <li><span class="n">9</span><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<section id="idea">
+  <h2><span class="marker">01</span>Why one match isn't enough</h2>
+  <p>
+    Game pieces scatter randomly, robots don't accelerate identically tick to tick, and two
+    otherwise identical robots can win by 12 or lose by 4 depending on nothing meaningful at
+    all. Watch one match with a faster drivetrain, see a higher score, and you've learned almost
+    nothing -- it might be the speed, or it might just be that match's luck.
+  </p>
+  <p>
+    A sweep answers this by running the same design many times over (<strong>repetitions</strong>),
+    with randomness turned on (<strong>variability</strong>) so those repetitions aren't just the
+    same match copy-pasted, and often crossed against a second thing you're curious about --
+    speed vs. strategy, say -- so you get a whole grid of answers from one run instead of one
+    match at a time.
+  </p>
+</section>
+
+<section id="setup">
+  <h2><span class="marker">02</span>Walkthrough: setting up a sweep</h2>
+  <p>
+    Left column: who's on the field, same roster and robot config as MATCH. Top right: which
+    variables to sweep and the run controls. A variable is one thing to vary -- a numeric
+    characteristic (with a min/max/how-many-points) or a categorical choice like strategy (pick
+    which ones to include with checkboxes).
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:setup}}</div>
+    <figcaption>
+      Two variables configured: PRIMARY's max speed from 4 to 7 m/s in 4 steps, crossed with
+      PRIMARY's strategy across three choices -- a 4 &times; 3 grid, times 2 repetitions = 24
+      matches.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:setup}}
+  </div>
+</section>
+
+<section id="trap">
+  <h2><span class="marker">03</span>The trap: repetitions that all look the same</h2>
+  <div class="trap">
+    <span class="label">Read this before you set Repetitions above 1</span>
+    <p>
+      Repetitions only does something useful if <strong>Enable variability</strong> is also
+      checked. Without it, nothing in a match actually consumes randomness -- robot
+      characteristics don't perturb, start poses don't shift, pieces don't scatter differently --
+      so every repetition of the same design point runs the exact same match and produces the
+      exact same score. Ten repetitions of nothing new is ten rows that say the same thing, which
+      looks like data but isn't.
+    </p>
+    <p>
+      The tab watches for this: if you have Repetitions above 1 with variability off, an amber
+      warning appears under the run controls. Turn variability on before you trust a spread of
+      repeated scores to mean anything.
+    </p>
+  </div>
+</section>
+
+<section id="results">
+  <h2><span class="marker">04</span>Walkthrough: the results table</h2>
+  <p>
+    One row per match, filled in live as the sweep runs: the variable values it used, its final
+    score, and a few other metrics. A row in red means that particular match crashed -- hover it
+    for the error.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:results}}</div>
+    <figcaption>
+      24 completed rows from the grid above -- <code>cycle_coral</code> clearly outscoring
+      <code>full_defense</code> at every speed, and score climbing with speed inside each
+      strategy.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:results}}
+  </div>
+
+  <p>
+    Double-click any row -- or right-click it and choose REPLAY IN MATCH TAB -- to watch that
+    exact match again on the MATCH tab.
+  </p>
+</section>
+
+<section id="plots">
+  <h2><span class="marker">05</span>Walkthrough: the plots</h2>
+  <p>
+    The same results, charted. Pick a <strong>Metric</strong> for the score axis, and which
+    swept variable goes on <strong>X</strong> -- add <strong>Y</strong> for a heatmap when you
+    swept two things at once, or <strong>Facet</strong> to split into a grid of small charts
+    instead of one big one.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:plots}}</div>
+    <figcaption>
+      The same 24 matches as a heatmap: speed on X, strategy on Y, colour is mean score. The
+      story from the table is now visible at a glance -- <code>cycle_coral</code> (bottom row)
+      beats <code>full_defense</code> everywhere, and both improve with speed.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:plots}}
+  </div>
+</section>
+
+<section id="recipes">
+  <h2><span class="marker">06</span>Three recipes</h2>
+  <div class="recipes">
+    <div class="recipe">
+      <h3>Does speed actually matter?</h3>
+      <p>One variable, several repetitions, variability on.</p>
+      <dl>
+        <dt>Variable</dt><dd>PRIMARY.Max Speed, 4-7 m/s, 4 points</dd>
+        <dt>Repetitions</dt><dd>8, variability enabled</dd>
+      </dl>
+      <p>Look at the PLOTS line chart -- if it's flat within the noise, speed isn't the
+        bottleneck.</p>
+    </div>
+    <div class="recipe">
+      <h3>Compare a few strategies fairly</h3>
+      <p>Categorical variable, same base seed for everyone.</p>
+      <dl>
+        <dt>Variable</dt><dd>PRIMARY.strategy, check the ones to compare</dd>
+        <dt>Repetitions</dt><dd>8+, variability enabled</dd>
+      </dl>
+      <p>Every strategy is judged on the same seed set this way, so a difference in score is a
+        difference in strategy, not luck.</p>
+    </div>
+    <div class="recipe">
+      <h3>The full grid: design vs. strategy</h3>
+      <p>What the screenshots above show -- two variables at once.</p>
+      <dl>
+        <dt>Variable 1</dt><dd>a characteristic, Uniform mode</dd>
+        <dt>Variable 2</dt><dd>strategy, a few choices checked</dd>
+      </dl>
+      <p>Read it off the PLOTS heatmap: X vs. Y vs. Facet lets you look at three axes without
+        losing track.</p>
+    </div>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2><span class="marker">07</span>When something looks wrong</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Symptom</th><th>What is going on</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Every repetition of a point has the identical score</td>
+          <td>Enable variability is off. See "The trap" above.</td>
+        </tr>
+        <tr>
+          <td>EXECUTE is greyed out</td>
+          <td>A variable row is invalid (e.g. Min above Max, or no categorical choice checked),
+            or there's nothing to sweep at all.</td>
+        </tr>
+        <tr>
+          <td>The run-count readout is red</td>
+          <td>Above 5000 matches -- EXECUTE will ask you to confirm before starting. Reduce
+            Points or Repetitions, or accept that it's going to take a while.</td>
+        </tr>
+        <tr>
+          <td>I pressed ABORT and it's still running</td>
+          <td>Matches already in flight can't be interrupted -- ABORT stops new ones from
+            starting, and the sweep finishes those already running before it reports done.</td>
+        </tr>
+        <tr>
+          <td>Everything's slow and the rest of the app stutters</td>
+          <td>A sweep uses every CPU worker it's given. Turn Workers down, or run it when you
+            don't need the machine for anything else.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="next">
+  <h2><span class="marker">08</span>After a sweep: what next</h2>
+  <p>
+    A sweep answers <em>score(design, strategy)</em> for whichever strategies you checked -- but
+    those strategies were written once, by a person, roughly with one robot in mind. A design
+    that scores low might just be running a strategy nobody tuned for it. If a sweep result looks
+    like a design is underperforming and you want to know its actual ceiling, that question
+    belongs to the <a href="param_search_guide.html">SEARCH tab</a> -- it tunes a strategy's
+    numbers specifically to the design you hand it, instead of judging every design by the same
+    hand-written numbers.
+  </p>
+</section>
+
+<section id="glossary">
+  <h2><span class="marker">09</span>Glossary</h2>
+  <dl class="glossary">
+    <dt>Variable</dt>
+    <dd>One thing being swept: a target robot, a property on it, and the values to try.</dd>
+
+    <dt>Repetitions</dt>
+    <dd>How many times each point in the grid re-runs with a different seed. Needs variability
+      on to mean anything -- see section 3.</dd>
+
+    <dt>Variability</dt>
+    <dd>Random perturbation of robot characteristics, start poses, and piece scatter, so repeated
+      matches aren't identical.</dd>
+
+    <dt>Base seed</dt>
+    <dd>Where the sweep's randomness starts counting from. Fix it when comparing two designs so
+      both see the same seeds.</dd>
+
+    <dt>Facet</dt>
+    <dd>Splits one plot into a grid of small plots, one per value of a third variable -- for
+      when X and Y are already spoken for.</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  <p>{{GENERATED}}</p>
+  <p>
+    Rebuild it after any change to the SWEEP tab with
+    <code>python -m apps.build_guide --guide sweep</code>. Prose lives in
+    <code>docs/sweep_guide_template.html</code>; the numbered control descriptions come from the
+    widgets themselves, so change a tooltip in the code and this page changes with it.
+  </p>
+  {{NAV}}
+</footer>
+
+</div>

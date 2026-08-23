@@ -1,0 +1,623 @@
+<title>SEARCH Tab Handbook</title>
+
+<!--
+  The SEARCH tab's user guide. This file is PROSE ONLY -- edit it freely,
+  it is never overwritten.
+
+  The finished guide is built with:
+
+      python -m apps.build_guide
+
+  which grabs live screenshots of the SEARCH tab, draws the numbered
+  callouts on them, and fills in these placeholders:
+
+      {{SHOT:setup}}      {{TAGS:setup}}
+      {{SHOT:progress}}   {{TAGS:progress}}
+      {{SHOT:result}}     {{TAGS:result}}
+      {{SHOT:hof}}        {{TAGS:hof}}
+      {{NAV}}   {{STYLE}}   {{GENERATED}}
+
+  The {{TAGS:...}} lists are generated from the widgets' own
+  doc_tags.document(...) calls in gui_utils/search_panel.py and
+  apps/search_tab.py. To change what a control's explanation says, edit
+  the tag next to the widget -- not this file. That way the tooltip a
+  student sees in the app and the paragraph they read here can never
+  drift apart.
+
+  {{STYLE}} pulls in docs/guide_style.css, shared by all four tab guides
+  (SEARCH, MATCH, STRATEGY, SWEEP) -- edit that file, not a <style> block
+  here, to change something about all of them at once. {{NAV}} is the
+  cross-guide pill row build_guide.py generates from the same GUIDES list
+  that builds this file, so a new guide added there appears in every
+  other guide's nav without hand-editing four templates.
+-->
+
+{{STYLE}}
+
+<div class="page">
+
+{{NAV}}
+
+<header class="masthead">
+  <p class="eyebrow">sparky-sim &middot; field guide</p>
+  <h1>The SEARCH tab</h1>
+  <p class="standfirst">
+    Your strategy has numbers in it. How long to wait before giving up on a game piece, how far
+    to look for one, how long to stay on a job before switching. Somebody picked those numbers
+    by feel, probably for last year's robot. The SEARCH tab picks better ones for <em>this</em>
+    robot, by playing thousands of matches and paying attention.
+  </p>
+  <p class="standfirst">
+    This guide assumes you have never heard of CMA-ES, evolution strategies, or optimisation.
+    You do not need any of that. You do need about fifteen minutes and a willingness to be
+    suspicious of good news.
+  </p>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">1</span><a href="#why">Why the numbers matter</a></li>
+    <li><span class="n">2</span><a href="#how">How the search actually works</a></li>
+    <li><span class="n">3</span><a href="#trap">The trap that catches everyone</a></li>
+    <li><span class="n">4</span><a href="#hof">The other trap: one fixed opponent</a></li>
+    <li><span class="n">5</span><a href="#setup">Walkthrough: setting up a run</a></li>
+    <li><span class="n">6</span><a href="#progress">Walkthrough: watching it work</a></li>
+    <li><span class="n">7</span><a href="#result">Walkthrough: reading the verdict</a></li>
+    <li><span class="n">8</span><a href="#recipes">Three recipes</a></li>
+    <li><span class="n">9</span><a href="#trouble">When something looks wrong</a></li>
+    <li><span class="n">10</span><a href="#limits">What it cannot do</a></li>
+    <li><span class="n">11</span><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<section id="why">
+  <h2><span class="marker">01</span>Why the numbers matter</h2>
+
+  <p>
+    Open any strategy in the STRATEGY tab and you will find rules: <em>if I am holding nothing,
+    go collect coral</em>. Each rule carries numbers. How close a game piece has to be before
+    it counts as worth fetching. How many seconds to commit to a job before you are allowed to
+    change your mind. How long a condition has to stay true before you believe it.
+  </p>
+  <p>
+    Those numbers are not neutral. A robot that drives at 150 in/s wants different ones from a
+    robot that drives at 90. A robot that takes four seconds to intake wants different ones
+    from a robot that takes one. But the strategy files were written once, by a person, with
+    one robot in mind &mdash; and then we use them to compare <em>every</em> robot design we are
+    thinking about building.
+  </p>
+  <p>
+    That is the problem this tab exists to fix. When the SWEEP tab tells you a faster drivetrain
+    scores 8 more points, what it really measured was "a faster drivetrain, driven by a strategy
+    written for a slower one". The honest question is what each design can do <strong>at its
+    best</strong> &mdash; and to answer that, each design needs its own numbers.
+  </p>
+
+  <h3>Where to find it</h3>
+  <p>
+    Run the simulator (<code>run.bat</code>) and look at the tabs along the top:
+    <code>MATCH</code>, <code>STRATEGY</code>, <code>SWEEP</code>, <code>SEARCH</code>. This
+    guide is about the last one.
+  </p>
+</section>
+
+<section id="how">
+  <h2><span class="marker">02</span>How the search actually works</h2>
+
+  <p>
+    The method is called <strong>CMA-ES</strong>. The name is not worth memorising. The idea
+    behind it takes about a minute.
+  </p>
+
+  <h3>Imagine finding the deepest part of a lake</h3>
+  <p>
+    You cannot see the bottom. All you can do is drop a weighted line somewhere and read off a
+    depth. So you do this:
+  </p>
+  <ol>
+    <li>Drop <strong>a scattered handful of lines</strong> around your best guess &mdash; say a
+      dozen of them, spread out in a rough circle.</li>
+    <li>Read all twelve depths. Keep the deepest few. Ignore the rest.</li>
+    <li><strong>Move your guess</strong> toward the ones that came back deepest.</li>
+    <li>Notice the <em>shape</em> of where the deep ones were. If they were all off to the
+      north-east, stretch your next scatter that way. If they were tightly clustered, shrink
+      it.</li>
+    <li>Repeat.</li>
+  </ol>
+  <p>
+    That is the whole algorithm. Each round is a <strong>generation</strong>. Each dropped line
+    is a <strong>candidate</strong> &mdash; a complete copy of your strategy with slightly
+    different numbers in it. The depth reading is the average score that candidate got across
+    a batch of simulated matches.
+  </p>
+  <p>
+    Step 4 is the clever part and the reason we use CMA-ES rather than just trying each number
+    one at a time. Some of these numbers interact: a longer commitment time might only pay off
+    if the search radius is also larger. Testing them one at a time never finds that. Watching
+    the shape of the good region does.
+  </p>
+
+  <h3>What it is allowed to change &mdash; and what it is not</h3>
+  <p>
+    This matters, and it is the reason the output stays trustworthy. The search can turn the
+    dials on your strategy. It <strong>cannot</strong> add a rule, delete a rule, reorder your
+    priorities, or swap one tactic for another. The strategy that comes out has exactly the
+    rules you wrote, in the order you wrote them, with different numbers.
+  </p>
+  <p>
+    So the result is a normal strategy file. You can open it in the STRATEGY tab, read it,
+    disagree with it, and edit it by hand. There is no model to interrogate and nothing to
+    take on faith.
+  </p>
+</section>
+
+<section id="trap">
+  <h2><span class="marker">03</span>The trap that catches everyone</h2>
+
+  <p>
+    Here is the thing that will fool you, and it fooled this tool on its very first run. Read
+    this section twice.
+  </p>
+
+  <p>
+    Two <em>identical</em> strategies do not score the same. Game pieces start in slightly
+    different places, robots accelerate slightly differently, and the same strategy can win a
+    match by 12 or lose it by 4 depending on nothing at all. That spread is large &mdash; often
+    larger than the improvement you are hunting for.
+  </p>
+  <p>
+    Now think about what the search does. It tries hundreds of candidates and keeps the one
+    with the highest score. If every candidate is judged on the same small handful of matches,
+    then the winner is not necessarily the best strategy. It is partly just the one that got
+    <strong>luckiest on those particular matches</strong>. Pick the maximum of a few hundred
+    noisy numbers and you have picked mostly noise.
+  </p>
+
+  <div class="trap">
+    <span class="label">Measured, not hypothetical</span>
+    <p>
+      The first real run of this tool searched 6 generations with 6 candidates each, judging
+      every candidate on 4 matches. This is what it reported, and what was actually true:
+    </p>
+    <div class="facepair">
+      <div class="face hope">
+        <span class="cap">What the search said</span>
+        <span class="big">+9.5</span>
+        <span class="note">points, on the 4 matches it used to pick the winner</span>
+      </div>
+      <div class="face truth">
+        <span class="cap">What survived on fresh matches</span>
+        <span class="big">+0.2</span>
+        <span class="note">points, on 12 matches the search had never seen</span>
+      </div>
+    </div>
+    <p>
+      <strong>98% of the improvement was not real.</strong> It was the winner fitting the exact
+      starting positions of four particular matches. Nothing was broken; this is simply what
+      taking a maximum over noisy measurements does.
+    </p>
+  </div>
+
+  <h3>The fix, and why it is switched on by default</h3>
+  <p>
+    At the end of every search, the tool re-runs two strategies &mdash; your original and the
+    tuned winner &mdash; on a completely fresh set of matches that played no part in choosing
+    the winner. Nothing was selected to look good on those, so nothing can fake it. That number
+    is called the <strong>confirmed</strong> result, and it is the only one the RESULT tab shows
+    you in large type.
+  </p>
+  <p>
+    Which leads to the single most useful piece of advice in this guide:
+  </p>
+  <p>
+    <strong>If your gains keep evaporating on confirmation, raise "Matches per candidate", not
+    "Generations".</strong> More generations means looking harder at a measurement you cannot
+    trust. More matches per candidate means trusting the measurement more. Only one of those
+    helps.
+  </p>
+</section>
+
+<section id="hof">
+  <h2><span class="marker">04</span>The other trap: one fixed opponent</h2>
+
+  <p>
+    Confirmation matches fix the noise problem. It does not fix a second, quieter problem: the
+    <strong>Opponent</strong> dropdown a few numbers up. Every candidate the search tries is
+    judged against whichever single strategy sits in that box &mdash; by default,
+    <code>full_defense</code>.
+  </p>
+  <p>
+    That means the search does not really find <em>a good strategy</em>. It finds
+    <strong>a good counter to that one opponent</strong>, and the score cannot tell you which of
+    those two things just happened. Tune against <code>full_defense</code> and you may end up
+    with numbers that fall apart against a strategy that ignores you entirely.
+  </p>
+
+  <h3>The fix: grade against a field, not one robot</h3>
+  <p>
+    Check <strong>"Grade against a hall of fame instead"</strong> and the Opponent box stops
+    mattering. Every candidate is now judged against a <strong>field</strong>: every hand-written
+    strategy that ships with the game, plus a sample drawn from an <strong>archive</strong> file
+    of past winners. The field is re-drawn each generation, so the search cannot settle into
+    beating one lucky sample of opponents either.
+  </p>
+  <p>
+    The archive is the point. Point two searches at the same <code>.json</code> file and the
+    second one has to prove itself against the first one's winner, not just against six strategies
+    a person wrote by hand. Run it enough times and the field gets genuinely hard to fool.
+  </p>
+  <p>
+    In exchange for that, it costs more: roughly <strong>archive sample size + hand-written
+    count</strong> times as many matches per candidate as one fixed opponent does. The budget
+    readout at the bottom of the setup panel already accounts for this once the box is checked.
+  </p>
+
+  <h3>Exploitability: the number this adds</h3>
+  <p>
+    Alongside the usual score, a hall-of-fame run reports a <strong>payoff matrix</strong> &mdash;
+    how the winner did against each opponent in the field &mdash; and one summary number,
+    <strong>exploitability</strong>: how much the single worst matchup in that field beat it by.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:hof}}</div>
+    <figcaption>
+      A real hall-of-fame run on <code>cycle_coral</code>, against an empty archive (so the field
+      was just the six hand-written strategies). Notice the Opponent box is greyed out &mdash;
+      it plays no part once the hall of fame is on.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:hof}}
+  </div>
+
+  <p>
+    This particular run found no real gain either &mdash; worth keeping in the guide rather than
+    swapping in a flattering number, for the same reason section 3 keeps its own null result. The
+    lesson does not change: <strong>exploitability of 0 means the winner beat every opponent in
+    this field, not that it is unbeatable.</strong> It only means nothing in this particular
+    archive found a hole. A bigger archive, or a smarter human opponent at the next competition,
+    might still find one.
+  </p>
+</section>
+
+<section id="setup">
+  <h2><span class="marker">05</span>Walkthrough: setting up a run</h2>
+
+  <p>
+    The left-hand column asks three questions in the order you should answer them: what to
+    tune, how hard to look, and what that will cost. The right-hand panel shows you exactly
+    which numbers are on the table.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:setup}}</div>
+    <figcaption>
+      The SEARCH tab as it opens, with the WHAT MOVES panel showing the five numbers inside
+      <code>cycle_coral</code> that a search is allowed to touch.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:setup}}
+  </div>
+
+  <h3>Sensible first settings</h3>
+  <p>
+    Leave everything at its default except the two that decide whether you get an answer or a
+    ghost: keep <strong>Matches per candidate</strong> at 16 or higher, and leave
+    <strong>Confirmation matches</strong> switched on. Then watch the budget readout before you
+    press RUN &mdash; if it says hours and you have twenty minutes, turn Generations down rather
+    than turning matches down.
+  </p>
+</section>
+
+<section id="progress">
+  <h2><span class="marker">06</span>Walkthrough: watching it work</h2>
+
+  <p>
+    Once a run starts, the PROGRESS panel is where you find out whether it is still learning
+    anything. The window stays usable throughout, and STOP is always available &mdash; it just
+    waits for the round in flight to finish first.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:progress}}</div>
+    <figcaption>
+      A real search in progress. The bright line is the best score found so far, the dim line is
+      each round's average, and the dashed line is the hand-written strategy it is trying to
+      beat. This run found its improvement in generation 4 and then flattened out.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:progress}}
+  </div>
+
+  <h3>Reading the curve</h3>
+  <ul>
+    <li><strong>Bright line rising:</strong> still finding better numbers. Let it run.</li>
+    <li><strong>Bright line flat for several generations:</strong> it has stopped learning.
+      Extra generations from here are mostly wasted &mdash; and remember, a flat line is not a
+      failure. It may simply mean your hand-written numbers were already good.</li>
+    <li><strong>Dim line climbing toward the bright one:</strong> normal and healthy. It means
+      the scatter of guesses is narrowing in around a promising region.</li>
+    <li><strong>"step" in the log shrinking toward zero:</strong> the search is converging and
+      will stop on its own, possibly before it uses all your generations. That is not a bug and
+      you are not being short-changed.</li>
+  </ul>
+</section>
+
+<section id="result">
+  <h2><span class="marker">07</span>Walkthrough: reading the verdict</h2>
+
+  <p>
+    When the search finishes it switches to the RESULT panel. Everything about how this panel is
+    laid out follows from section 3: the number you can trust is large, and the number that
+    flatters itself is small and grey.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:result}}</div>
+    <figcaption>
+      The verdict from the run described in section 3. The search believed it had found +9.5
+      points; on fresh matches the real difference was +0.2, so the panel reports no real gain
+      and says where the rest went.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:result}}
+  </div>
+
+  <h3>The three verdicts</h3>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>What it says</th><th>What it means</th><th>What to do</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Real gain</td>
+          <td>The tuned numbers genuinely beat the hand-written ones on matches nobody cherry-picked.</td>
+          <td>Save it, open it in the STRATEGY tab, and read what changed. If a number looks
+            absurd, that is worth understanding before you trust it.</td>
+        </tr>
+        <tr>
+          <td>No real gain</td>
+          <td>The difference is smaller than the match-to-match noise. Your original numbers were
+            already fine.</td>
+          <td>A completely legitimate outcome, and useful information. If you suspect there is
+            something to find, raise Matches per candidate and try once more.</td>
+        </tr>
+        <tr>
+          <td>Worse on fresh matches</td>
+          <td>The tuned strategy actually lost ground. Almost always means the search was
+            fitting noise hard.</td>
+          <td>Raise Matches per candidate substantially. Do not save this result.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>What "saved" means</h3>
+  <p>
+    Saving writes an ordinary strategy JSON file next to the others. Nothing downstream knows or
+    cares that a search produced it &mdash; the STRATEGY tab will open it, the MATCH tab will run
+    it, the SWEEP tab will sweep it. It is your strategy with different numbers, and you are
+    free to overrule any of them.
+  </p>
+</section>
+
+<section id="recipes">
+  <h2><span class="marker">08</span>Three recipes</h2>
+
+  <div class="recipes">
+    <div class="recipe">
+      <h3>Your first search</h3>
+      <p>Fifteen minutes, just to see the machinery work end to end.</p>
+      <dl>
+        <dt>Strategy</dt><dd>cycle_coral</dd>
+        <dt>Opponent</dt><dd>full_defense</dd>
+        <dt>Matches / candidate</dt><dd>16</dd>
+        <dt>Generations</dt><dd>8</dd>
+        <dt>Confirmation</dt><dd>32</dd>
+      </dl>
+      <p>Do not be disappointed by "no real gain". Seeing the tool refuse to overclaim is the
+        lesson.</p>
+    </div>
+
+    <div class="recipe">
+      <h3>Is this strategy tuned for our robot?</h3>
+      <p>The question the tab was built for. Run it against the opponent you actually expect.</p>
+      <dl>
+        <dt>Matches / candidate</dt><dd>32</dd>
+        <dt>Generations</dt><dd>15</dd>
+        <dt>Confirmation</dt><dd>64</dd>
+      </dl>
+      <p>This is an evening, not a coffee break &mdash; check the budget readout and start it
+        before you go home.</p>
+    </div>
+
+    <div class="recipe">
+      <h3>A strategy that can't be exploited by one trick</h3>
+      <p>Before this goes on the robot for competition, make sure it was not just tuned to beat
+        <code>full_defense</code>.</p>
+      <dl>
+        <dt>Hall of fame</dt><dd>checked</dd>
+        <dt>Archive sample size</dt><dd>4 or more</dd>
+        <dt>Matches / candidate</dt><dd>16+</dd>
+        <dt>Confirmation</dt><dd>32+</dd>
+      </dl>
+      <p>Point the archive file at the same <code>.json</code> every time you run this, so the
+        field it has to beat gets harder over successive runs instead of resetting each time.</p>
+    </div>
+
+    <div class="recipe">
+      <h3>Comparing two designs fairly</h3>
+      <p>Each design gets its own tuned numbers, so neither is judged by settings written for
+        the other. This one needs the command line:</p>
+      <pre><code>python -m apps.run_param_search \
+  --sweep max_speed=130,150,170 \
+  --seeds 32 --confirm-seeds 64 \
+  --out tuned/</code></pre>
+      <p>Price it first with <code>--estimate-only</code>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2><span class="marker">09</span>When something looks wrong</h2>
+
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Symptom</th><th>What is going on</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>RUN is greyed out</td>
+          <td>The chosen strategy has no tunable numbers &mdash; everything in it is structural or
+            switched off. The WHAT MOVES panel says so. Pick a different strategy.</td>
+        </tr>
+        <tr>
+          <td>Big gain during the search, nothing after confirmation</td>
+          <td>The classic case from section 3. The search fitted the luck in its own matches.
+            Raise Matches per candidate.</td>
+        </tr>
+        <tr>
+          <td>It stopped before using all its generations</td>
+          <td>Deliberate. The scatter of guesses shrank to nothing, meaning the search converged.
+            The log line says why.</td>
+        </tr>
+        <tr>
+          <td>A tuned number sits exactly on its limit</td>
+          <td>The search wanted to go further and the range stopped it. The result is still
+            valid, but the limit chose the answer, not the search. Worth mentioning to a
+            mentor.</td>
+        </tr>
+        <tr>
+          <td>Everything is slow and the rest of the app stutters</td>
+          <td>A search uses every CPU core it is given. Turn CPU workers down, or run it when
+            nobody needs the machine.</td>
+        </tr>
+        <tr>
+          <td>The tuned strategy scores well but drives strangely</td>
+          <td>Save it, then watch it in the MATCH tab. The search optimises score and nothing
+            else; it has no opinion about whether the robot looks sensible doing it.</td>
+        </tr>
+        <tr>
+          <td>The Opponent dropdown is greyed out</td>
+          <td>Normal, not broken. "Grade against a hall of fame instead" is checked, so every
+            candidate faces a field instead of the single opponent in that box &mdash; see
+            section 4.</td>
+        </tr>
+        <tr>
+          <td>Exploitability says 0 and it still lost at competition</td>
+          <td>0 means it beat everything in <em>this</em> field, not that it cannot lose. A
+            larger archive sample, or a human opponent trying something the archive never did,
+            can still find a hole. Read it as "unexploited so far", not "unbeatable".</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="limits">
+  <h2><span class="marker">10</span>What it cannot do</h2>
+
+  <p>
+    Being clear about this saves you from expecting the wrong thing.
+  </p>
+  <ul>
+    <li><strong>It cannot invent a strategy.</strong> It tunes the one you give it. If your rules
+      are wrong, better numbers will not save them &mdash; that is a job for you and the STRATEGY
+      tab.</li>
+    <li><strong>It cannot add, remove, or reorder rules.</strong> Deliberate: that is what keeps
+      the output readable. Searching over structure is a separate, much harder problem and it is
+      not built yet.</li>
+    <li><strong>It cannot switch on something you left off.</strong> A setting you left blank
+      means "no limit", and treating a blank as a number would quietly add a constraint you never
+      wrote.</li>
+    <li><strong>It cannot tell you about a game piece the simulator models badly.</strong> It
+      optimises against the simulation, so anything the simulation gets wrong, the search will
+      happily exploit.</li>
+    <li><strong>It does not know what a good match looks like.</strong> Only what a high score
+      looks like.</li>
+    <li><strong>The hall of fame cannot prove a strategy unbeatable.</strong> Zero exploitability
+      means nothing in the current field found a hole &mdash; not that no hole exists. See
+      section 4.</li>
+  </ul>
+</section>
+
+<section id="glossary">
+  <h2><span class="marker">11</span>Glossary</h2>
+
+  <dl class="glossary">
+    <dt>Candidate</dt>
+    <dd>One complete copy of your strategy with slightly different numbers in it. A generation
+      tries several at once.</dd>
+
+    <dt>Generation</dt>
+    <dd>One round of the search: try a batch of candidates, score them all, move the guess
+      toward the good ones.</dd>
+
+    <dt>CMA-ES</dt>
+    <dd>The method described in section 2. The letters stand for Covariance Matrix Adaptation
+      Evolution Strategy, which is a precise way of saying "it learns the shape of the good
+      region as it goes".</dd>
+
+    <dt>Seed</dt>
+    <dd>A number that fixes all the randomness in one match. Same seed, same match, every time.
+      "Matches per candidate" is really "how many different seeds".</dd>
+
+    <dt>Held out</dt>
+    <dd>Matches deliberately kept away from the search, used only at the very end to check the
+      winner honestly. Same idea as not letting students see the exam questions in advance.</dd>
+
+    <dt>Best-of-N bias</dt>
+    <dd>The reason a maximum over many noisy scores is always too optimistic. The whole point of
+      section 3.</dd>
+
+    <dt>Step size</dt>
+    <dd>How widely scattered the current round of guesses is. Starts wide, shrinks as the search
+      homes in.</dd>
+
+    <dt>Hall of fame</dt>
+    <dd>Grading a candidate against a field of opponents instead of one fixed opponent, so the
+      winner has to be good in general rather than just good against whatever was in the
+      Opponent box. Section 4.</dd>
+
+    <dt>Archive</dt>
+    <dd>The <code>.json</code> file a hall-of-fame run keeps its past winners in. Grows by one
+      entry each time a run finishes; point every run at the same file to make the field harder
+      to beat over time.</dd>
+
+    <dt>Exploitability</dt>
+    <dd>How much the single best counter in the field beat the winner by, on the held-out
+      matches. 0 means it won every matchup <em>in that field</em> &mdash; not that it cannot
+      lose.</dd>
+
+    <dt>Payoff matrix</dt>
+    <dd>The row-by-row breakdown behind exploitability: the winner's score against each opponent
+      in the field, and that opponent's score back.</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  <p>{{GENERATED}}</p>
+  <p>
+    Rebuild it after any change to the SEARCH tab with <code>python -m apps.build_guide</code>.
+    Prose lives in <code>docs/guide_template.html</code>; the numbered control descriptions come
+    from the widgets themselves, so change a tooltip in the code and this page changes with it.
+  </p>
+  {{NAV}}
+</footer>
+
+</div>
