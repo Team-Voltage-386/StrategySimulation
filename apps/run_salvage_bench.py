@@ -10,15 +10,16 @@ it stopped being usable as a gradient. Running both alliances on the
 same seeds and reporting the per-seed difference costs nothing and
 resolves an order of magnitude better.
 
-The second reason is a finding, not a preference: `run_defense_bench`
-imports `game_specific.reefscape.sweep_trial` at module scope, and
-`run_stall_audit` imports `run_defense_bench` for its job builder, so
-neither of the two most valuable measurement tools in the repo can be
-pointed at a second game. This file is the duplicate that proves it --
-compare the two and the shared surface is obvious: a match builder, a
-strategies directory, a plan table, and `run_all`. See DRY_RUN_LOG.md,
-F6. That extraction is worth doing and was deliberately not done at the
-same time as the behavior fixes it would be measuring.
+The second reason was a finding, not a preference: `run_defense_bench`
+used to import `game_specific.reefscape.sweep_trial` at module scope,
+and `run_stall_audit` imported `run_defense_bench` for its job builder,
+so neither of the two most valuable measurement tools in the repo could
+be pointed at a second game. This file was written as the duplicate that
+proved it -- compare the two and the shared surface was obvious: a match
+builder, a strategies directory, a reference robot, and a plan table.
+See DRY_RUN_LOG.md, F6. That surface is now `common_sim.analysis.game_bench`;
+what's left here is exactly the SALVAGE-specific part plus the paired
+report this bench exists for.
 
 Run: `python -m apps.run_salvage_bench [--seeds N] [--per-side N]`
 """
@@ -29,21 +30,15 @@ import math
 import statistics
 from collections import defaultdict
 
-from common_sim.analysis.metrics import extract_metrics
-from common_sim.analysis.monte_carlo import run_match_to_completion
+from common_sim.analysis import game_bench
 from common_sim.analysis.runner import run_all
-from common_sim.analysis.sweep_spec import (
-    MatchSpec, RobotSpec, TrialJob, TrialOutcome, characteristics_to_spec,
-)
-from common_sim.analysis.variability import VariabilityModel
-from common_sim.control import strategy_io
+from common_sim.analysis.sweep_spec import MatchSpec, TrialJob, TrialOutcome
 from game_specific.salvage.robot import build_characteristics
 from game_specific.salvage.sweep_trial import STRATEGIES_DIR, SWEEP_DT, build_match_for_job
 
-VARIABILITY = VariabilityModel(
-    enabled=True, intake_time_pct=0.10, deposit_time_pct=0.10,
-    max_speed_pct=0.08, max_accel_pct=0.08,
-    start_pose_xy_in=4.0, start_pose_heading_deg=5.0, piece_scatter_in=3.0,
+GAME = game_bench.BenchGame(
+    build_match_for_job=build_match_for_job, strategies_dir=STRATEGIES_DIR, dt=SWEEP_DT,
+    build_characteristics=build_characteristics,
 )
 
 # What red does. "none" is the control -- red simply cycles -- and every
@@ -65,47 +60,19 @@ BLUE_PLANS = ("cycle_crates", "rush_reactor", "pursue", "pursue_tuned", "pursue_
 BASELINE_BLUE = "cycle_crates"
 
 
-def _load(name: str) -> dict:
-    return strategy_io.to_dict(strategy_io.load_strategy(STRATEGIES_DIR / f"{name}.json"))
-
-
-def _full_time_defender(plan_name: str) -> dict:
-    mode, _, deny = plan_name.partition("/")
-    plan = _load("full_defense")
-    for rule in plan["rules"]:
-        if rule["tactic"]["type"] == "Defend":
-            rule["tactic"]["mode"] = mode
-            if deny:
-                rule["tactic"]["deny"] = deny
-    return plan
-
-
 def build_job(index: int, seed: int, red_plan: str, blue_plan: str, per_side: int, defenders: int) -> TrialJob:
-    characteristics = characteristics_to_spec(build_characteristics())
-    robots = [
-        RobotSpec(label=f"B{i}", alliance="blue", roster_index=i,
-                  characteristics=characteristics, strategy=_load(blue_plan))
-        for i in range(per_side)
-    ]
-    robots += [
-        RobotSpec(label=f"R{i}", alliance="red", roster_index=i, characteristics=characteristics,
-                  strategy=_full_time_defender(red_plan) if red_plan != "none" and i < defenders
-                  else _load(BASELINE_BLUE))
-        for i in range(per_side)
-    ]
-    return TrialJob(
-        index=index, seed=seed, params={"red": red_plan, "blue": blue_plan}, robots=tuple(robots),
+    return game_bench.build_defense_job(
+        GAME, index=index, seed=seed, red_plan=red_plan, blue_plan=blue_plan,
+        blue_lineup=(blue_plan,), red_baseline=BASELINE_BLUE,
+        per_side=per_side, defenders=defenders,
         match=MatchSpec(auto_duration=15.0, teleop_duration=135.0),
-        variability=VARIABILITY, strategies_dir=str(STRATEGIES_DIR), dt=SWEEP_DT,
     )
 
 
 def run_trial(job: TrialJob) -> TrialOutcome:
     """Module-level and picklable by qualified name -- a
     ProcessPoolExecutor sends it by reference."""
-    match, _, _ = build_match_for_job(job)
-    run_match_to_completion(match, dt=job.dt)
-    return TrialOutcome(index=job.index, seed=job.seed, params=job.params, metrics=extract_metrics(match))
+    return game_bench.run_defense_trial(job, build_match_for_job)
 
 
 def main() -> None:

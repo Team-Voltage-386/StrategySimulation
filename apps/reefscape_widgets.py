@@ -22,7 +22,12 @@ from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import INTAKE_SOURCES, RobotCharacteristics, SideManipulators, SIDES
 from game_specific.reefscape.field import CORAL_MARK_ALGAE_OFFSET, build_field, coral_mark_positions
 from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE, spawn_algae, spawn_coral
-from game_specific.reefscape.scoring import DEFAULT_SCORING_RELIABILITY_BY_ACTION, REEFSCAPE_SCORING_RULES
+from game_specific.reefscape.robot import (
+    DEFAULT_DEPOSIT_TIMES, DEFAULT_INTAKE_TIMES, DEFAULT_PIECE_CAPACITY,
+    DEFAULT_SCORING_RELIABILITY_BY_TYPE as DEFAULT_SCORING_RELIABILITY,
+    build_characteristics as _build_reference_characteristics,
+)
+from game_specific.reefscape.scoring import REEFSCAPE_SCORING_RULES
 from gui_utils import theme
 from gui_utils.doc_tags import document
 
@@ -35,11 +40,6 @@ M_TO_IN = 39.3701
 RAD_TO_DEG = 180.0 / math.pi
 
 DEPOSIT_ACTIONS = (("l1", "L1"), ("l2", "L2"), ("l3", "L3"), ("l4", "L4"), ("processor", "PROCESSOR"), ("net", "NET"))
-DEFAULT_DEPOSIT_TIMES = {"l1": 0.3, "l2": 0.6, "l3": 1.0, "l4": 1.8, "processor": 0.4, "net": 1.2}
-DEFAULT_INTAKE_TIMES = {CORAL_TYPE: 0.4, ALGAE_TYPE: 0.4}
-DEFAULT_PIECE_CAPACITY = {CORAL_TYPE: 1, ALGAE_TYPE: 1}
-# 100% (deterministic scoring, the legacy behavior) for both piece types.
-DEFAULT_SCORING_RELIABILITY = {CORAL_TYPE: 1.0, ALGAE_TYPE: 1.0}
 
 PIECE_TYPES = (CORAL_TYPE, ALGAE_TYPE)
 # Default side layout, matching the example from the feature request: a
@@ -84,23 +84,14 @@ LABEL_HINTS = {
 
 
 def build_demo_characteristics(**overrides) -> RobotCharacteristics:
-    defaults = dict(
-        name="demo",
-        max_speed=150.0, max_accel=400.0, max_angular_speed=6.0, max_angular_accel=20.0,
-        width=28.0, length=28.0,
-        piece_capacity_by_type=dict(DEFAULT_PIECE_CAPACITY),
-        # Game Manual (V13) 6.3.4.1.B: up to 1 CORAL may be preloaded in
-        # each ROBOT by its DRIVE TEAM.
-        starting_piece_count=1, preload_piece_type=CORAL_TYPE,
-        intake_time_by_type=dict(DEFAULT_INTAKE_TIMES), station_intake_time=0.6, intake_range=6.0,
-        deposit_time=0.5,
-        deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
-        accepted_piece_types=frozenset({"coral", "algae"}),
-        scoring_reliability_by_type=dict(DEFAULT_SCORING_RELIABILITY),
-        scoring_reliability_by_action=dict(DEFAULT_SCORING_RELIABILITY_BY_ACTION),
+    """The GUI's variant of `game_specific.reefscape.robot.build_characteristics`
+    -- adds the Game Manual (V13) 6.3.4.1.B preloaded CORAL that a MATCH-tab
+    robot actually starts with, which the headless sweep/bench callers of
+    the shared builder deliberately don't get (see that module's
+    docstring)."""
+    return _build_reference_characteristics(
+        name="demo", starting_piece_count=1, preload_piece_type=CORAL_TYPE, **overrides,
     )
-    defaults.update(overrides)
-    return RobotCharacteristics(**defaults)
 
 
 def build_demo_match(disable_friendly_collisions: bool = False, emit_coral_to_field: bool = False) -> Match:

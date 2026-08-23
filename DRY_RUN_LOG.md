@@ -169,29 +169,41 @@ game with a differently-themed emitter would still reuse this same
 flag") — the anticipation was right and the name is still wrong.
 
 ### F5 — the reference robot has no home
-*Status: **worked around**, `game_specific/salvage/robot.py`.*
+*Status: **fixed**, `game_specific/reefscape/robot.py`.*
 
-"What does this game's benchmark robot look like" is answered in
+"What does this game's benchmark robot look like" used to be answered in
 REEFSCAPE by `apps/reefscape_widgets.py` **and again**, duplicated
-verbatim, by `apps/run_strategy_sweep.py`. Neither is where a second
-game would look. SALVAGE puts it in `game_specific/salvage/robot.py`,
-which is where REEFSCAPE's copy should move to.
+verbatim (and already drifted -- the sweep copy was missing the preloaded
+CORAL and the explicit reliability dict), by `apps/run_strategy_sweep.py`.
+Neither was where a second game would look. REEFSCAPE's copy now lives
+in `game_specific/reefscape/robot.py`, matching the SALVAGE pattern:
+`apps/reefscape_widgets.py`'s `build_demo_characteristics` and
+`apps/run_strategy_sweep.py`'s `build_characteristics` both delegate to
+it. The GUI's extra preloaded-CORAL behavior is passed as explicit
+overrides rather than folded into the shared defaults, so no existing
+caller's numbers moved.
 
 ### F6 — the diagnostic tooling does not port
-*Status: **open**.*
+*Status: **fixed**, `common_sim/analysis/game_bench.py`.*
 
-`apps/run_defense_bench.py` and `apps/run_stall_audit.py` are the two
-most valuable measurement tools in the repo and both import
+`apps/run_defense_bench.py` and `apps/run_stall_audit.py` were the two
+most valuable measurement tools in the repo and both imported
 `game_specific.reefscape.sweep_trial` at module scope; the audit also
-reaches into the bench for `build_job`. Every hour of debugging SALVAGE
-tonight was spent in hand-written scratch scripts re-deriving what those
-two already do.
+reached into the bench for `build_job`. Every hour of debugging SALVAGE
+that night was spent in hand-written scratch scripts re-deriving what
+those two already did.
 
-The fix is small and known: both are generic given a match-builder and a
-plan table. That refactor is now the highest-value item in this log,
-because on reveal day the *first* thing that will happen is a wrong
-match, and the tools that diagnose one are the tools that must already
-work.
+The fix was exactly the shape it looked like: a `BenchGame` (match
+builder, strategies directory, dt, reference robot) plus the job-building
+and trial logic, extracted into `common_sim/analysis/game_bench.py` --
+game-agnostic, no Qt, no `game_specific`, enforced by
+`test_import_contract.py` the same as everything else under
+`common_sim`. `apps/run_defense_bench.py` and `apps/run_salvage_bench.py`
+are now the thin, game-specific remainder: a plan table plus a `GAME`.
+`apps/run_stall_audit.py` takes `--game reefscape|salvage`, importing
+each game's plan table and match builder lazily so picking one never
+pulls in the other's strategy files -- the stall audit that found F2 now
+runs against both games from the same command.
 
 ### F7 — nothing validates a `FieldConfig`
 *Status: **fixed**, `common_sim/field/validation.py`.*

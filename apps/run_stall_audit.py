@@ -31,111 +31,89 @@ tactic knows which it is, so this reports and never intervenes.
 Read the output as a lead, not a verdict. A long stall is a place to
 point a trace.
 
-Run: `python -m apps.run_stall_audit [--seeds N] [--blue PLAN] [--threshold SECONDS]`
+Ported off REEFSCAPE onto `common_sim.analysis.game_bench` (DRY_RUN_LOG.md,
+F6): this used to import `game_specific.reefscape.sweep_trial` at module
+scope, so it could only ever audit one game. `--game` now picks between
+REEFSCAPE and SALVAGE; each game's plan table is imported lazily, inside
+the matching `_*_config` function below, so choosing one never pulls in
+the other game's strategy files or match builder.
+
+Run: `python -m apps.run_stall_audit [--game reefscape|salvage] [--seeds N] [--blue PLAN] [--threshold SECONDS]`
 """
 from __future__ import annotations
 
 import argparse
-import math
 from collections import defaultdict
 
+from common_sim.analysis import game_bench
 from common_sim.analysis.runner import run_all
-from common_sim.analysis.sweep_spec import TrialJob, TrialOutcome
-from game_specific.reefscape.sweep_trial import build_match_for_job
-
-from apps.run_defense_bench import BLUE_PLANS, RED_PLANS, build_job
-
-# A robot that moves less than this in a tick is treated as stopped. Well
-# under the distance a drivetrain covers in a tick at any real speed, and
-# well over the jitter a robot parked against something shows while its
-# drive fights the contact solver.
-STILL_EPSILON = 0.05
-
-# How long a robot must be stopped before the stall is worth reporting.
-# Long enough to clear every legitimate pause -- an intake cycle, a
-# scoring action, a queue behind a teammate who is loading -- and short
-# enough that a commitment which is never going to resolve still shows up
-# with most of the match left to save.
-DEFAULT_THRESHOLD = 20.0
+from common_sim.analysis.sweep_spec import MatchSpec, TrialJob, TrialOutcome
 
 
-def audit_trial(job: TrialJob) -> TrialOutcome:
-    """Step the match directly rather than through
-    `run_match_to_completion`, because the whole measurement is per-tick
-    and that helper has no hook. Picklable by qualified name for the
-    process pool, like `run_defense_bench.run_trial`."""
-    match, _, _ = build_match_for_job(job)
-    robots = list(match.robots)
-    last = [(r.pose.x, r.pose.y) for r in robots]
-    still = [0.0] * len(robots)
-    asking = [0.0] * len(robots)
-    spinning = [0.0] * len(robots)
-    longest = [0.0] * len(robots)
-    frozen_at = [None] * len(robots)
-    commanded = [0.0] * len(robots)
-    commanded_spin = [0.0] * len(robots)
-    ended_at = [0.0] * len(robots)
-    elapsed = 0.0
+def _reefscape_config():
+    """Reuses `run_defense_bench`'s own `RED_PLANS`/`BLUE_PLANS` rather
+    than re-declaring them here, so there is still exactly one place
+    that names REEFSCAPE's defense-bench plan table. Imported lazily --
+    this is the only place in the module `game_specific.reefscape` gets
+    named, and only when `--game reefscape` (the default) is chosen."""
+    from apps.run_defense_bench import BLUE_PLANS, GAME, RED_BASELINE, RED_PLANS
+    return GAME, RED_PLANS, BLUE_PLANS, RED_BASELINE
 
-    while not match.ended:
-        match.step(job.dt)
-        elapsed += job.dt
-        for i, robot in enumerate(robots):
-            moved = math.hypot(robot.pose.x - last[i][0], robot.pose.y - last[i][1])
-            last[i] = (robot.pose.x, robot.pose.y)
-            if moved > STILL_EPSILON:
-                still[i] = 0.0
-                asking[i] = 0.0
-                spinning[i] = 0.0
-                continue
-            still[i] += job.dt
-            asking[i] += robot.commanded_speed * job.dt
-            spinning[i] += robot.commanded_angular_speed * job.dt
-            if still[i] > longest[i]:
-                longest[i] = still[i]
-                frozen_at[i] = (round(robot.pose.x, 1), round(robot.pose.y, 1))
-                commanded[i] = asking[i] / still[i]
-                commanded_spin[i] = spinning[i] / still[i]
-                ended_at[i] = elapsed
 
-    stalls = [
-        {"robot": job.robots[i].label, "alliance": robots[i].alliance,
-         "seconds": round(longest[i], 1), "at": frozen_at[i],
-         "commanded": round(commanded[i], 1),
-         "spin": round(commanded_spin[i], 2),
-         "ended": round(ended_at[i], 1), "duration": round(elapsed, 1)}
-        for i in range(len(robots))
-    ]
-    return TrialOutcome(
-        index=job.index, seed=job.seed,
-        params={**job.params, "stalls": stalls,
-                "blue_points": match.scores.get("blue", 0.0)},
-        metrics=None,
-    )
+def _salvage_config():
+    from apps.run_salvage_bench import BASELINE_BLUE, BLUE_PLANS, GAME, RED_PLANS
+    blue_lineups = {name: (name,) for name in BLUE_PLANS}
+    return GAME, RED_PLANS, blue_lineups, BASELINE_BLUE
+
+
+GAME_CONFIGS = {"reefscape": _reefscape_config, "salvage": _salvage_config}
+
+
+def _audit_trial_reefscape(job: TrialJob) -> TrialOutcome:
+    """One module-level wrapper per game, not one generic function
+    taking a builder -- ProcessPoolExecutor needs `fn` picklable by
+    qualified name, which means a real module-level function, and the
+    game-specific import has to happen somewhere; here, lazily, inside
+    the one wrapper a worker will actually call."""
+    from game_specific.reefscape.sweep_trial import build_match_for_job
+    return game_bench.run_stall_trial(job, build_match_for_job)
+
+
+def _audit_trial_salvage(job: TrialJob) -> TrialOutcome:
+    from game_specific.salvage.sweep_trial import build_match_for_job
+    return game_bench.run_stall_trial(job, build_match_for_job)
+
+
+AUDIT_TRIAL = {"reefscape": _audit_trial_reefscape, "salvage": _audit_trial_salvage}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--game", choices=sorted(GAME_CONFIGS), default="reefscape")
     parser.add_argument("--seeds", type=int, default=24)
     parser.add_argument("--seed-base", type=int, default=5000)
     parser.add_argument("--blue", default="pursue_tuned",
-                        help=f"blue plan to audit; one of {sorted(BLUE_PLANS)}")
+                        help="blue plan to audit; depends on --game")
     parser.add_argument("--per-side", type=int, default=2)
     parser.add_argument("--defenders", type=int, default=1)
-    parser.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
+    parser.add_argument("--threshold", type=float, default=game_bench.DEFAULT_STALL_THRESHOLD,
                         help="report stalls at least this long, in seconds")
     args = parser.parse_args()
 
-    if args.blue not in BLUE_PLANS:
-        parser.error(f"unknown blue plan {args.blue!r}; have {sorted(BLUE_PLANS)}")
+    game, red_plans, blue_lineups, red_baseline = GAME_CONFIGS[args.game]()
+    if args.blue not in blue_lineups:
+        parser.error(f"unknown blue plan {args.blue!r} for --game {args.game}; have {sorted(blue_lineups)}")
 
     jobs = [
-        build_job(index, args.seed_base + seed, red, args.blue, args.per_side, args.defenders)
-        for index, (red, seed) in enumerate(
-            (red, seed) for red in RED_PLANS for seed in range(args.seeds)
+        game_bench.build_defense_job(
+            game, index=index, seed=args.seed_base + seed, red_plan=red,
+            blue_plan=args.blue, blue_lineup=blue_lineups[args.blue], red_baseline=red_baseline,
+            per_side=args.per_side, defenders=args.defenders,
+            match=MatchSpec(auto_duration=15.0, teleop_duration=135.0),
         )
+        for index, (red, seed) in enumerate((red, seed) for red in red_plans for seed in range(args.seeds))
     ]
-    outcomes = run_all(audit_trial, jobs, parallel=True)
+    outcomes = run_all(AUDIT_TRIAL[args.game], jobs, parallel=True)
 
     # Only ours: a defender standing still is doing its job, and a robot
     # on the alliance we are not grading is not what this is looking for.
@@ -150,8 +128,8 @@ def main() -> None:
     findings.sort(reverse=True)
 
     total = len(outcomes)
-    print(f"blue plan {args.blue!r}: {total} matches, "
-          f"{len(RED_PLANS)} red plans x {args.seeds} seeds, "
+    print(f"{args.game} blue plan {args.blue!r}: {total} matches, "
+          f"{len(red_plans)} red plans x {args.seeds} seeds, "
           f"stalls >= {args.threshold:g}s\n")
     if not findings:
         print("no blue robot stood still that long in any match.")
@@ -168,7 +146,7 @@ def main() -> None:
     for _, red, seed, _, _, _, _, _, _ in findings:
         by_row[red] += 1
     print(f"\n{len(findings)} stall(s) over {total} matches. By red plan:")
-    for red in RED_PLANS:
+    for red in red_plans:
         print(f"  {red:<16} {by_row[red]:3d}")
     print("\n`asking` is mean commanded speed, in/s, and `spin` the mean")
     print("commanded rotation, rad/s, over the frozen window. Together they")
