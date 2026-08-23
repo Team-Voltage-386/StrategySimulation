@@ -12,24 +12,11 @@ rem are plain top-level packages, not pip-installed) without requiring
 rem an editable install.
 set "PYTHONPATH=%~dp0;%PYTHONPATH%"
 
-rem Prefer this machine's known Anaconda install; fall back to the `py`
-rem launcher, then plain `python` on PATH. Anaconda is checked first
-rem because a bare `python`/`py` here can otherwise resolve to the
-rem Microsoft Store stub, which exits immediately without the packages
-rem this app needs (pymunk, pygame, PyQt5, pyqtgraph).
-set "PYTHON_EXE=%USERPROFILE%\anaconda3_2025\python.exe"
-if exist "%PYTHON_EXE%" goto :run
+rem Finds an interpreter that can actually run this, or explains what's
+rem missing and leaves PYTHON_EXE empty. See packaging\pick_python.bat.
+call packaging\pick_python.bat
+if not defined PYTHON_EXE exit /b 1
 
-for %%P in (py.exe) do (
-    if not "%%~$PATH:P"=="" (
-        set "PYTHON_EXE=py"
-        goto :run
-    )
-)
-
-set "PYTHON_EXE=python"
-
-:run
 "%PYTHON_EXE%" benchmarks\bench.py %*
 set "EXIT_CODE=%ERRORLEVEL%"
 

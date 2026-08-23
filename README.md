@@ -13,10 +13,25 @@ rationale.
 pip install -r requirements.txt
 ```
 
-A bare `python`/`py` on this machine can resolve to the Microsoft
-Store stub, which exits immediately without the packages this app
-needs. Use a real interpreter (e.g. an Anaconda install) explicitly if
-`python -m apps...` exits with no output.
+Then double-click `run.bat`. The launchers find their own interpreter:
+they try the common Anaconda/python.org install locations, then `py`,
+then `python`, and take the first one that both starts *and* has the
+packages. Nothing needs to be on PATH and no virtualenv needs
+activating.
+
+To check a machine without launching anything:
+
+```
+python packaging\preflight.py
+```
+
+It prints which interpreter it is, what's missing, and the exact `pip`
+line to fix it. Worth knowing why it exists: a bare `python` on Windows
+very often resolves to the Microsoft Store placeholder, which exits
+immediately, prints nothing, and closes the console with it -- so a
+double-clicked launcher used to look like nothing happened at all. The
+launchers now skip that stub, and say so if it's the only Python
+present.
 
 ## The apps
 
