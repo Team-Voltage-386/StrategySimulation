@@ -472,6 +472,57 @@ def test_speed_is_capped_on_remaining_path_not_the_next_waypoint():
     assert math.isclose(commanded[-1], robot.characteristics.max_speed, rel_tol=1e-9)
 
 
+def test_target_velocity_feedforward_avoids_matching_a_receding_target_speed():
+    """Without `target_velocity_provider`, the brake law
+    (`remaining * speed_gain`, capped at max_speed) is measuring distance
+    to a point that recedes at the target's own speed once the robot gets
+    close -- so a robot only a little faster than what it's chasing settles
+    into a stable equilibrium where its commanded speed converges on the
+    target's speed at a fixed standoff (`target_speed / speed_gain`) and
+    just cruises alongside it instead of closing the last stretch. This is
+    the "slows down to almost match the moving piece's speed" bug reported
+    against `Collect`.
+
+    Crediting the target's own closing-direction speed as feedforward
+    removes that equilibrium: at remaining=0 the feedforward alone already
+    matches the target's speed (correct -- that's genuinely arriving), so
+    for any remaining>0 the commanded speed exceeds the target's and the
+    gap keeps shrinking rather than stalling."""
+    match = _empty_match(width=3000, height=400)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+
+    # Starts just outside the un-fed brake zone (remaining * speed_gain
+    # exceeds max_speed until remaining drops below 150/3 = 50in), so the
+    # robot is already at max_speed when the target is put in motion --
+    # no cruise phase to wait out before the disputed zone is reached.
+    target_speed = 140.0  # close to the robot's own 150 max_speed
+    target_x = [120.0]
+    nav = NavigateTo(
+        lambda ctx: Pose2d(target_x[0], 100, 0),
+        target_velocity_provider=lambda ctx: (target_speed, 0.0),
+    )
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+
+    # Without the feedforward this same (perfectly head-on, no lateral
+    # offset) setup has no way to ever perturb off the false equilibrium
+    # at target_speed / speed_gain (default speed_gain=3.0) = ~46.7in
+    # short, and sits there indefinitely. With the feedforward it should
+    # actually arrive.
+    status = Status.RUNNING
+    for _ in range(900):  # 15s -- comfortably past the ~13s this needs
+        status = nav.tick(ctx)
+        target_x[0] += target_speed * ctx.dt
+        match.step(ctx.dt)
+        ctx.elapsed += ctx.dt
+        if status != Status.RUNNING:
+            break
+
+    assert status == Status.SUCCESS, (
+        f"never caught the target -- stalled {target_x[0] - robot.pose.x:.1f}in short, "
+        "matching its speed instead of closing"
+    )
+
+
 def test_moving_robot_also_gets_an_obstacle_where_it_is_heading():
     """A snapshot obstacle is where someone *was* at plan time. Planning
     against where they're going too is what commits the detour early,
