@@ -85,33 +85,47 @@ def _drive_to(window, target, hold_key=None, ticks=1200, tolerance=10.0):
 
 
 def test_a_human_can_drive_load_and_score(window):
+    """HOLD_LOW is a chute, not a certainty -- DEFAULT_SCORING_RELIABILITY_BY_ACTION
+    puts it at 0.97, so a single deposit attempt can genuinely miss (the
+    crate is released and drops, unscored) with no bug involved. A real
+    driver would just go get another crate and try again, so the test
+    does too, rather than treating one miss in ~33 as a failure: five
+    misses in a row is 0.03**5, not something that happens by chance."""
     from apps.run_salvage import KEY_BINDINGS
 
     assert window.robot.controller is None, "the driven robot must have no AI attached"
 
     bay = cargo_bay_positions("blue")[0]
-    assert _drive_to(window, bay), "could not drive to a CARGO BAY"
-    assert "IN blue_cargo_bay_0" in window.field_label.text()
-
-    for _ in range(400):
-        window._pressed_keys = {KEY_BINDINGS.intake}
-        window._tick()
-        if window.robot.held_pieces:
-            break
-    assert [p.piece_type for p in window.robot.held_pieces] == ["crate"]
-
     hold = hold_low_position("blue")
-    assert _drive_to(window, hold, tolerance=8.0), "could not drive to the wall hold"
-    assert "hold F to score hold_low" in window.field_label.text()
-
     before = window.match.scores.get("blue", 0.0)
-    for _ in range(500):
-        window._pressed_keys = {KEY_BINDINGS.deposit}
-        window._tick()
-        if not window.robot.held_pieces:
+
+    scored = False
+    for _attempt in range(5):
+        assert _drive_to(window, bay), "could not drive to a CARGO BAY"
+        assert "IN blue_cargo_bay_0" in window.field_label.text()
+
+        for _ in range(400):
+            window._pressed_keys = {KEY_BINDINGS.intake}
+            window._tick()
+            if window.robot.held_pieces:
+                break
+        assert [p.piece_type for p in window.robot.held_pieces] == ["crate"]
+
+        assert _drive_to(window, hold, tolerance=8.0), "could not drive to the wall hold"
+        assert "hold F to score hold_low" in window.field_label.text()
+
+        for _ in range(500):
+            window._pressed_keys = {KEY_BINDINGS.deposit}
+            window._tick()
+            if not window.robot.held_pieces:
+                break
+        assert not window.robot.held_pieces
+
+        if window.match.scores.get("blue", 0.0) > before:
+            scored = True
             break
-    assert not window.robot.held_pieces
-    assert window.match.scores.get("blue", 0.0) > before
+
+    assert scored, "deposit missed 5 times in a row -- HOLD_LOW is 0.97 reliable, so this is not plausible chance"
 
 
 def test_the_keyboard_still_drives_with_a_gamepad_connected(window):
