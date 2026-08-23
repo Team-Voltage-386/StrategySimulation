@@ -130,15 +130,11 @@ class ControlsPanel(QtWidgets.QGroupBox):
             "is checked in the roster panel, nothing here does anything.")
 
     def set_available(self, available: bool) -> None:
-        """Lists the keyboard always, and the gamepad as well when one is
-        connected. It used to show one *instead of* the other, which
-        stopped being true when the window moved to CombinedInput -- and
-        was the more misleading half anyway, since the panel claiming
-        W A S D didn't exist was a driver's only clue about why nothing
-        moved."""
-        sections = [("KEYBOARD", KEYBOARD_BINDINGS)]
-        if available:
-            sections.append(("GAMEPAD", GAMEPAD_BINDINGS))
+        """Lists the keyboard bindings, or the gamepad's instead once one
+        is connected. Both devices stay live either way -- see
+        CombinedInput -- this only controls which reference list is
+        worth the screen space; showing both ran the panel too wide."""
+        sections = [("GAMEPAD", GAMEPAD_BINDINGS)] if available else [("KEYBOARD", KEYBOARD_BINDINGS)]
         blocks = [
             "\n".join([heading] + [f"{control}: {action}" for control, action in bindings])
             for heading, bindings in sections

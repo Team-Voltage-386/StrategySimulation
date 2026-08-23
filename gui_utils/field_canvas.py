@@ -56,6 +56,13 @@ PROTECTED_OUTLINE = QtGui.QColor(200, 200, 210, 110)
 # display-capacity hint on ScoringRegion) for a second game.
 REEF_GRID_LEVELS = ("l4", "l3", "l2")
 REEF_GRID_SLOTS_PER_LEVEL = 2
+# Drawn just past the scoring region's outer edge (see _reef_grid_anchor)
+# rather than at its centroid -- the centroid sits inside the region's own
+# translucent valid/invalid fill and right on top of the staged ALGAE,
+# which narrows to a strip through the middle of that same rectangle
+# (REEF_ALGAE_ZONE_WIDTH in game_specific/reefscape/field.py), so the grid
+# used to render on top of both. World units (inches), not pixels.
+REEF_GRID_OUTWARD_MARGIN = 6.0
 
 # Visual-only box heights for a robot drawn under a driver-station camera --
 # this sim tracks no physical robot height (RobotCharacteristics has no z
@@ -447,13 +454,30 @@ class FieldCanvas(QtWidgets.QWidget):
     def _draw_region_piece_counts(self, painter, scale: float) -> None:
         for region in self.match.field.scoring_regions:
             counts = self.match.region_scores.get(region.name, {})
-            cx, cy = polygon_centroid(region.vertices)
-            wx, wy = self._to_widget(cx, cy, scale)
             if set(REEF_GRID_LEVELS) & region.actions:
                 alliance = region.alliance or "blue"
+                cx, cy = self._reef_grid_anchor(region.vertices)
+                wx, wy = self._to_widget(cx, cy, scale)
                 self._draw_reef_grid(painter, wx, wy, counts, alliance)
             elif region.actions:
+                cx, cy = polygon_centroid(region.vertices)
+                wx, wy = self._to_widget(cx, cy, scale)
                 self._draw_count_badge(painter, wx, wy, str(sum(counts.values())))
+
+    def _reef_grid_anchor(self, vertices) -> tuple[float, float]:
+        """World point just outside a REEF face's scoring rectangle, along
+        its outward normal -- clear of the region's own fill and the
+        ALGAE strip through its middle (see REEF_GRID_OUTWARD_MARGIN).
+        `vertices` is the face-aligned quad _face_rect builds: corners
+        0/1 on the inner (hex-facing) edge, 2/3 on the outer edge -- see
+        game_specific/reefscape/field.py."""
+        (ix0, iy0), (ix1, iy1), (ox0, oy0), (ox1, oy1) = vertices[0], vertices[1], vertices[2], vertices[3]
+        inner_mid = ((ix0 + ix1) / 2.0, (iy0 + iy1) / 2.0)
+        outer_mid = ((ox0 + ox1) / 2.0, (oy0 + oy1) / 2.0)
+        dx, dy = outer_mid[0] - inner_mid[0], outer_mid[1] - inner_mid[1]
+        length = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / length, dy / length
+        return (outer_mid[0] + ux * REEF_GRID_OUTWARD_MARGIN, outer_mid[1] + uy * REEF_GRID_OUTWARD_MARGIN)
 
     def _draw_reef_grid(self, painter, cx: float, cy: float, counts: dict, alliance: str) -> None:
         cell, gap = 7, 2
@@ -898,5 +922,5 @@ class FieldCanvas(QtWidgets.QWidget):
             painter.setFont(theme.technical_font(DRIVER_SCORE_FONT_SIZE, bold=True))
             painter.drawText(
                 QtCore.QRectF(x, y + DRIVER_SCORE_LABEL_SIZE + 4, DRIVER_SCORE_BOX_W, DRIVER_SCORE_FONT_SIZE + 8),
-                align | Qt.AlignTop, f"{score:.0f}",
+                align | Qt.AlignTop | Qt.TextDontClip, f"{score:.0f}",
             )

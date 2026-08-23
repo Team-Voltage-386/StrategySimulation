@@ -95,9 +95,10 @@ def test_either_device_can_command_intake(app):
     assert operator.intake_active
 
 
-def test_the_controls_panel_lists_the_keyboard_even_with_a_pad_connected(app):
-    """The panel is a driver's only clue about what works, so it must not
-    go on claiming W A S D doesn't exist."""
+def test_the_controls_panel_switches_to_the_gamepad_reference_once_one_is_connected(app):
+    """Both devices stay live either way (see the keyboard/gamepad tests
+    above) -- this only covers which reference list the panel shows, and
+    showing both at once made the panel too wide."""
     panel = run_reefscape.ControlsPanel()
 
     panel.set_available(False)
@@ -105,5 +106,5 @@ def test_the_controls_panel_lists_the_keyboard_even_with_a_pad_connected(app):
     assert "GAMEPAD" not in panel.label.text()
 
     panel.set_available(True)
-    assert "W A S D" in panel.label.text()
+    assert "W A S D" not in panel.label.text()
     assert "Left Stick" in panel.label.text()
