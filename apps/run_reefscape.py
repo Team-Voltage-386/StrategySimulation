@@ -60,7 +60,9 @@ from apps.sweep_tab import SweepTab
 from common_sim.analysis.metrics import extract_metrics
 from common_sim.control import strategy_io
 from common_sim.control.human import HumanController
-from common_sim.control.input_sources import DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand
+from common_sim.control.input_sources import (
+    CombinedInput, DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand,
+)
 from common_sim.control.strategy import StrategyController
 from common_sim.field.field_config import point_in_polygon
 from common_sim.match.match import Match, MatchConfig, Phase
@@ -122,16 +124,26 @@ class ControlsPanel(QtWidgets.QGroupBox):
         self.set_available(False)
         document(
             self, "controls_reference", "Controls reference",
-            "Which keys or gamepad buttons drive the robot right now. Switches automatically "
-            "between keyboard and gamepad bindings depending on what's plugged in.",
+            "Which keys and gamepad buttons drive the robot. Both devices are live at the "
+            "same time -- a connected controller never takes the keyboard away.",
             "This only matters while a human is driving PRIMARY -- once AI drives primary robot "
             "is checked in the roster panel, nothing here does anything.")
 
     def set_available(self, available: bool) -> None:
-        bindings = GAMEPAD_BINDINGS if available else KEYBOARD_BINDINGS
-        heading = "GAMEPAD" if available else "KEYBOARD"
-        lines = [f"{control}: {action}" for control, action in bindings]
-        self.label.setText(f"{heading}\n" + "\n".join(lines))
+        """Lists the keyboard always, and the gamepad as well when one is
+        connected. It used to show one *instead of* the other, which
+        stopped being true when the window moved to CombinedInput -- and
+        was the more misleading half anyway, since the panel claiming
+        W A S D didn't exist was a driver's only clue about why nothing
+        moved."""
+        sections = [("KEYBOARD", KEYBOARD_BINDINGS)]
+        if available:
+            sections.append(("GAMEPAD", GAMEPAD_BINDINGS))
+        blocks = [
+            "\n".join([heading] + [f"{control}: {action}" for control, action in bindings])
+            for heading, bindings in sections
+        ]
+        self.label.setText("\n\n".join(blocks))
 
 
 VIEW_MODES = {
@@ -471,14 +483,18 @@ class MatchView(QtWidgets.QWidget):
         self.canvas.keyReleaseEvent = self._key_release
 
         self.keyboard = KeyboardInput(pressed_keys=lambda: self._pressed_keys, bindings=KEY_BINDINGS)
-        gamepad = GamepadInput()
-        self.input_source = gamepad if gamepad.available else self.keyboard
-        self.gamepad_available = gamepad.available
+        self.gamepad = GamepadInput()
+        # Both devices live at once -- see CombinedInput. This used to pick
+        # one (gamepad whenever `available`), which meant a controller
+        # merely plugged into the machine silently made W A S D do nothing,
+        # with no message anywhere saying why.
+        self.input_source = CombinedInput(self.keyboard, self.gamepad)
+        self.gamepad_available = self.gamepad.available
         # This tick's already-polled input, read (not re-polled) by any
         # HumanController -- see that module's docstring for why it must
         # not own a second poll() call.
         self._latest_commands: tuple[DriveCommand, OperatorCommand] = (DriveCommand(), OperatorCommand())
-        self.controls_panel.set_available(gamepad.available)
+        self.controls_panel.set_available(self.gamepad.available)
 
         # A second physical gamepad, wired to whichever roster robot
         # Player2Panel selects -- see _reset_match. Keyboard stays
@@ -990,9 +1006,9 @@ class MatchView(QtWidgets.QWidget):
         # rather than QKeyEvent.isAutoRepeat() -- on some platforms the
         # very first physical keypress can arrive already flagged as a
         # repeat, which silently swallowed this cycle before it ever ran.
-        # Kept as a fallback alongside the gamepad's X button (the primary
-        # binding) since input_source is keyboard-only when no gamepad is
-        # connected.
+        # Both this and the gamepad's X button are always live now that
+        # input_source is a CombinedInput, so either one cycles the level
+        # regardless of what's plugged in.
         just_pressed = self._pressed_keys - self._prev_pressed_keys
         if TOGGLE_REEF_LEVEL_KEY in just_pressed or operator.cycle_level:
             self._cycle_reef_level()
