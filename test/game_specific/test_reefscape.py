@@ -11,9 +11,11 @@ from common_sim.control.behavior import BehaviorContext, DriveToPose, RunIntake,
 from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import RobotCharacteristics
+from common_sim.field.field_config import point_in_polygon
 from game_specific.reefscape.field import (
     FIELD_LENGTH,
     FIELD_WIDTH,
+    REEF_FACE_SCORING_DEPTH,
     REEF_HEX_APOTHEM,
     build_field,
     processor_position,
@@ -64,6 +66,32 @@ def test_reef_offers_six_faces_with_all_four_levels():
     for face in blue_faces:
         assert face.actions == frozenset({"l1", "l2", "l3", "l4"})
         assert face.piece_types == frozenset({CORAL_TYPE})
+
+
+def test_algae_staging_zones_are_face_aligned_and_algae_sized():
+    """The zone models the ALGAE's own footprint lying against the face.
+    It used to be a 20x20 axis-aligned box a foot off the face, which only
+    lined up with the two faces pointing along +-x -- on the other four it
+    sat crooked, overlapped the REEF structure, and let a robot trigger
+    the pickup from an angle without squaring up to that face."""
+    field = build_field()
+    reef = next(o for o in field.obstacles if o.name == "blue_reef")
+    zones = [s for s in field.intake_locations if s.name.startswith("blue_reef_algae")]
+    assert len(zones) == 6
+
+    for zone in zones:
+        # A face-aligned rect on a rotated face is *not* axis-aligned, so
+        # side lengths are the check, not the bounding box.
+        sides = [
+            math.dist(zone.vertices[i], zone.vertices[(i + 1) % 4])
+            for i in range(4)
+        ]
+        assert math.isclose(sides[0], 2 * ALGAE_RADIUS, abs_tol=1e-6), "width is one ALGAE diameter"
+        assert math.isclose(sides[2], 2 * ALGAE_RADIUS, abs_tol=1e-6)
+        assert sides[1] < REEF_FACE_SCORING_DEPTH, "no deeper than a robot must reach to score"
+        # Nothing may sit inside the solid hex -- a robot cannot stand there.
+        for vertex in zone.vertices:
+            assert not point_in_polygon(vertex, reef.vertices), f"{zone.name} pokes into the REEF"
 
 
 def test_staged_algae_blocks_one_alternating_level_per_face():

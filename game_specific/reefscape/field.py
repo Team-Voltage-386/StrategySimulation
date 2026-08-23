@@ -161,10 +161,31 @@ REEF_LEVEL_CAPACITY = {
 # distinction actually earns its keep. Modeled as a per-face collection region (an
 # IntakeLocation with starting_pieces=1) rather than a physical loose
 # piece resting against the hex obstacle, matching how a CORAL STATION
-# is modeled -- a robot dwells in the zone to pick the ALGAE up. The
-# staging point sits just outside the REEF's solid hex face so it
-# doesn't spawn/collide inside the obstacle.
-REEF_ALGAE_STAGING_CLEARANCE = ALGAE_RADIUS + 4.0
+# is modeled -- a robot dwells in the zone to pick the ALGAE up.
+#
+# Sized and placed as the ALGAE's own footprint resting against the face:
+# one ball diameter wide, spanning from just off the hex face out to the
+# same depth a robot must reach to score CORAL there
+# (REEF_FACE_SCORING_DEPTH). It was previously a 20x20 axis-aligned box
+# centred a foot off the face, which was wrong in three ways at once --
+# axis-aligned boxes only line up with the two faces pointing along +-x
+# (the other four poked into the REEF structure, which the field
+# validator duly flagged as notes), it reached 22in off the face, and it
+# was wider than the ALGAE. Between them a robot triggered the pickup
+# from up to ~42in of centre distance, from an angle, without ever
+# squaring up to that particular face.
+#
+# Note what this can and cannot buy. It forces a robot to reach the face
+# the same way it must to score there, which is the honest floor. It
+# cannot make de-ALGAEing cost *more* than scoring CORAL for a robot
+# whose single front side does both jobs, which is what the reference
+# robot in robot.py declares -- separating the two is a
+# RobotCharacteristics.side_manipulators question (a side wired for
+# ALGAE that isn't the side wired to score CORAL), not a field-geometry
+# one. See nearby_station(), which already refuses a station no
+# intake-capable side is touching.
+REEF_ALGAE_ZONE_CLEARANCE = 1.0            # keeps the inner edge off the hex face
+REEF_ALGAE_ZONE_WIDTH = 2.0 * ALGAE_RADIUS  # the ball's own footprint
 
 # 6.3.4.2.A / Figure 6-3: the staged ALGAE doesn't sit decoratively next
 # to the face, it rests *between the two branches* of one level -- L2 on
@@ -229,6 +250,29 @@ def _hex_face_centers_and_normals(center: tuple[float, float], apothem: float):
         yield midpoint, normal
 
 
+def _face_rect(face_center, normal, inner: float, outer: float, width: float) -> tuple[tuple[float, float], ...]:
+    """A rectangle lying on a REEF face and aligned to it: `width` wide
+    along the face, spanning `inner`..`outer` outward from the face plane
+    along its normal.
+
+    Face-aligned rather than axis-aligned because the hex presents faces
+    at 0/60/.../300 degrees -- an axis-aligned box is only ever correct
+    for the two faces pointing along +-x, and on the other four it both
+    misdescribes the zone and pokes into the REEF structure. Shared by
+    the CORAL scoring zones and the ALGAE staging zones so the two are
+    provably built on the same face frame."""
+    tangent = (-normal[1], normal[0])
+    half_w = width / 2.0
+    inner_mid = (face_center[0] + normal[0] * inner, face_center[1] + normal[1] * inner)
+    outer_mid = (face_center[0] + normal[0] * outer, face_center[1] + normal[1] * outer)
+    return (
+        (inner_mid[0] + tangent[0] * half_w, inner_mid[1] + tangent[1] * half_w),
+        (inner_mid[0] - tangent[0] * half_w, inner_mid[1] - tangent[1] * half_w),
+        (outer_mid[0] - tangent[0] * half_w, outer_mid[1] - tangent[1] * half_w),
+        (outer_mid[0] + tangent[0] * half_w, outer_mid[1] + tangent[1] * half_w),
+    )
+
+
 def _reef_scoring_regions(name_prefix: str, center: tuple[float, float], alliance: str) -> tuple[ScoringRegion, ...]:
     """One ScoringRegion per REEF face (6 total), each offering all 4
     CORAL levels -- L1-L4 differ in point value and (via a robot's
@@ -237,16 +281,7 @@ def _reef_scoring_regions(name_prefix: str, center: tuple[float, float], allianc
     REEF has all 4 levels stacked on every face."""
     regions = []
     for i, (face_center, normal) in enumerate(_hex_face_centers_and_normals(center, REEF_HEX_APOTHEM)):
-        tangent = (-normal[1], normal[0])
-        half_w = REEF_FACE_SCORING_WIDTH / 2.0
-        inner = face_center
-        outer = (face_center[0] + normal[0] * REEF_FACE_SCORING_DEPTH, face_center[1] + normal[1] * REEF_FACE_SCORING_DEPTH)
-        vertices = (
-            (inner[0] + tangent[0] * half_w, inner[1] + tangent[1] * half_w),
-            (inner[0] - tangent[0] * half_w, inner[1] - tangent[1] * half_w),
-            (outer[0] - tangent[0] * half_w, outer[1] - tangent[1] * half_w),
-            (outer[0] + tangent[0] * half_w, outer[1] + tangent[1] * half_w),
-        )
+        vertices = _face_rect(face_center, normal, 0.0, REEF_FACE_SCORING_DEPTH, REEF_FACE_SCORING_WIDTH)
         regions.append(ScoringRegion(
             name=f"{name_prefix}_face_{i}", vertices=vertices, actions=REEF_LEVELS, piece_types=frozenset({CORAL_TYPE}),
             capacity_by_action=dict(REEF_LEVEL_CAPACITY), alliance=alliance,
@@ -285,14 +320,23 @@ def coral_mark_positions(alliance: str) -> tuple[tuple[float, float], ...]:
     )
 
 
-def reef_algae_staging_positions(alliance: str) -> tuple[tuple[float, float], ...]:
-    """This alliance's 6 pre-match REEF ALGAE staging points, one per
-    REEF face, just outside the hex structure (see
-    REEF_ALGAE_STAGING_CLEARANCE)."""
+def reef_algae_staging_zones(alliance: str) -> tuple[tuple[tuple[float, float], ...], ...]:
+    """This alliance's 6 pre-match REEF ALGAE staging zones, one per REEF
+    face -- the ALGAE's footprint lying against the face, face-aligned
+    (see _face_rect and REEF_ALGAE_ZONE_WIDTH)."""
     center = reef_center(alliance)
     return tuple(
-        (mid[0] + normal[0] * REEF_ALGAE_STAGING_CLEARANCE, mid[1] + normal[1] * REEF_ALGAE_STAGING_CLEARANCE)
+        _face_rect(mid, normal, REEF_ALGAE_ZONE_CLEARANCE, REEF_FACE_SCORING_DEPTH, REEF_ALGAE_ZONE_WIDTH)
         for mid, normal in _hex_face_centers_and_normals(center, REEF_HEX_APOTHEM)
+    )
+
+
+def reef_algae_staging_positions(alliance: str) -> tuple[tuple[float, float], ...]:
+    """Centre point of each staging zone above -- the spot the ALGAE
+    itself occupies, for callers that want a point rather than a zone."""
+    return tuple(
+        (sum(x for x, _ in zone) / len(zone), sum(y for _, y in zone) / len(zone))
+        for zone in reef_algae_staging_zones(alliance)
     )
 
 
@@ -396,14 +440,14 @@ def build_field() -> FieldConfig:
     ) + tuple(
         IntakeLocation(
             name=reef_algae_location_name(alliance, i),
-            vertices=_rect(pos, 20.0, 20.0),
+            vertices=zone,
             piece_type=ALGAE_TYPE,
             starting_pieces=1,
             piece_color="green",  # matches spawn_algae's field-pile color
             alliance=alliance,
         )
         for alliance in ("blue", "red")
-        for i, pos in enumerate(reef_algae_staging_positions(alliance))
+        for i, zone in enumerate(reef_algae_staging_zones(alliance))
     )
 
     # One CORAL emitter per alliance, sharing its pool with that alliance's
