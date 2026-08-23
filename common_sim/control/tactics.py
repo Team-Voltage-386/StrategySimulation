@@ -136,6 +136,24 @@ _STALL_PATIENCE_MIN = 2.5
 # A behavior downstream of a broken one cannot be measured at all.
 _FAILED_TARGET_COOLDOWN = 8.0
 
+# How many patience budgets in a row `Score` may overrun on the *same*
+# target before that target goes on cooldown anyway (see
+# `Score._reconsider_target`).
+#
+# Two rather than one, because one overrun is the case the re-pick was
+# written for and re-choosing the same place is usually right: a region
+# briefly crowded, a defender passing through, a piece that will be
+# accepted in a moment. Two consecutive overruns is different in kind --
+# the robot has now spent 2x what the whole attempt was priced at,
+# arrived at the same answer twice, and has no new information coming.
+#
+# The distinction this constant draws is between a robot still trying
+# and a robot in a fixed point, which is not the same as the distinction
+# between moving and stopped: the case it was written for was a robot
+# standing exactly on its computed scoring pose, commanding zero
+# translation, unable to rotate into the heading the deposit needed.
+_SAME_TARGET_OVERRUNS = 2
+
 # The same escape hatch as `_STALL_PATIENCE_*` above, for a robot on its
 # way to a collection station rather than to a scoring region. Priced the
 # same way (this multiple of what the trip should have taken, floored),
@@ -1420,6 +1438,9 @@ class Score(Tactic):
         self._committed_elapsed = 0.0
         self._patience = _STALL_PATIENCE_MIN
         self._evade_hold = 0.0
+        # Consecutive patience budgets this robot has overrun while
+        # re-choosing the *same* target. See _reconsider_target.
+        self._overruns = 0
         # (region name, action) -> seconds left before it may be chosen
         # again, for targets this robot gave up on. See _allowed.
         self._cooldowns: dict[tuple[str, str], float] = {}
@@ -1588,14 +1609,45 @@ class Score(Tactic):
             # `_provide_target` with nothing to aim at this tick.
             self._commit(previous)
             return
-        if self._current.region.name != previous.region.name or self._current.action != previous.action:
-            # Only a target actually walked away from goes on cooldown --
-            # a re-pick that lands on the same place is the robot still
-            # trying, not giving up.
+        if self._same_target(previous):
+            # A re-pick that lands on the same place is the robot still
+            # trying, not giving up -- once. Twice in a row is the robot
+            # asking a question whose answer has stopped changing, and
+            # without a ratchet here it will keep asking it for the rest
+            # of the match: `_pick_option` is deterministic in the field
+            # state, so a target that is still the best-valued option
+            # gets re-chosen, `_commit` restarts the clock, and the loop
+            # closes with nothing on cooldown to break it.
+            #
+            # The SALVAGE dry run put a robot in exactly that loop for
+            # 110 of 150 seconds (DRY_RUN_LOG.md): parked on its
+            # computed scoring pose, unable to *rotate* into the required
+            # heading because a corner of its chassis was against a
+            # structure, so the deposit never became legal and every
+            # reconsideration re-chose the same face. Note what the
+            # existing signals said about it -- it was at its target,
+            # commanding no translation, and re-picking happily.
+            self._overruns += 1
+            if self._overruns >= _SAME_TARGET_OVERRUNS:
+                self._cooldowns[(previous.region.name, previous.action)] = _FAILED_TARGET_COOLDOWN
+                self._overruns = 0
+                if not self._pick_option(ctx) or self._current is None:
+                    self._commit(previous)
+                    return
+        else:
+            self._overruns = 0
+            # Only a target actually walked away from goes on cooldown.
             self._cooldowns[(previous.region.name, previous.action)] = _FAILED_TARGET_COOLDOWN
         if self._current.region.name != previous.region.name or self._current.piece is not previous.piece:
             self._evade_hold = _EVADE_COMMIT_PERIOD
             self._nav.reset()
+
+    def _same_target(self, previous) -> bool:
+        return (
+            self._current is not None
+            and self._current.region.name == previous.region.name
+            and self._current.action == previous.action
+        )
 
     def tick(self, ctx: BehaviorContext) -> Status:
         robot = ctx.robot
@@ -1609,6 +1661,13 @@ class Score(Tactic):
             return Status.SUCCESS
 
         if self._current is None or self._current.piece not in robot.held_pieces:
+            # The piece this attempt was for is gone -- scored, dropped,
+            # or taken -- so whatever the last attempt was struggling
+            # with is no longer this attempt's problem. Clearing the
+            # overrun ratchet here (rather than in `_commit`, which the
+            # re-pick path also calls) is what keeps it counting only
+            # *consecutive* failures on one piece.
+            self._overruns = 0
             if not self._pick_option(ctx):
                 return Status.RUNNING  # holding something with nowhere legal to put it (yet) -- keep waiting, not a failure
         elif not self._deposit_ready(ctx):

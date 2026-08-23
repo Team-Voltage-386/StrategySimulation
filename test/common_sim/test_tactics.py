@@ -1822,3 +1822,66 @@ def test_collect_treats_a_teammate_on_the_feed_as_a_queue_not_a_blockage():
     match.add_robot(make_characteristics(), Pose2d(156, 100, 0), alliance=robot.alliance)
     ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
     assert not tactic._held_by_opponent(ctx, station)
+
+
+def _overrun_until_target_changes(tactic, ctx, seconds=60.0):
+    """Drive `_reconsider_target` for `seconds` of simulated time with
+    the robot neither moving nor depositing -- i.e. an attempt that
+    simply never completes -- and report how long it took for the
+    committed target to change, or None if it never did."""
+    started = tactic._current.region.name
+    elapsed = 0.0
+    while elapsed < seconds:
+        tactic._reconsider_target(ctx)
+        elapsed += ctx.dt
+        if tactic._current.region.name != started:
+            return elapsed
+    return None
+
+
+def test_score_keeps_a_target_through_one_overrun():
+    """Control for the test below. Overrunning the patience budget once
+    and re-choosing the same target is the robot still trying, which is
+    usually right: a region briefly crowded, a defender passing through,
+    a piece about to be accepted. It must not be treated as failure."""
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "near"
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    budget = tactic._patience
+    _overrun_until_target_changes(tactic, ctx, seconds=budget * 1.5)
+
+    assert tactic._current.region.name == "near"
+    assert ("near", "score_widget") not in tactic._cooldowns
+
+
+def test_score_gives_up_on_a_target_it_keeps_failing_at():
+    """Twice in a row is not "still trying", it is a fixed point.
+
+    `_pick_option` is deterministic in the field state, so a target that
+    is still the best-valued option gets re-chosen, `_commit` restarts
+    the patience clock, and nothing goes on cooldown to break the loop.
+    Without a ratchet the robot re-attempts the identical impossible
+    thing until the buzzer -- 110 seconds of a 150 second match, in the
+    case that found this (DRY_RUN_LOG.md, F2). Note that the robot
+    there was standing exactly on its own computed scoring pose and
+    commanding no translation at all, so nothing about *motion*
+    distinguished it from a robot correctly waiting."""
+    field = make_field(scoring_regions=(NEAR_REGION, FAR_REGION))
+    match = make_match(field, auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    tactic = _score_tactic_holding_piece(match, robot)
+    assert tactic._current.region.name == "near"
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    took = _overrun_until_target_changes(tactic, ctx)
+
+    assert took is not None, "Score re-chose an unreachable target forever"
+    assert tactic._current.region.name == "far"
+    assert ("near", "score_widget") in tactic._cooldowns
+    # A second overrun, not the first: the ratchet must not turn a
+    # momentary crowd into a lost target.
+    assert took > tactics._STALL_PATIENCE_MIN

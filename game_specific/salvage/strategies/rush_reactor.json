@@ -1,0 +1,67 @@
+{
+  "name": "rush_reactor",
+  "rules": [
+    {
+      "name": "score_cell",
+      "trigger": {"type": "AtCapacity", "for_duration": null, "piece_type": "cell"},
+      "tactic": {"type": "Score", "region": null, "action": "reactor"},
+      "priority": 20,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    },
+    {
+      "name": "fetch_cell",
+      "trigger": {
+        "type": "AllOf",
+        "for_duration": null,
+        "triggers": [
+          {"type": "MatchTime", "for_duration": null, "after": null, "before": 45.0, "phase": null, "remaining_under": null},
+          {"type": "Not", "for_duration": null, "trigger": {"type": "AtCapacity", "for_duration": null, "piece_type": "cell"}}
+        ]
+      },
+      "tactic": {
+        "type": "Collect",
+        "piece_type": "cell",
+        "mode": "nearest",
+        "cluster_radius": 24.0,
+        "max_range": null,
+        "opposing_side": "allow"
+      },
+      "priority": 15,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    },
+    {
+      "name": "score_crates",
+      "trigger": {"type": "AtCapacity", "for_duration": null, "piece_type": "crate"},
+      "tactic": {"type": "Score", "region": null, "action": null},
+      "priority": 10,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    },
+    {
+      "name": "collect_crates",
+      "trigger": {
+        "type": "Not",
+        "for_duration": null,
+        "trigger": {"type": "AtCapacity", "for_duration": null, "piece_type": "crate"}
+      },
+      "tactic": {
+        "type": "Collect",
+        "piece_type": "crate",
+        "mode": "nearest",
+        "cluster_radius": 24.0,
+        "max_range": null,
+        "opposing_side": "last_resort"
+      },
+      "priority": 5,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    }
+  ],
+  "fallback": {"type": "Idle"}
+}

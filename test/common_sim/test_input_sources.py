@@ -1,3 +1,5 @@
+import pytest
+
 from common_sim.control.input_sources import (
     DriveCommand,
     GamepadInput,
@@ -185,3 +187,67 @@ def test_gamepad_input_unavailable_when_no_device_and_no_injected_joystick():
     drive, operator = src.poll()
     assert drive == DriveCommand()
     assert operator == OperatorCommand()
+
+
+def test_gamepad_input_back_button_reset_is_edge_triggered():
+    """Throwing the match away must happen once per press, not once per
+    frame the button is held -- same shape as pause_toggle, and for a
+    much less forgiving reason."""
+    buttons = [0] * 8
+    joystick = FakeJoystick(axes=[0, 0, 0, 0], buttons=buttons)
+    src = GamepadInput(joystick=joystick)
+
+    _, operator = src.poll()
+    assert operator.reset is False
+
+    buttons[6] = 1  # Back pressed
+    _, operator = src.poll()
+    assert operator.reset is True
+
+    _, operator = src.poll()  # still held down -- no repeat
+    assert operator.reset is False
+
+    buttons[6] = 0
+    src.poll()
+    buttons[6] = 1
+    _, operator = src.poll()
+    assert operator.reset is True
+
+
+def test_gamepad_input_bumpers_rotate():
+    """LB turns one way, RB the other, at a fixed fraction of full rate
+    -- a swerve chassis is awkward to square up with a stick axis while
+    the other thumb is driving."""
+    buttons = [0] * 8
+    joystick = FakeJoystick(axes=[0, 0, 0, 0], buttons=buttons)
+    src = GamepadInput(joystick=joystick)
+
+    buttons[4] = 1  # LB
+    drive, _ = src.poll()
+    assert drive.omega == pytest.approx(GamepadInput.BUMPER_ROTATE_RATE)
+
+    buttons[4], buttons[5] = 0, 1  # RB
+    drive, _ = src.poll()
+    assert drive.omega == pytest.approx(-GamepadInput.BUMPER_ROTATE_RATE)
+
+    buttons[4] = 1  # both -- they cancel
+    drive, _ = src.poll()
+    assert drive.omega == 0.0
+
+
+def test_gamepad_input_bumper_and_stick_rotation_add_but_stay_clamped():
+    buttons = [0] * 8
+    buttons[4] = 1
+    joystick = FakeJoystick(axes=[0, 0, -0.9, 0], buttons=buttons)  # stick CCW too
+    drive, _ = GamepadInput(joystick=joystick).poll()
+    assert drive.omega == pytest.approx(1.0)
+
+
+def test_gamepad_input_tolerates_a_controller_with_fewer_buttons():
+    """A pad reporting only A/B must not raise on the bumper or Back
+    lookups -- some third-party and virtual devices report short."""
+    joystick = FakeJoystick(axes=[0, 0, 0, 0], buttons=[0, 0])
+    drive, operator = GamepadInput(joystick=joystick).poll()
+    assert drive.omega == 0.0
+    assert operator.reset is False
+    assert operator.pause_toggle is False

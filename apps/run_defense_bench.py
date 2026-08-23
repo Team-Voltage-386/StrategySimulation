@@ -16,10 +16,12 @@ production under each. Blue is always the alliance being defended; red
 either cycles normally ("none", the control -- what blue does when left
 alone) or gives one robot over to full-time Defend.
 
-Determinism note: `VariabilityModel()`'s defaults perturb *nothing*, so
-running N seeds with it produces N bit-identical matches and an N-of-1
-sample wearing a mean's clothing. `VARIABILITY` below is deliberately
-non-trivial for that reason.
+Genericized onto `common_sim.analysis.game_bench` (DRY_RUN_LOG.md, F6):
+what's left here is exactly the REEFSCAPE-specific surface -- the match
+builder, the strategies directory, the reference robot, and the plan
+table. `apps/run_salvage_bench.py` plugs the same shared core into a
+second game; `apps/run_stall_audit.py` reuses this file's `RED_PLANS`/
+`BLUE_PLANS` to audit either one.
 
 Run: `python -m apps.run_defense_bench [--seeds N] [--per-side N]`
 """
@@ -29,26 +31,20 @@ import argparse
 import statistics
 from collections import defaultdict
 
-from common_sim.analysis.metrics import extract_metrics
-from common_sim.analysis.monte_carlo import run_match_to_completion
+from common_sim.analysis import game_bench
 from common_sim.analysis.runner import run_all
-from common_sim.analysis.sweep_spec import (
-    MatchSpec,
-    RobotSpec,
-    TrialJob,
-    TrialOutcome,
-    characteristics_to_spec,
-)
-from common_sim.analysis.variability import VariabilityModel
-from common_sim.control import strategy_io
+from common_sim.analysis.sweep_spec import MatchSpec, TrialJob, TrialOutcome
+from game_specific.reefscape.robot import build_characteristics
 from game_specific.reefscape.sweep_trial import STRATEGIES_DIR, SWEEP_DT, build_match_for_job
-from apps.run_strategy_sweep import build_characteristics
 
-VARIABILITY = VariabilityModel(
-    enabled=True, intake_time_pct=0.10, deposit_time_pct=0.10,
-    max_speed_pct=0.08, max_accel_pct=0.08,
-    start_pose_xy_in=4.0, start_pose_heading_deg=5.0, piece_scatter_in=3.0,
+GAME = game_bench.BenchGame(
+    build_match_for_job=build_match_for_job, strategies_dir=STRATEGIES_DIR, dt=SWEEP_DT,
+    build_characteristics=build_characteristics,
 )
+
+# What a non-defending red robot runs -- red_plan="none" reads as
+# "everybody just cycles".
+RED_BASELINE = "cycle_coral"
 
 # Red's plans. "none" is the control -- no defender at all -- and every
 # other row is read against it, since the only meaningful statement about
@@ -86,60 +82,19 @@ BLUE_PLANS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _load(name: str) -> dict:
-    """Strategies travel to a worker as plain dicts, not live Strategy
-    objects -- see sweep_trial._resolve_strategy."""
-    return strategy_io.to_dict(strategy_io.load_strategy(STRATEGIES_DIR / f"{name}.json"))
-
-
-def _full_time_defender(plan_name: str) -> dict:
-    """The `full_defense` strategy file with its Defend `mode` (and
-    `deny`, if the plan names one) overridden -- a robot that does
-    nothing but Defend, from the first tick, as a bound on how much
-    denial is even available.
-
-    Loaded from the file rather than built here so the plan these numbers
-    are measured against is the same object you can open in the STRATEGY
-    tab and sweep by name. Only the compared axes are overridden; edit
-    the file to change anything else and both the bench and the GUI see
-    it."""
-    mode, _, deny = plan_name.partition("/")
-    plan = _load("full_defense")
-    for rule in plan["rules"]:
-        if rule["tactic"]["type"] == "Defend":
-            rule["tactic"]["mode"] = mode
-            if deny:
-                rule["tactic"]["deny"] = deny
-    return plan
-
-
 def build_job(index: int, seed: int, red_plan: str, blue_plan: str, per_side: int, defenders: int) -> TrialJob:
-    characteristics = characteristics_to_spec(build_characteristics())
-    lineup = BLUE_PLANS[blue_plan]
-    robots = [
-        RobotSpec(label=f"B{i}", alliance="blue", roster_index=i, characteristics=characteristics,
-                  strategy=_load(lineup[min(i, len(lineup) - 1)]))
-        for i in range(per_side)
-    ]
-    robots += [
-        RobotSpec(label=f"R{i}", alliance="red", roster_index=i, characteristics=characteristics,
-                  strategy=_full_time_defender(red_plan) if red_plan != "none" and i < defenders
-                  else _load("cycle_coral"))
-        for i in range(per_side)
-    ]
-    return TrialJob(
-        index=index, seed=seed, params={"red": red_plan, "blue": blue_plan}, robots=tuple(robots),
+    return game_bench.build_defense_job(
+        GAME, index=index, seed=seed, red_plan=red_plan, blue_plan=blue_plan,
+        blue_lineup=BLUE_PLANS[blue_plan], red_baseline=RED_BASELINE,
+        per_side=per_side, defenders=defenders,
         match=MatchSpec(auto_duration=15.0, teleop_duration=135.0),
-        variability=VARIABILITY, strategies_dir=str(STRATEGIES_DIR), dt=SWEEP_DT,
     )
 
 
 def run_trial(job: TrialJob) -> TrialOutcome:
     """Module-level and picklable by qualified name, like
     sweep_trial.run_trial -- ProcessPoolExecutor sends it by reference."""
-    match, _, _ = build_match_for_job(job)
-    run_match_to_completion(match, dt=job.dt)
-    return TrialOutcome(index=job.index, seed=job.seed, params=job.params, metrics=extract_metrics(match))
+    return game_bench.run_defense_trial(job, build_match_for_job)
 
 
 def main() -> None:

@@ -16,26 +16,8 @@ from common_sim.analysis.results import summarize, to_dataframe
 from common_sim.analysis.runner import run_all
 from common_sim.analysis.sweep_spec import MatchSpec, RobotSpec, SweepVariable, characteristics_to_spec, expand_jobs
 from common_sim.analysis.variability import VariabilityModel
-from common_sim.robot.characteristics import RobotCharacteristics
-from game_specific.reefscape.game_pieces import ALGAE_TYPE, CORAL_TYPE
-from game_specific.reefscape.scoring import DEFAULT_SCORING_RELIABILITY_BY_ACTION
+from game_specific.reefscape.robot import build_characteristics
 from game_specific.reefscape.sweep_trial import STRATEGIES_DIR, SWEEP_DT, run_trial
-
-DEFAULT_PIECE_CAPACITY = {CORAL_TYPE: 1, ALGAE_TYPE: 1}
-DEFAULT_INTAKE_TIMES = {CORAL_TYPE: 0.4, ALGAE_TYPE: 0.4}
-DEFAULT_DEPOSIT_TIMES = {"l1": 0.3, "l2": 0.6, "l3": 1.0, "l4": 1.8, "processor": 0.4, "net": 1.2}
-
-
-def build_characteristics() -> RobotCharacteristics:
-    return RobotCharacteristics(
-        name="sweep-bot", max_speed=150.0, max_accel=400.0, max_angular_speed=6.0, max_angular_accel=20.0,
-        width=28.0, length=28.0,
-        piece_capacity_by_type=dict(DEFAULT_PIECE_CAPACITY),
-        intake_time_by_type=dict(DEFAULT_INTAKE_TIMES), station_intake_time=0.6, intake_range=6.0,
-        deposit_time=0.5, deposit_time_by_action=dict(DEFAULT_DEPOSIT_TIMES),
-        accepted_piece_types=frozenset({CORAL_TYPE, ALGAE_TYPE}),
-        scoring_reliability_by_action=dict(DEFAULT_SCORING_RELIABILITY_BY_ACTION),
-    )
 
 
 def main() -> None:

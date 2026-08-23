@@ -106,6 +106,20 @@ class SwerveChassis:
         return self._target_velocity
 
     @property
+    def commanded_omega(self) -> float:
+        """The angular velocity currently being asked for, rad/s, signed.
+
+        The rotational half of `commanded_velocity`, and it exists for
+        the same reason: a robot can be held in place rotationally
+        without being held translationally at all. That case is not
+        hypothetical -- a robot parked exactly on its scoring pose, with
+        one chassis corner against a structure, commands no translation
+        whatsoever while asking for full rotation and getting none, and
+        looks completely idle to anything reading translation alone.
+        See DRY_RUN_LOG.md (F2/F3)."""
+        return self._target_omega
+
+    @property
     def pose(self) -> Pose2d:
         p = self.body.position
         return Pose2d(p.x, p.y, wrap_angle(self.body.angle))

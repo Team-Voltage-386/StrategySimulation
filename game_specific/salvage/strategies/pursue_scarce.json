@@ -1,0 +1,15 @@
+{
+  "name": "pursue_scarce",
+  "rules": [
+    {
+      "name": "pursue",
+      "trigger": {"type": "Always", "for_duration": null},
+      "tactic": {"type": "Pursue", "scarcity_weight": 0.6, "scarcity_floor": 4.0},
+      "priority": 10,
+      "min_duration": 0.0,
+      "cooldown": 0.0,
+      "once": false
+    }
+  ],
+  "fallback": {"type": "Idle"}
+}
