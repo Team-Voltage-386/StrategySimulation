@@ -26,6 +26,7 @@ Run: `python -m apps.run_salvage`
 """
 from __future__ import annotations
 
+import argparse
 import sys
 
 from pyqtgraph.Qt import QtCore, QtWidgets
@@ -67,9 +68,16 @@ KEYBOARD_BINDINGS = [
     ("P", "Pause / resume"),
     ("R", "Restart the match"),
 ]
+# Every keyboard action has a controller equivalent, so a pad is a
+# complete way to play rather than a way to drive and nothing else.
 GAMEPAD_BINDINGS = [
-    ("Left Stick", "Drive"), ("Right Stick X", "Rotate"),
-    ("A", "Intake"), ("RT", "Deposit"), ("Start", "Pause / resume"),
+    ("Left stick", "Drive (field-relative)"),
+    ("Right stick X", "Rotate"),
+    ("LB / RB", "Rotate, held rate -- easier for squaring up"),
+    ("A", "Intake"),
+    ("RT", "Deposit (half-press is enough)"),
+    ("Start", "Pause / resume"),
+    ("Back", "Restart the match"),
 ]
 
 # You drive B0. B1 runs the plan that won the bench (see
@@ -138,7 +146,12 @@ class CombinedInput:
         operator = OperatorCommand(
             intake_active=operator.intake_active or pad_operator.intake_active,
             deposit_active=operator.deposit_active or pad_operator.deposit_active,
+            # Edge-triggered on the pad side only -- the keyboard's
+            # equivalents are edge-detected by the window against its own
+            # pressed-key set, since KeyboardInput has no memory between
+            # polls and so cannot tell a new press from a held one.
             pause_toggle=pad_operator.pause_toggle,
+            reset=pad_operator.reset,
         )
         return drive, operator
 
@@ -278,7 +291,7 @@ class SalvageWindow(QtWidgets.QWidget):
         self._prev_pressed_keys = set(self._pressed_keys)
         if PAUSE_KEY in just_pressed or operator.pause_toggle:
             self.paused = not self.paused
-        if RESET_KEY in just_pressed:
+        if RESET_KEY in just_pressed or operator.reset:
             self._reset_match()
 
         if not self.paused and not self.match.ended:
@@ -397,24 +410,52 @@ class SalvageWindow(QtWidgets.QWidget):
         self.supply_label.setText("\n".join(lines))
 
 
-def main() -> None:
-    app = QtWidgets.QApplication(sys.argv)
-    theme.apply_app_theme(app)
-    # Fail loudly on a field mistake rather than presenting a match that
-    # quietly cannot be played -- the whole reason validation.py exists.
-    from common_sim.field.validation import ERROR, describe_problems, validate_field
+def field_errors() -> list:
+    """Any reason this field cannot be played, from
+    `common_sim.field.validation`. Better a message than a match that
+    quietly cannot be finished -- which is exactly the failure mode that
+    module was written for."""
+    from common_sim.field.validation import ERROR, validate_field
+
     characteristics = build_characteristics()
-    problems = [
+    return [
         p for p in validate_field(
             build_field(), robot_width=characteristics.width, robot_length=characteristics.length,
             scoring_rules=SALVAGE_SCORING_RULES,
         )
         if p.severity == ERROR
     ]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Drive a robot around SALVAGE.")
+    parser.add_argument(
+        "--check", action="store_true",
+        help="build the window, report the field and the input devices, and exit "
+             "without showing anything -- what run_salvage.bat --check runs, and "
+             "the quickest way to find out whether a controller is being seen",
+    )
+    args = parser.parse_args()
+
+    from common_sim.field.validation import describe_problems
+
+    app = QtWidgets.QApplication(sys.argv)
+    theme.apply_app_theme(app)
+    problems = field_errors()
     if problems:
         print("SALVAGE field has errors; not launching:\n" + describe_problems(problems))
-        return
+        sys.exit(1)
+
     window = SalvageWindow()
+    if args.check:
+        pad = window.gamepad
+        print("SALVAGE field OK.")
+        print(f"keyboard: ready ({len(KEYBOARD_BINDINGS)} bindings)")
+        print("gamepad: " + ("detected -- both it and the keyboard are live"
+                             if pad.available else "none detected -- keyboard only"))
+        window._tick()
+        print(f"one tick ran; match clock at {window.match.elapsed:.2f}s")
+        return
     window.show()
     sys.exit(app.exec())
 

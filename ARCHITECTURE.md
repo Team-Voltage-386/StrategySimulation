@@ -200,7 +200,9 @@ apps/
                                 which zone you are standing in, and what is left of everything finite.
                                 A small MATCH-only window, not a second four-tab app. It takes
                                 keyboard and gamepad *together* rather than picking one -- see the
-                                CombinedInput docstring for the trap that avoids
+                                CombinedInput docstring for the trap that avoids. Launched by
+                                run_salvage.bat; `--check` reports the field and the input devices
+                                and exits without opening a window
   run_salvage_bench.py       The same idea on the dry-run game, but *paired*: every blue plan is run on
                                 the same seeds as the baseline and reported as a per-seed difference, which
                                 resolves an order of magnitude better than differencing two means. A second

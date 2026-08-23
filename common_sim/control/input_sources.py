@@ -47,6 +47,12 @@ class OperatorCommand:
     # to advancing to the next deposit-action choice (e.g. cycling REEF
     # levels L1-L4), one step per physical press.
     cycle_level: bool = False
+    # Edge-triggered, same shape again -- a GUI/window wires this to
+    # restarting the match. Separate from pause_toggle because a host
+    # that has no reset (or wants a confirmation first) should be able to
+    # ignore it without also losing pause, and because throwing the match
+    # away is not something to do once per frame the button is held.
+    reset: bool = False
 
 
 class InputSource(ABC):
@@ -128,9 +134,11 @@ class GamepadInput(InputSource):
     headless (no pygame display window needed -- see ARCHITECTURE.md's
     tech-stack rationale). Standard Xbox axis/button layout as SDL2
     reports it: left stick = axes 0/1 (strafe/forward), right stick X =
-    axis 3 (rotate), A = button 0 (intake), right trigger (RT) = axis 5
+    axis 3 (rotate), LB/RB = a second, rate-limited rotation binding for
+    squaring up, A = button 0 (intake), right trigger (RT) = axis 5
     (deposit) -- a trigger rather than a button since it's a more natural
-    hold-to-score analog to the keyboard's held-F binding.
+    hold-to-score analog to the keyboard's held-F binding -- Start =
+    pause, Back = reset.
 
     A `joystick` object can be injected directly (anything satisfying
     get_axis/get_button/get_numaxes) -- this is what makes the class
@@ -149,6 +157,20 @@ class GamepadInput(InputSource):
     ROTATE_AXIS = 2
     START_BUTTON = 7
     X_BUTTON = 2
+    BACK_BUTTON = 6
+    # LB / RB. Rotation is also available on the bumpers, summed with the
+    # right stick, because a swerve chassis is genuinely awkward to turn
+    # with a stick axis while the other thumb is driving -- and because
+    # holding a bumper gives a constant rate, which is what you want when
+    # squaring up to a scoring face. Additive: a controller that never
+    # touches them behaves exactly as it did before they were bound.
+    ROTATE_CCW_BUTTON = 4
+    ROTATE_CW_BUTTON = 5
+    # What a held bumper is worth as a fraction of full commanded
+    # rotation. Not 1.0: the point of the binding is controllable
+    # squaring-up, and full stick rate overshoots a scoring heading badly
+    # at the 6 rad/s these robots turn at.
+    BUMPER_ROTATE_RATE = 0.6
     # SDL2/XInput reports the right trigger as its own axis (not a
     # button), 0.0 released to 1.0 fully pressed -- 0.5 reads as a
     # deliberate half-press rather than requiring the trigger bottomed out.
@@ -172,6 +194,7 @@ class GamepadInput(InputSource):
             self._joystick = _open_pygame_joystick(index)
         self._prev_start_pressed = False
         self._prev_x_pressed = False
+        self._prev_back_pressed = False
 
     @property
     def available(self) -> bool:
@@ -188,8 +211,11 @@ class GamepadInput(InputSource):
         vy = _clamp(_deadband(-j.get_axis(1), self.DEADBAND))
         omega = 0.0
         if j.get_numaxes() > self.ROTATE_AXIS:
-            omega = _clamp(_deadband(-j.get_axis(self.ROTATE_AXIS), self.DEADBAND))
-        drive = DriveCommand(vx=vx, vy=vy, omega=omega)
+            omega = _deadband(-j.get_axis(self.ROTATE_AXIS), self.DEADBAND)
+        omega += self.BUMPER_ROTATE_RATE * (
+            self._button(j, self.ROTATE_CCW_BUTTON) - self._button(j, self.ROTATE_CW_BUTTON)
+        )
+        drive = DriveCommand(vx=vx, vy=vy, omega=_clamp(omega))
 
         intake = j.get_numbuttons() > 0 and bool(j.get_button(0))
         deposit = (
@@ -205,11 +231,24 @@ class GamepadInput(InputSource):
         cycle_level = x_pressed and not self._prev_x_pressed
         self._prev_x_pressed = x_pressed
 
+        back_pressed = bool(self._button(j, self.BACK_BUTTON))
+        reset = back_pressed and not self._prev_back_pressed
+        self._prev_back_pressed = back_pressed
+
         operator = OperatorCommand(
             intake_active=intake, deposit_active=deposit, deposit_action=self.deposit_action,
-            pause_toggle=pause_toggle, cycle_level=cycle_level,
+            pause_toggle=pause_toggle, cycle_level=cycle_level, reset=reset,
         )
         return drive, operator
+
+    @staticmethod
+    def _button(joystick, index: int) -> float:
+        """1.0 if that button is down, 0.0 otherwise -- and 0.0 for a
+        controller (or a test double) that does not have that many
+        buttons, rather than an IndexError."""
+        if joystick.get_numbuttons() <= index:
+            return 0.0
+        return 1.0 if joystick.get_button(index) else 0.0
 
 
 def _open_pygame_joystick(index: int):

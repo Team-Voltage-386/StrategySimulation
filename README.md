@@ -20,8 +20,8 @@ needs. Use a real interpreter (e.g. an Anaconda install) explicitly if
 
 ## The apps
 
-Three entry points under `apps/`, in the order you'd actually reach
-for them:
+Entry points under `apps/`, in the order you'd actually reach for
+them:
 
 ### `run_reefscape.py` — the interactive REEFSCAPE viewer
 
@@ -69,6 +69,44 @@ Three tabs:
   swept). Double-click any results row — or right-click → "REPLAY IN
   MATCH TAB" — to re-run that exact trial and watch/scrub it on the
   MATCH tab.
+
+### `run_salvage.py` — drive the dry-run game
+
+```
+run_salvage.bat
+```
+
+SALVAGE 2027 is an **invented** game, written to test the claim that a
+new season is a new `game_specific/` package and nothing else — see
+[DRY_RUN_LOG.md](DRY_RUN_LOG.md) for what that exercise found, which
+included two framework bugs that had been latent in REEFSCAPE the whole
+time. This is a small MATCH-only window for playing it: the field, one
+robot you drive, three AI, and four panels.
+
+The panels are the point. SALVAGE's rules are mostly about *timing*,
+which no field drawing shows: the deep hold pays 8 in TELEOP and 3 in
+AUTO while the wall hold goes the other way, the REACTOR pays 10 then 7
+but there are only ten CELLs on the field all match, and the BEACON's
+six slots are shared between the alliances so filling it scores and
+denies at once. SCORING lists every action's value *as of right now*,
+WHAT IS LEFT counts down everything finite, and WHERE YOU ARE names the
+zone under your robot and says whether a deposit would actually land.
+
+| Keyboard | Xbox controller | |
+|---|---|---|
+| `W A S D` | Left stick | Drive (field-relative) |
+| `←` / `→` | Right stick X, or LB / RB | Rotate — the bumpers turn at a fixed rate, which is easier for squaring up |
+| `Space` | A | Intake — hold it while sitting on a depot or bay |
+| `F` | RT (half-press is enough) | Deposit — hold it while sitting in a scoring zone |
+| `P` | Start | Pause / resume |
+| `R` | Back | Restart the match |
+
+Both devices are live at the same time; there is no mode to pick. (This
+differs from `run_reefscape.py`, which picks the gamepad whenever one is
+*detected* — meaning a controller merely plugged into the machine
+silently disables `W A S D` there.) `run_salvage.bat --check` reports
+whether the field is valid and whether a controller is being seen,
+without opening a window.
 
 ### `run_match.py` — minimal placeholder viewer
 

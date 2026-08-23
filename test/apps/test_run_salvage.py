@@ -40,18 +40,22 @@ def window(app):
 
 
 class _FakePad:
-    """A gamepad that is present and being held hard over to one side --
+    """A gamepad that is present and doing whatever the test says --
     the thing `CombinedInput` has to not let take the keyboard away."""
 
-    def __init__(self, available=True, vx=0.0, intake=False):
+    def __init__(self, available=True, vx=0.0, intake=False, reset=False, pause=False):
         self.available = available
         self._vx = vx
         self._intake = intake
+        self._reset = reset
+        self._pause = pause
 
     def poll(self):
         return (
             DriveCommand(vx=self._vx, vy=0.0, omega=0.0),
-            OperatorCommand(intake_active=self._intake),
+            OperatorCommand(
+                intake_active=self._intake, reset=self._reset, pause_toggle=self._pause,
+            ),
         )
 
 
@@ -149,6 +153,28 @@ def test_the_scoring_panel_reports_the_current_phase_not_a_fixed_table(window):
     # HOLD HIGH is the one that goes up rather than down: 3 -> 8.
     assert "HOLD HIGH (crate)     8" in teleop_text
     assert "HOLD LOW  (crate)     2" in teleop_text
+
+
+def test_the_back_button_restarts_the_match(window):
+    """Every keyboard action has a controller equivalent, so a pad is a
+    complete way to play rather than a way to drive and nothing else."""
+    for _ in range(120):
+        window._pressed_keys = set()
+        window._tick()
+    assert window.match.elapsed > 1.0
+    first = window.match
+
+    window.input_source.gamepad = _FakePad(available=True, reset=True)
+    window._tick()
+    assert window.match is not first
+    assert window.match.elapsed < 1.0
+
+
+def test_the_start_button_pauses(window):
+    window.input_source.gamepad = _FakePad(available=True, pause=True)
+    assert not window.paused
+    window._tick()
+    assert window.paused
 
 
 def test_reset_rebuilds_a_drivable_match(window):
