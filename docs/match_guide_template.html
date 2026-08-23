@@ -1,0 +1,284 @@
+<title>MATCH Tab Handbook</title>
+
+<!--
+  The MATCH tab's user guide. This file is PROSE ONLY -- edit it freely,
+  it is never overwritten.
+
+  Built with:  python -m apps.build_guide --guide match
+
+  Placeholders this template fills in:
+
+      {{SHOT:layout}}   {{TAGS:layout}}
+      {{SHOT:roster}}   {{TAGS:roster}}
+      {{NAV}}   {{STYLE}}   {{GENERATED}}
+
+  {{TAGS:...}} is generated from doc_tags.document(...) calls next to the
+  widgets themselves (apps/run_reefscape.py, apps/reefscape_widgets.py) --
+  edit an explanation there, not here, and this page picks it up on the
+  next rebuild. {{STYLE}} and {{NAV}} are shared with the other three
+  guides; see docs/guide_style.css and apps/build_guide.py's GUIDES list.
+-->
+
+{{STYLE}}
+
+<div class="page">
+
+{{NAV}}
+
+<header class="masthead">
+  <p class="eyebrow">sparky-sim &middot; field guide</p>
+  <h1>The MATCH tab</h1>
+  <p class="standfirst">
+    One robot, one field, running live. This is where you drive a robot yourself, watch an AI
+    strategy drive it instead, and put a whole roster of robots on the field at once to see what
+    happens. Everything else in the app -- STRATEGY, SWEEP, SEARCH -- exists to feed a better
+    strategy or a better design back into this tab.
+  </p>
+  <p class="standfirst">
+    This guide assumes you've never opened the simulator before. If you only read one section,
+    read "The one rule that trips everyone up" -- it explains why nothing you type on this tab
+    seems to do anything at first.
+  </p>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">1</span><a href="#layout">Walkthrough: the tab, panel by panel</a></li>
+    <li><span class="n">2</span><a href="#trap">The one rule that trips everyone up</a></li>
+    <li><span class="n">3</span><a href="#driving">Driving the robot yourself</a></li>
+    <li><span class="n">4</span><a href="#roster">Walkthrough: putting more robots on the field</a></li>
+    <li><span class="n">5</span><a href="#transport">Playing, pausing, and reviewing a match</a></li>
+    <li><span class="n">6</span><a href="#recipes">Three recipes</a></li>
+    <li><span class="n">7</span><a href="#trouble">When something looks wrong</a></li>
+    <li><span class="n">8</span><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<section id="layout">
+  <h2><span class="marker">01</span>Walkthrough: the tab, panel by panel</h2>
+  <p>
+    Three columns. The left column configures who's on the field and how they're built. The
+    middle is the field itself, with a console log and the play/pause transport bar underneath.
+    The right column is what's happening right now -- live numbers, match-wide settings, and a
+    reminder of which keys drive the robot.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:layout}}</div>
+    <figcaption>
+      The MATCH tab as it opens: one robot (PRIMARY) on the field, nobody else on the roster yet,
+      match paused at t=0.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:layout}}
+  </div>
+</section>
+
+<section id="trap">
+  <h2><span class="marker">02</span>The one rule that trips everyone up</h2>
+  <div class="trap">
+    <span class="label">Read this before you touch anything</span>
+    <p>
+      Almost every control on the left and right columns -- chassis speed, manipulators, scoring
+      timing, friendly collisions, the whole roster -- carries the same small print:
+      <strong>"Changes apply on RESET."</strong> Typing a new max speed does nothing to the robot
+      currently on the field. It only becomes true the next time you press
+      <strong>RESET</strong>, which throws away the current match and starts a fresh one with
+      whatever is configured right now.
+    </p>
+    <p>
+      This is deliberate, not a bug: a robot's top speed changing mid-flight isn't a real
+      scenario worth simulating, and "everything you've set up takes effect together, at one
+      well-defined moment" is easier to reason about than "some things are live and some
+      aren't." But it means the most common way to think the app is broken is to change a
+      setting, stare at the field, and wonder why nothing moved. Press RESET.
+    </p>
+  </div>
+</section>
+
+<section id="driving">
+  <h2><span class="marker">03</span>Driving the robot yourself</h2>
+  <p>
+    Click the field to give it keyboard focus, then:
+  </p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Keyboard</th><th>Gamepad</th><th>Does</th></tr></thead>
+      <tbody>
+        <tr><td>W A S D</td><td>Left stick</td><td>Drive, field-relative</td></tr>
+        <tr><td>Left / Right arrow</td><td>Right stick X</td><td>Rotate</td></tr>
+        <tr><td>Space (hold)</td><td>A</td><td>Intake</td></tr>
+        <tr><td>F (hold)</td><td>Right trigger</td><td>Deposit at the selected level</td></tr>
+        <tr><td>1 2 3 4</td><td>X (cycles)</td><td>Select which reef level (L1-L4) to score at</td></tr>
+        <tr><td>&mdash;</td><td>Start</td><td>Pause / resume</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>
+    A gamepad is used automatically if one is plugged in when the app starts -- the CONTROLS
+    panel on the right always shows whichever set is actually active. Holding ALGAE, the deposit
+    target switches itself to PROCESSOR or NET the moment the robot is sitting in one of those
+    zones; you don't select a level for algae.
+  </p>
+  <p>
+    If you'd rather watch than drive, check <strong>AI drives primary robot</strong> in the
+    roster panel and pick a strategy -- your robot then drives itself, the same way every other
+    AI robot on the field does.
+  </p>
+</section>
+
+<section id="roster">
+  <h2><span class="marker">04</span>Walkthrough: putting more robots on the field</h2>
+  <p>
+    A real match has six robots, not one. Add AI-controlled teammates and opponents from the
+    ROSTER panel, each running whichever strategy you pick for it -- and each getting its own
+    tab under ROBOT CONFIG, so a fast robot and a slow one can share the field honestly.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:roster}}</div>
+    <figcaption>
+      After adding one blue AI robot running <code>full_defense</code> and pressing RESET: a
+      second robot appears on the field, and ROBOT CONFIG now has a BLUE 1 tab alongside
+      PRIMARY.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:roster}}
+  </div>
+</section>
+
+<section id="transport">
+  <h2><span class="marker">05</span>Playing, pausing, and reviewing a match</h2>
+  <p>
+    The bar under the field controls time. Press play and the match runs at normal speed --
+    fifteen seconds of AUTO, then teleop, same as a real one. Pause it and the scrub bar wakes
+    up: drag it and every robot, piece, and score jumps back to exactly what it was at that
+    point, the same way scrubbing a video does.
+  </p>
+  <p>
+    That's the whole trick worth knowing: <strong>scrubbing only works while paused.</strong>
+    Dragging the bar mid-match doesn't mean anything, because the physics simulation doesn't
+    have a "rewind" -- it only has "replay what was already recorded." Pause first, then
+    scrub.
+  </p>
+  <p>
+    <strong>Run as fast as possible</strong> (roster panel, once AI drives primary is checked)
+    advances the sim as fast as the CPU allows instead of at real-time speed -- useful for
+    watching a whole match resolve in a few seconds rather than two and a half minutes.
+  </p>
+</section>
+
+<section id="recipes">
+  <h2><span class="marker">06</span>Three recipes</h2>
+  <div class="recipes">
+    <div class="recipe">
+      <h3>Watch two strategies fight for the same piece</h3>
+      <p>The fastest way to see whether a strategy actually handles contention.</p>
+      <dl>
+        <dt>Roster</dt><dd>PRIMARY: AI, cycle_coral</dd>
+        <dt>Add</dt><dd>1 blue robot: full_defense</dd>
+        <dt>Then</dt><dd>RESET, press play</dd>
+      </dl>
+    </div>
+    <div class="recipe">
+      <h3>Practice driving against defense</h3>
+      <p>Leave PRIMARY on manual control and add an opponent to push back against.</p>
+      <dl>
+        <dt>Roster</dt><dd>PRIMARY: manual (unchecked)</dd>
+        <dt>Add</dt><dd>1 red robot: full_defense</dd>
+        <dt>Then</dt><dd>RESET, click the field, drive</dd>
+      </dl>
+    </div>
+    <div class="recipe">
+      <h3>Watch a SWEEP or SEARCH result play out</h3>
+      <p>No setup needed here at all.</p>
+      <dl>
+        <dt>From</dt><dd>SWEEP tab's results table</dd>
+        <dt>Do</dt><dd>double-click a row (or right-click &rarr; REPLAY IN MATCH TAB)</dd>
+      </dl>
+      <p>Jumps straight to MATCH with that exact match loaded for review -- no RESET needed.</p>
+    </div>
+  </div>
+</section>
+
+<section id="trouble">
+  <h2><span class="marker">07</span>When something looks wrong</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Symptom</th><th>What is going on</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>I changed a setting and nothing happened</td>
+          <td>See "The one rule that trips everyone up" above. Press RESET.</td>
+        </tr>
+        <tr>
+          <td>Dragging the scrub bar does nothing</td>
+          <td>It's locked while the match is playing. Pause first (the play/pause button, or
+            Start on a gamepad).</td>
+        </tr>
+        <tr>
+          <td>WASD doesn't move the robot</td>
+          <td>The field doesn't have keyboard focus -- click on it first. Also check that AI
+            drives primary robot isn't checked; a human and an AI can't both drive PRIMARY.</td>
+        </tr>
+        <tr>
+          <td>An AI teammate keeps stealing my game piece</td>
+          <td>Not a bug -- two robots running strategies that both want the same piece will
+            genuinely compete for it, exactly as two real robots would. Try
+            <strong>Disable friendly collisions</strong> in MATCH SETTINGS if they're physically
+            colliding rather than just racing.</td>
+        </tr>
+        <tr>
+          <td>The match ended and nothing is happening</td>
+          <td>Expected -- once time runs out, MATCH stops advancing on purpose (it also stops
+            logging telemetry, so it doesn't fill up with duplicate frames while the window sits
+            open). Press RESET to start another.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="glossary">
+  <h2><span class="marker">08</span>Glossary</h2>
+  <dl class="glossary">
+    <dt>PRIMARY</dt>
+    <dd>The one robot that exists no matter what -- the one WASD/gamepad drives by default, and
+      the one every other tab (STRATEGY, SWEEP, SEARCH) treats as "your" robot.</dd>
+
+    <dt>Roster</dt>
+    <dd>Every robot beyond PRIMARY: an alliance (blue/red), a strategy, and its own chassis
+      settings under ROBOT CONFIG.</dd>
+
+    <dt>AI intent</dt>
+    <dd>An overlay showing what an AI robot is currently aiming for and which tactic it's
+      running -- the fastest way to tell whether a strategy is doing something sensible or
+      something confused.</dd>
+
+    <dt>Telemetry</dt>
+    <dd>Live numbers for whichever robot is selected: position, speed, what it's holding, current
+      score. Recorded every tick so the scrub bar can play it back.</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  <p>{{GENERATED}}</p>
+  <p>
+    Rebuild it after any change to the MATCH tab with
+    <code>python -m apps.build_guide --guide match</code>. Prose lives in
+    <code>docs/match_guide_template.html</code>; the numbered control descriptions come from the
+    widgets themselves, so change a tooltip in the code and this page changes with it.
+  </p>
+  {{NAV}}
+</footer>
+
+</div>

@@ -5,4 +5,8 @@ Prompts.md
 .build_venv/
 build/
 dist/
-docs/
+docs/match_guide.html
+docs/param_search_guide.html
+docs/strategy_guide.html
+docs/sweep_guide.html
+docs/guide_images/

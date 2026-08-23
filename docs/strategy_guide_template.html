@@ -1,0 +1,259 @@
+<title>STRATEGY Tab Handbook</title>
+
+<!--
+  The STRATEGY tab's user guide. This file is PROSE ONLY -- edit it
+  freely, it is never overwritten.
+
+  Built with:  python -m apps.build_guide --guide strategy
+
+  Placeholders this template fills in:
+
+      {{SHOT:editor}}   {{TAGS:editor}}
+      {{SHOT:graph}}    {{TAGS:graph}}
+      {{NAV}}   {{STYLE}}   {{GENERATED}}
+
+  {{TAGS:...}} is generated from doc_tags.document(...) calls next to the
+  widgets themselves (gui_utils/strategy_editor.py,
+  gui_utils/strategy_graph.py) -- edit an explanation there, not here.
+  {{STYLE}} and {{NAV}} are shared with the other three guides; see
+  docs/guide_style.css and apps/build_guide.py's GUIDES list.
+-->
+
+{{STYLE}}
+
+<div class="page">
+
+{{NAV}}
+
+<header class="masthead">
+  <p class="eyebrow">sparky-sim &middot; field guide</p>
+  <h1>The STRATEGY tab</h1>
+  <p class="standfirst">
+    A strategy is a robot's brain: a short list of rules -- <em>if this is true, do that</em> --
+    checked top to bottom, plus one fallback for when nothing else applies. This tab is where you
+    read one, write one, and watch one think in real time.
+  </p>
+  <p class="standfirst">
+    No programming experience assumed. If a rule sounds like an "if" statement from a coding
+    class, that's exactly what it is -- just built from dropdowns instead of typed out.
+  </p>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">1</span><a href="#idea">The idea in one paragraph</a></li>
+    <li><span class="n">2</span><a href="#editor">Walkthrough: the rule editor</a></li>
+    <li><span class="n">3</span><a href="#graph">Walkthrough: the live diagram</a></li>
+    <li><span class="n">4</span><a href="#trap">Editing does nothing until you do two things</a></li>
+    <li><span class="n">5</span><a href="#priority">Priority: why order is the whole game</a></li>
+    <li><span class="n">6</span><a href="#recipes">Writing your first rule</a></li>
+    <li><span class="n">7</span><a href="#trouble">When something looks wrong</a></li>
+    <li><span class="n">8</span><a href="#glossary">Glossary</a></li>
+  </ol>
+</nav>
+
+<section id="idea">
+  <h2><span class="marker">01</span>The idea in one paragraph</h2>
+  <p>
+    Every tick, the robot looks at its rule list from the top down and runs the
+    <strong>first</strong> one whose condition -- its <strong>trigger</strong> -- is currently
+    true. That rule's <strong>tactic</strong> is what the robot actually does: drive somewhere,
+    collect a piece, score, defend. If no rule's trigger is true, the robot falls back to the
+    <strong>fallback tactic</strong> at the bottom, which every strategy has to have -- a robot
+    has to do <em>something</em> every tick.
+  </p>
+  <p>
+    That's the entire model. A rule near the top of the list can interrupt one further down the
+    moment its own trigger turns true -- which is what "priority" means here, and it's covered
+    properly in section 5, because it's the part that surprises people.
+  </p>
+</section>
+
+<section id="editor">
+  <h2><span class="marker">02</span>Walkthrough: the rule editor</h2>
+  <p>
+    Left side: the rule list, top to bottom = priority. Right side: full detail on whichever rule
+    is selected, plus the fallback tactic underneath it, always visible.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:editor}}</div>
+    <figcaption>
+      <code>cycle_coral</code> loaded for PRIMARY: two rules (<code>score_coral</code>,
+      <code>collect_coral</code>), with <code>score_coral</code> selected in the inspector.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:editor}}
+  </div>
+</section>
+
+<section id="graph">
+  <h2><span class="marker">03</span>Walkthrough: the live diagram</h2>
+  <p>
+    The same strategy, drawn as a state diagram instead of a list -- and while a match is
+    running, it actually lights up: the active rule glows, and the edge just crossed flashes and
+    lands in the history strip underneath. Reading a diagram in motion tells you what a strategy
+    is <em>doing</em> far faster than reading its rule list ever will.
+  </p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:graph}}</div>
+    <figcaption>
+      The same strategy mid-match: FALLBACK just handed off to <code>score_coral</code> at
+      t=3.4s, on a <code>PiecesHeld</code> trigger -- the flashed edge and the history line both
+      say so.
+    </figcaption>
+  </figure>
+
+  <div class="controls">
+    {{TAGS:graph}}
+  </div>
+</section>
+
+<section id="trap">
+  <h2><span class="marker">04</span>Editing does nothing until you do two things</h2>
+  <div class="trap">
+    <span class="label">Read this before you go looking for a bug</span>
+    <p>
+      Editing a strategy here never touches a robot mid-match. There are two separate steps
+      between "I changed something" and "the robot actually runs it":
+    </p>
+    <p>
+      <strong>1. APPLY TO ROBOT</strong> stages your edit -- it's saved in memory, attached to
+      whichever robot the top bar says you're editing, but the robot on the field hasn't heard
+      about it yet.<br>
+      <strong>2. RESET</strong>, on the MATCH tab, is when a staged strategy actually replaces
+      what the robot was running.
+    </p>
+    <p>
+      Skip either step and the field keeps running whatever it was running before. This is the
+      same "nothing is live until RESET" rule the MATCH tab's own guide covers -- it's one rule,
+      just visible from two different tabs.
+    </p>
+  </div>
+</section>
+
+<section id="priority">
+  <h2><span class="marker">05</span>Priority: why order is the whole game</h2>
+  <p>
+    Drag a rule up the list and you've made it more important -- not "worth more points," but
+    "checked first, and allowed to interrupt anything below it the instant its trigger turns
+    true." A defend-when-threatened rule at the top of the list can cut off a collect-piece rule
+    halfway through, every single tick, for as long as the threat trigger stays true.
+  </p>
+  <p>
+    A strategy with the same three rules in a different order is not a small variation on the
+    same strategy -- it can be a completely different robot. When a strategy isn't doing what you
+    expect, check order before you check anything else.
+  </p>
+</section>
+
+<section id="recipes">
+  <h2><span class="marker">06</span>Writing your first rule</h2>
+  <div class="recipes">
+    <div class="recipe">
+      <h3>Start from nothing</h3>
+      <p>Pick a robot from the top bar, then <strong>New</strong>. You get zero rules and an
+        Idle fallback -- a robot that does nothing, which is the correct starting point.</p>
+    </div>
+    <div class="recipe">
+      <h3>Add a rule</h3>
+      <p><strong>+ Rule</strong> adds one to the bottom of the list with a default trigger and
+        tactic. Click it to open the inspector.</p>
+      <dl>
+        <dt>Trigger</dt><dd>the condition, e.g. "holding no coral"</dd>
+        <dt>Tactic</dt><dd>what to do, e.g. "go collect coral"</dd>
+      </dl>
+    </div>
+    <div class="recipe">
+      <h3>Make it real</h3>
+      <p>Drag the rule to where its priority belongs, then <strong>APPLY TO ROBOT</strong> and
+        RESET on MATCH to actually try it.</p>
+    </div>
+  </div>
+  <p>
+    Every field in the inspector -- trigger type, tactic type, every numeric parameter -- is
+    generated straight from that trigger or tactic's own declaration in the code. A new trigger
+    type someone adds to the simulator shows up here with no changes to this editor at all;
+    nothing about the form is hand-built per type.
+  </p>
+</section>
+
+<section id="trouble">
+  <h2><span class="marker">07</span>When something looks wrong</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Symptom</th><th>What is going on</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>I edited a strategy and the robot didn't change</td>
+          <td>See "Editing does nothing until you do two things" above -- APPLY TO ROBOT, then
+            RESET on MATCH.</td>
+        </tr>
+        <tr>
+          <td>The robot isn't doing what I expect</td>
+          <td>Watch the STRATEGY GRAPH tab while the match runs. It shows exactly which rule is
+            active and exactly which trigger fired to get there -- almost always faster than
+            reading the rule list and guessing.</td>
+        </tr>
+        <tr>
+          <td>A rule never seems to fire</td>
+          <td>Check whether a higher-priority rule's trigger is true first -- it will always win.
+            Also check the trigger itself isn't stricter than intended (a <code>for_duration</code>
+            requires the condition to stay true continuously for that long, not just briefly).</td>
+        </tr>
+        <tr>
+          <td>I switched robots and lost my edit</td>
+          <td>You shouldn't have -- edits are kept in memory per robot when you switch the top-bar
+            combo. If APPLY was never pressed for that robot though, the edit is still only
+            staged, not saved to disk; Save As... writes it to a file if you want to keep it
+            permanently.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="glossary">
+  <h2><span class="marker">08</span>Glossary</h2>
+  <dl class="glossary">
+    <dt>Rule</dt>
+    <dd>One trigger + one tactic + a name and some timing (min duration, cooldown). The unit
+      everything else here is built from.</dd>
+
+    <dt>Trigger</dt>
+    <dd>The condition that turns a rule on -- e.g. "holding a piece," "an opponent is within
+      range." Can be combined (all of / any of / not) to build more specific conditions.</dd>
+
+    <dt>Tactic</dt>
+    <dd>What the robot does while a rule is active -- Collect, Score, Defend, Idle, or a scripted
+      sequence.</dd>
+
+    <dt>Fallback</dt>
+    <dd>The tactic that runs when no rule's trigger is true. Every strategy has exactly one.</dd>
+
+    <dt>Priority</dt>
+    <dd>List order. Higher in the list wins, and can interrupt whatever a lower rule was doing.
+      See section 5.</dd>
+  </dl>
+</section>
+
+</main>
+
+<footer>
+  <p>{{GENERATED}}</p>
+  <p>
+    Rebuild it after any change to the STRATEGY tab with
+    <code>python -m apps.build_guide --guide strategy</code>. Prose lives in
+    <code>docs/strategy_guide_template.html</code>; the numbered control descriptions come from
+    the widgets themselves, so change a tooltip in the code and this page changes with it.
+  </p>
+  {{NAV}}
+</footer>
+
+</div>
