@@ -492,11 +492,20 @@ class Match:
                 return piece
         return robot.held_pieces[0]
 
-    def deposit_region_for(self, robot: Robot, piece: GamePiece | None = None):
+    def deposit_region_for(self, robot: Robot, piece: GamePiece | None = None, action: str | None = None):
         """The scoring region `robot`'s currently-commanded deposit would
         score in if it completed right now, or None. `piece` -- which
         held piece the deposit applies to -- defaults to
-        `deposit_piece_for(robot)` if not given. Public because it is
+        `deposit_piece_for(robot)` if not given.
+
+        `action` overrides which action to test, defaulting to
+        `robot.deposit_action`. Passing it answers the hypothetical a GUI
+        actually needs -- "would a deposit land here if the driver
+        pressed the button *now*" -- which the default cannot, because
+        `robot.deposit_action` is None until the trigger is already
+        held. Without it a readiness indicator reports "not in a scoring
+        zone" for precisely as long as anyone is looking at it to decide
+        whether to press. Public because it is
         the single source of truth for "is this robot in position to
         score": Match.step uses it right after a deposit completes to
         decide whether to award points for the released piece, and a GUI
@@ -514,7 +523,8 @@ class Match:
             piece = self.deposit_piece_for(robot)
         if piece is None:
             return None
-        action = robot.deposit_action
+        if action is None:
+            action = robot.deposit_action
         if action is None:
             return None
         side = robot.scoring_side(piece.piece_type)

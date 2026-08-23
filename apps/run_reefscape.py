@@ -443,9 +443,13 @@ class MatchView(QtWidgets.QWidget):
         self.telemetry_panel = document(
             TelemetryPanel("TELEMETRY"), "telemetry", "Telemetry",
             "Live readouts for the currently selected robot: position, speed, what it's "
-            "holding, and the current score.",
+            "holding, the current score, and whether a deposit would land right now.",
             "Numbers here update every tick while playing -- pause the match and scrub the bar "
-            "above to see what they were at any earlier moment.")
+            "above to see what they were at any earlier moment. The Deposit line is the one to "
+            "watch when scoring doesn't work: it separates the reasons the red ring on the field "
+            "can't, including \"BLOCKED by ALGAE\", which means this REEF face still has its "
+            "staged ALGAE in front of the branch you picked. Take the ALGAE first, or score a "
+            "level that isn't blocked.")
         self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
         self.view_mode_panel = ViewModePanel()
@@ -1116,6 +1120,40 @@ class MatchView(QtWidgets.QWidget):
                 return next(iter(region.actions))
         return manual
 
+    def _deposit_status(self) -> str:
+        """Why a deposit right here would or wouldn't score, in words.
+
+        FieldCanvas already rings the robot green or red, but a red ring
+        doesn't say which of several quite different problems it is, and
+        two of them look identical from the driver's seat. Since the
+        ALGAE gate landed, "L2/L3 on this face is still blocked by an
+        ALGAE nobody has taken away" is a rule a driver has no other way
+        to discover -- the staged ALGAE draws as a small box with a 1 in
+        it, which doesn't connect itself to the branch it's sitting in
+        front of.
+
+        Reads the same predicates Match scores against
+        (deposit_region_for / region_full / region_blocked) rather than
+        re-deriving anything, so this can't drift out of agreement with
+        what actually happens when F is pressed."""
+        piece = self.match.deposit_piece_for(self.robot)
+        if piece is None:
+            return "nothing held"
+
+        action = self._effective_deposit_action()
+        # Ask about `action` rather than robot.deposit_action, which is
+        # None until F is already held -- otherwise this line reads "no
+        # zone here" for exactly as long as a driver is looking at it to
+        # decide whether to press.
+        region = self.match.deposit_region_for(self.robot, piece, action=action)
+        if region is None:
+            return f"{piece.piece_type.upper()}: no zone here"
+        if self.match.region_full(region, action):
+            return f"{action.upper()}: FULL"
+        if self.match.region_blocked(region, action):
+            return f"{action.upper()}: BLOCKED by ALGAE"
+        return f"{action.upper()}: ready"
+
     def _drain_new_events(self) -> None:
         all_events = list(self.match.events)
         new_events = all_events[self._logged_event_count:]
@@ -1134,6 +1172,7 @@ class MatchView(QtWidgets.QWidget):
             lines.append((f"Score ({alliance})", f"{score:.0f}"))
         lines += [
             ("Held Pieces", str(len(self.robot.held_pieces))),
+            ("Deposit", self._deposit_status()),
             ("Intaked", str(metrics.pieces_intaked)),
             ("Deposited", str(metrics.pieces_deposited)),
             ("Scored", str(metrics.pieces_scored)),
