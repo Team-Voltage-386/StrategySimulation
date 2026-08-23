@@ -60,7 +60,9 @@ from apps.sweep_tab import SweepTab
 from common_sim.analysis.metrics import extract_metrics
 from common_sim.control import strategy_io
 from common_sim.control.human import HumanController
-from common_sim.control.input_sources import DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand
+from common_sim.control.input_sources import (
+    CombinedInput, DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand,
+)
 from common_sim.control.strategy import StrategyController
 from common_sim.field.field_config import point_in_polygon
 from common_sim.match.match import Match, MatchConfig, Phase
@@ -122,16 +124,26 @@ class ControlsPanel(QtWidgets.QGroupBox):
         self.set_available(False)
         document(
             self, "controls_reference", "Controls reference",
-            "Which keys or gamepad buttons drive the robot right now. Switches automatically "
-            "between keyboard and gamepad bindings depending on what's plugged in.",
+            "Which keys and gamepad buttons drive the robot. Both devices are live at the "
+            "same time -- a connected controller never takes the keyboard away.",
             "This only matters while a human is driving PRIMARY -- once AI drives primary robot "
             "is checked in the roster panel, nothing here does anything.")
 
     def set_available(self, available: bool) -> None:
-        bindings = GAMEPAD_BINDINGS if available else KEYBOARD_BINDINGS
-        heading = "GAMEPAD" if available else "KEYBOARD"
-        lines = [f"{control}: {action}" for control, action in bindings]
-        self.label.setText(f"{heading}\n" + "\n".join(lines))
+        """Lists the keyboard always, and the gamepad as well when one is
+        connected. It used to show one *instead of* the other, which
+        stopped being true when the window moved to CombinedInput -- and
+        was the more misleading half anyway, since the panel claiming
+        W A S D didn't exist was a driver's only clue about why nothing
+        moved."""
+        sections = [("KEYBOARD", KEYBOARD_BINDINGS)]
+        if available:
+            sections.append(("GAMEPAD", GAMEPAD_BINDINGS))
+        blocks = [
+            "\n".join([heading] + [f"{control}: {action}" for control, action in bindings])
+            for heading, bindings in sections
+        ]
+        self.label.setText("\n\n".join(blocks))
 
 
 VIEW_MODES = {
@@ -431,9 +443,13 @@ class MatchView(QtWidgets.QWidget):
         self.telemetry_panel = document(
             TelemetryPanel("TELEMETRY"), "telemetry", "Telemetry",
             "Live readouts for the currently selected robot: position, speed, what it's "
-            "holding, and the current score.",
+            "holding, the current score, and whether a deposit would land right now.",
             "Numbers here update every tick while playing -- pause the match and scrub the bar "
-            "above to see what they were at any earlier moment.")
+            "above to see what they were at any earlier moment. The Deposit line is the one to "
+            "watch when scoring doesn't work: it separates the reasons the red ring on the field "
+            "can't, including \"BLOCKED by ALGAE\", which means this REEF face still has its "
+            "staged ALGAE in front of the branch you picked. Take the ALGAE first, or score a "
+            "level that isn't blocked.")
         self.match_settings_panel = MatchSettingsPanel()
         self.controls_panel = ControlsPanel()
         self.view_mode_panel = ViewModePanel()
@@ -471,14 +487,18 @@ class MatchView(QtWidgets.QWidget):
         self.canvas.keyReleaseEvent = self._key_release
 
         self.keyboard = KeyboardInput(pressed_keys=lambda: self._pressed_keys, bindings=KEY_BINDINGS)
-        gamepad = GamepadInput()
-        self.input_source = gamepad if gamepad.available else self.keyboard
-        self.gamepad_available = gamepad.available
+        self.gamepad = GamepadInput()
+        # Both devices live at once -- see CombinedInput. This used to pick
+        # one (gamepad whenever `available`), which meant a controller
+        # merely plugged into the machine silently made W A S D do nothing,
+        # with no message anywhere saying why.
+        self.input_source = CombinedInput(self.keyboard, self.gamepad)
+        self.gamepad_available = self.gamepad.available
         # This tick's already-polled input, read (not re-polled) by any
         # HumanController -- see that module's docstring for why it must
         # not own a second poll() call.
         self._latest_commands: tuple[DriveCommand, OperatorCommand] = (DriveCommand(), OperatorCommand())
-        self.controls_panel.set_available(gamepad.available)
+        self.controls_panel.set_available(self.gamepad.available)
 
         # A second physical gamepad, wired to whichever roster robot
         # Player2Panel selects -- see _reset_match. Keyboard stays
@@ -990,9 +1010,9 @@ class MatchView(QtWidgets.QWidget):
         # rather than QKeyEvent.isAutoRepeat() -- on some platforms the
         # very first physical keypress can arrive already flagged as a
         # repeat, which silently swallowed this cycle before it ever ran.
-        # Kept as a fallback alongside the gamepad's X button (the primary
-        # binding) since input_source is keyboard-only when no gamepad is
-        # connected.
+        # Both this and the gamepad's X button are always live now that
+        # input_source is a CombinedInput, so either one cycles the level
+        # regardless of what's plugged in.
         just_pressed = self._pressed_keys - self._prev_pressed_keys
         if TOGGLE_REEF_LEVEL_KEY in just_pressed or operator.cycle_level:
             self._cycle_reef_level()
@@ -1100,6 +1120,40 @@ class MatchView(QtWidgets.QWidget):
                 return next(iter(region.actions))
         return manual
 
+    def _deposit_status(self) -> str:
+        """Why a deposit right here would or wouldn't score, in words.
+
+        FieldCanvas already rings the robot green or red, but a red ring
+        doesn't say which of several quite different problems it is, and
+        two of them look identical from the driver's seat. Since the
+        ALGAE gate landed, "L2/L3 on this face is still blocked by an
+        ALGAE nobody has taken away" is a rule a driver has no other way
+        to discover -- the staged ALGAE draws as a small box with a 1 in
+        it, which doesn't connect itself to the branch it's sitting in
+        front of.
+
+        Reads the same predicates Match scores against
+        (deposit_region_for / region_full / region_blocked) rather than
+        re-deriving anything, so this can't drift out of agreement with
+        what actually happens when F is pressed."""
+        piece = self.match.deposit_piece_for(self.robot)
+        if piece is None:
+            return "nothing held"
+
+        action = self._effective_deposit_action()
+        # Ask about `action` rather than robot.deposit_action, which is
+        # None until F is already held -- otherwise this line reads "no
+        # zone here" for exactly as long as a driver is looking at it to
+        # decide whether to press.
+        region = self.match.deposit_region_for(self.robot, piece, action=action)
+        if region is None:
+            return f"{piece.piece_type.upper()}: no zone here"
+        if self.match.region_full(region, action):
+            return f"{action.upper()}: FULL"
+        if self.match.region_blocked(region, action):
+            return f"{action.upper()}: BLOCKED by ALGAE"
+        return f"{action.upper()}: ready"
+
     def _drain_new_events(self) -> None:
         all_events = list(self.match.events)
         new_events = all_events[self._logged_event_count:]
@@ -1118,6 +1172,7 @@ class MatchView(QtWidgets.QWidget):
             lines.append((f"Score ({alliance})", f"{score:.0f}"))
         lines += [
             ("Held Pieces", str(len(self.robot.held_pieces))),
+            ("Deposit", self._deposit_status()),
             ("Intaked", str(metrics.pieces_intaked)),
             ("Deposited", str(metrics.pieces_deposited)),
             ("Scored", str(metrics.pieces_scored)),

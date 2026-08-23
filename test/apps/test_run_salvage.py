@@ -36,6 +36,24 @@ def window(app):
 
     view = SalvageWindow()
     view.timer.stop()  # the test drives _tick itself
+
+    # SalvageWindow binds a real GamepadInput, and CombinedInput sums it
+    # into every _tick -- so on a machine with a controller attached
+    # (which is the machine this app was written for, and any machine
+    # it's being demoed on) live stick and button state leaks into every
+    # test in this file. A left stick drifting just past
+    # GamepadInput.DEADBAND -- 0.12, well within worn-controller
+    # territory -- walks the robot ~90in during the stationary intake
+    # ticks below, so it is no longer in the CARGO BAY it just asserted
+    # it was in, picks nothing up, and fails as `[] == ['crate']`. That
+    # reads like a sim regression and is really this fixture holding a
+    # USB device.
+    #
+    # available=False rather than a silent-but-present pad because
+    # CombinedInput short-circuits on it, so nothing here can depend on
+    # hardware at all. The four tests that are *about* the pad install
+    # their own _FakePad and are unaffected.
+    view.input_source.gamepad = _FakePad(available=False)
     return view
 
 
@@ -189,6 +207,19 @@ def test_the_start_button_pauses(window):
     assert not window.paused
     window._tick()
     assert window.paused
+
+
+def test_no_test_here_is_holding_a_real_controller(window):
+    """Pins the fixture's hermeticity, because losing it is silent and
+    the symptom points somewhere else entirely: a real drifting stick
+    drives the robot out of the zone a test just asserted it was in, and
+    the failure surfaces as an empty intake that reads like a sim bug.
+    Every other test in this file either installs its own _FakePad or
+    relies on there being no pad at all."""
+    from common_sim.control.input_sources import GamepadInput
+
+    assert not isinstance(window.input_source.gamepad, GamepadInput)
+    assert window.input_source.gamepad.available is False
 
 
 def test_reset_rebuilds_a_drivable_match(window):

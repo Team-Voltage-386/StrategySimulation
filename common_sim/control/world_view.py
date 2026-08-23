@@ -167,9 +167,10 @@ class LegalScoringOption:
 def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[ScoringRegion, str]]:
     """Every (region, action) pair a piece of `piece_type` could legally
     be scored in by `robot`: region accepts the type, action is in
-    region.actions, the region/action isn't full (via
-    `match.region_full`, if the Match implementation provides it --
-    treated as never-full otherwise), and robot has a scoring side
+    region.actions, the region/action is neither full (via
+    `match.region_full`) nor still obstructed by an uncollected piece
+    (via `match.region_blocked`) -- each treated as permissive if the
+    Match implementation doesn't provide it -- and robot has a scoring side
     configured for that type.
 
     Asked by type rather than by piece so a caller can price a piece it
@@ -179,6 +180,7 @@ def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[S
     if not _robot_can_score(robot, piece_type):
         return []
     region_full = getattr(match, "region_full", None)
+    region_blocked = getattr(match, "region_blocked", None)
     slots = []
     for region in match.field.scoring_regions:
         if region.alliance is not None and region.alliance != robot.alliance:
@@ -187,6 +189,8 @@ def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[S
             continue
         for action in region.actions:
             if region_full is not None and region_full(region, action):
+                continue
+            if region_blocked is not None and region_blocked(region, action):
                 continue
             slots.append((region, action))
     return slots

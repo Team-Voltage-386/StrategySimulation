@@ -36,7 +36,7 @@ from common_sim.analysis.sweep_spec import (
 )
 from common_sim.analysis.variability import VariabilityModel
 from common_sim.control.input_sources import (
-    DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand,
+    CombinedInput, DriveCommand, GamepadInput, KeyBindings, KeyboardInput, OperatorCommand,
 )
 from common_sim.field.field_config import point_in_polygon
 from common_sim.match.match import Phase
@@ -108,52 +108,6 @@ ACTION_LABELS = {
     "airlock": "AIRLOCK   (scrap)",
     "beacon": "BEACON    (crate)",
 }
-
-
-def _clamp(value: float) -> float:
-    return max(-1.0, min(1.0, value))
-
-
-class CombinedInput:
-    """Keyboard and gamepad at the same time, summed.
-
-    `run_reefscape.py` picks one -- gamepad if `GamepadInput.available`,
-    keyboard otherwise -- and that is a trap worth not repeating here.
-    `available` means "pygame found a joystick device", not "a human is
-    holding it", so any controller plugged into the machine (or a ghost
-    device some wireless dongles leave behind) silently makes W A S D do
-    nothing at all, with no message saying why. There is no reason to
-    choose: an idle stick reads zero, an unpressed key reads zero, and
-    adding two zeros is still zero.
-
-    Sums the axes and ORs the buttons, so whichever device is actually
-    being touched wins without either being switched off."""
-
-    def __init__(self, keyboard, gamepad):
-        self.keyboard = keyboard
-        self.gamepad = gamepad
-
-    def poll(self):
-        drive, operator = self.keyboard.poll()
-        if not self.gamepad.available:
-            return drive, operator
-        pad_drive, pad_operator = self.gamepad.poll()
-        drive = DriveCommand(
-            vx=_clamp(drive.vx + pad_drive.vx),
-            vy=_clamp(drive.vy + pad_drive.vy),
-            omega=_clamp(drive.omega + pad_drive.omega),
-        )
-        operator = OperatorCommand(
-            intake_active=operator.intake_active or pad_operator.intake_active,
-            deposit_active=operator.deposit_active or pad_operator.deposit_active,
-            # Edge-triggered on the pad side only -- the keyboard's
-            # equivalents are edge-detected by the window against its own
-            # pressed-key set, since KeyboardInput has no memory between
-            # polls and so cannot tell a new press from a held one.
-            pause_toggle=pad_operator.pause_toggle,
-            reset=pad_operator.reset,
-        )
-        return drive, operator
 
 
 def _panel(title: str) -> tuple[QtWidgets.QGroupBox, QtWidgets.QLabel]:

@@ -152,6 +152,22 @@ class Match:
         }
 
         intake_locations_by_name = {location.name: location for location in field_config.intake_locations}
+        # region name -> {action -> the IntakeLocation that must run dry
+        # before that action unlocks} (ScoringRegion.blocked_until_collected).
+        # Resolved once here, by name, so region_blocked stays a dict lookup
+        # on the hot planning path -- and so a gate naming a location that
+        # does not exist fails loudly at construction, exactly like a
+        # mis-linked emitter one line below, rather than silently reading as
+        # "never blocked" for a whole match. Keyed by region *name* because
+        # ScoringRegion carries dict fields and so is not hashable.
+        self._region_gates: dict = {
+            region.name: {
+                action: intake_locations_by_name[location_name]
+                for action, location_name in region.blocked_until_collected.items()
+            }
+            for region in field_config.scoring_regions
+            if region.blocked_until_collected
+        }
         # Resolved IntakeLocation for each emitter that shares a station's
         # pool (EmitterRegion.linked_collection_region), None for an
         # emitter with its own independent capacity.
@@ -183,6 +199,18 @@ class Match:
         for emitter in field_config.emitter_regions:
             if emitter.linked_scoring_region is not None:
                 self._emitters_by_scoring_region.setdefault(emitter.linked_scoring_region, []).append(emitter)
+
+        # action -> every SecondaryAward it triggers (see field_config.
+        # SecondaryAward) -- indexed once here the same way emitters are
+        # above, since _try_score looks this up on every scoring event.
+        self._secondary_awards_by_action: dict = {}
+        for award in field_config.secondary_awards:
+            self._secondary_awards_by_action.setdefault(award.action, []).append(award)
+        # (ready_time, alliance, points, action) tuples for a SecondaryAward
+        # that has been rolled and won, waiting out its `delay` before
+        # actually landing in `self.scores` -- see _try_score /
+        # _step_secondary_awards. Mirrors _pending_emitter_returns.
+        self._pending_secondary_awards: list = []
 
         self._build_obstacles()
         self._register_collision_handlers()
@@ -344,6 +372,32 @@ class Match:
         scored_count = self.region_scores.get(region.name, {}).get(action, 0)
         return scored_count >= cap
 
+    def region_blocked(self, region, action: str) -> bool:
+        """Whether `action` is still obstructed at `region` by a game
+        piece nobody has collected yet -- see
+        ScoringRegion.blocked_until_collected. An ungated region/action
+        (the default everywhere) is never blocked.
+
+        The gate is "the linked IntakeLocation has dispensed everything it
+        started with", which is how this sim spells "the thing that was
+        sitting there has been taken away": the obstruction is modeled as
+        that location's stock, so removing it *is* collecting it. A
+        location with unlimited supply would therefore never unblock
+        anything -- validation.py rejects that pairing rather than letting
+        a field ship a permanently dead scoring action.
+
+        Distinct from region_full on purpose: full is an alliance's own
+        success, blocked is an outstanding chore. Both suppress the same
+        scoring, and both are checked wherever scoring is decided, but a
+        caller asking *why* a slot is unavailable gets a real answer."""
+        gate = self._region_gates.get(region.name)
+        if not gate:
+            return False
+        location = gate.get(action)
+        if location is None:
+            return False
+        return self.station_supply.get(location, 0) > 0
+
     def _roll_scoring_success(self, robot: Robot, piece: GamePiece) -> bool:
         """Whether a deliberate scoring attempt by `robot` lands, per its
         RobotCharacteristics.reliability_for(piece.piece_type,
@@ -385,6 +439,8 @@ class Match:
             return  # e.g. a piece deposited/launched without a matching target -- a miss, not a crash
         if self.region_full(region, action):
             return  # e.g. a REEF branch that already holds a CORAL -- a miss, not a crash
+        if self.region_blocked(region, action):
+            return  # e.g. a REEF face whose ALGAE is still in the way -- also a miss
         points = self.scoring_rules.points_for(action, self.phase.value)
         alliance = piece.last_holder_alliance or "unknown"
         self.scores[alliance] = self.scores.get(alliance, 0.0) + points
@@ -401,6 +457,14 @@ class Match:
                     continue
                 ready_time = self.elapsed + (emitter.return_delay or 0.0)
                 self._pending_emitter_returns.append((ready_time, emitter))
+
+        for award in self._secondary_awards_by_action.get(action, ()):
+            if award.probability < 1.0 and self._rng.random() >= award.probability:
+                continue  # the human player didn't convert it -- no award
+            target_alliance = alliance if award.alliance_of == "scoring" else _other_alliance(alliance)
+            award_points = self.scoring_rules.points_for(award.award_action, self.phase.value)
+            ready_time = self.elapsed + award.delay
+            self._pending_secondary_awards.append((ready_time, target_alliance, award_points, award.award_action))
 
     def deposit_piece_for(self, robot: Robot) -> GamePiece | None:
         """Which of `robot`'s held pieces its currently-commanded deposit
@@ -428,11 +492,20 @@ class Match:
                 return piece
         return robot.held_pieces[0]
 
-    def deposit_region_for(self, robot: Robot, piece: GamePiece | None = None):
+    def deposit_region_for(self, robot: Robot, piece: GamePiece | None = None, action: str | None = None):
         """The scoring region `robot`'s currently-commanded deposit would
         score in if it completed right now, or None. `piece` -- which
         held piece the deposit applies to -- defaults to
-        `deposit_piece_for(robot)` if not given. Public because it is
+        `deposit_piece_for(robot)` if not given.
+
+        `action` overrides which action to test, defaulting to
+        `robot.deposit_action`. Passing it answers the hypothetical a GUI
+        actually needs -- "would a deposit land here if the driver
+        pressed the button *now*" -- which the default cannot, because
+        `robot.deposit_action` is None until the trigger is already
+        held. Without it a readiness indicator reports "not in a scoring
+        zone" for precisely as long as anyone is looking at it to decide
+        whether to press. Public because it is
         the single source of truth for "is this robot in position to
         score": Match.step uses it right after a deposit completes to
         decide whether to award points for the released piece, and a GUI
@@ -450,7 +523,8 @@ class Match:
             piece = self.deposit_piece_for(robot)
         if piece is None:
             return None
-        action = robot.deposit_action
+        if action is None:
+            action = robot.deposit_action
         if action is None:
             return None
         side = robot.scoring_side(piece.piece_type)
@@ -721,6 +795,16 @@ class Match:
                 cooldown += 1.0 / emitter.emit_rate_hz
             self._emitter_cooldowns[emitter] = cooldown
 
+    def _step_secondary_awards(self) -> None:
+        ready = [pending for pending in self._pending_secondary_awards if pending[0] <= self.elapsed]
+        for pending in ready:
+            self._pending_secondary_awards.remove(pending)
+            _, alliance, points, action = pending
+            self.scores[alliance] = self.scores.get(alliance, 0.0) + points
+            self.events.log(self.elapsed, "secondary_award", {
+                "alliance": alliance, "action": action, "points": points,
+            })
+
     # -- stepping ----------------------------------------------------------
 
     def step(self, dt: float) -> None:
@@ -780,6 +864,8 @@ class Match:
 
         if self.config.emit_coral_to_field:
             self._step_emitters(dt)
+        if self._pending_secondary_awards:
+            self._step_secondary_awards()
 
         self.engine.step(dt)
         # After the solver, so contact is judged on where the robots
@@ -794,6 +880,17 @@ class Match:
             for p in scored:
                 p.remove_from_space()
             self.active_pieces = still_active
+
+
+def _other_alliance(alliance: str) -> str:
+    """The opposing alliance, for a SecondaryAward with alliance_of=
+    "opponent". Match already assumes exactly two alliances elsewhere
+    (see _ALLIANCE_COLLISION_GROUPS); this mirrors that assumption
+    rather than adding a second one. An `alliance` that isn't "red" or
+    "blue" (e.g. GamePiece.last_holder_alliance's "unknown" fallback)
+    reads as "blue" here the same way _ALLIANCE_COLLISION_GROUPS.get
+    would -- a config problem for validate_field to catch, not a crash."""
+    return "red" if alliance == "blue" else "blue"
 
 
 def _default_piece_type(characteristics: RobotCharacteristics) -> str:

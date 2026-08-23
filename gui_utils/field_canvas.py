@@ -337,7 +337,18 @@ class FieldCanvas(QtWidgets.QWidget):
         The piece tested against is whichever held piece `region` itself
         accepts, not just the FIFO-first one -- a robot holding both a
         coral and an algae needs the coral's side tested against a REEF
-        face, not whichever type happened to be picked up first."""
+        face, not whichever type happened to be picked up first.
+
+        Full and blocked regions read "invalid" here even though
+        `deposit_region_for` still returns them. That is deliberate: this
+        indicator answers "will this deposit score", and the answer for a
+        REEF branch that already holds a CORAL, or one whose ALGAE is
+        still in the way, is no -- `Match._try_score` drops both on the
+        floor. The deposit *timer* is intentionally not gated on either
+        (a robot must stay free to release a piece anywhere, and gating
+        the timer on a condition that can change underneath it is how
+        this sim has historically grown frozen-robot bugs), so the honest
+        indicator is stricter than the gate rather than equal to it."""
         piece = next(
             (p for p in robot.held_pieces if not region.piece_types or p.piece_type in region.piece_types), None,
         )
@@ -348,7 +359,14 @@ class FieldCanvas(QtWidgets.QWidget):
             return None
         if not robot.side_engages_polygon(side, region.vertices):
             return None
-        return "valid" if self.match.deposit_region_for(robot, piece) is region else "invalid"
+        if self.match.deposit_region_for(robot, piece) is not region:
+            return "invalid"
+        action = robot.deposit_action
+        if action is not None and (
+            self.match.region_full(region, action) or self.match.region_blocked(region, action)
+        ):
+            return "invalid"
+        return "valid"
 
     def _robot_scoring_status(self, robot) -> str | None:
         """Whichever scoring region `robot` currently sits in says about

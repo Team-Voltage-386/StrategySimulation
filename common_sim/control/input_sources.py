@@ -251,6 +251,61 @@ class GamepadInput(InputSource):
         return 1.0 if joystick.get_button(index) else 0.0
 
 
+class CombinedInput(InputSource):
+    """Keyboard and gamepad at the same time, summed.
+
+    The alternative -- picking one, gamepad if `GamepadInput.available`
+    else keyboard -- is a trap, and it bit twice before this class was
+    shared. `available` means "pygame found a joystick device", not "a
+    human is holding it", so any controller plugged into the machine (or
+    a ghost device some wireless dongles leave behind) silently makes
+    W A S D do nothing at all, with no message saying why. That is a
+    confusing five minutes on a dev box and a lost demo in a room full
+    of people.
+
+    There is no reason to choose: an idle stick reads zero, an unpressed
+    key reads zero, and adding two zeros is still zero. Sums the axes and
+    ORs the buttons, so whichever device is actually being touched wins
+    without either being switched off.
+
+    The edge-triggered flags (pause_toggle/cycle_level/reset) are ORed
+    the same way, which in practice means they come from the pad:
+    KeyboardInput has no memory between polls and so cannot tell a new
+    press from a held one, leaving its own edges to the host window's
+    pressed-key bookkeeping. `deposit_action` is a level selection rather
+    than a signal to add, so the pad wins when it has an opinion and the
+    keyboard's stands otherwise."""
+
+    def __init__(self, keyboard: InputSource, gamepad: InputSource):
+        self.keyboard = keyboard
+        self.gamepad = gamepad
+
+    def poll(self) -> tuple[DriveCommand, OperatorCommand]:
+        drive, operator = self.keyboard.poll()
+        if not self.gamepad.available:
+            return drive, operator
+
+        pad_drive, pad_operator = self.gamepad.poll()
+        drive = DriveCommand(
+            vx=_clamp(drive.vx + pad_drive.vx),
+            vy=_clamp(drive.vy + pad_drive.vy),
+            omega=_clamp(drive.omega + pad_drive.omega),
+        )
+        operator = OperatorCommand(
+            intake_active=operator.intake_active or pad_operator.intake_active,
+            deposit_active=operator.deposit_active or pad_operator.deposit_active,
+            deposit_action=(
+                pad_operator.deposit_action
+                if pad_operator.deposit_action is not None
+                else operator.deposit_action
+            ),
+            pause_toggle=operator.pause_toggle or pad_operator.pause_toggle,
+            cycle_level=operator.cycle_level or pad_operator.cycle_level,
+            reset=operator.reset or pad_operator.reset,
+        )
+        return drive, operator
+
+
 def _open_pygame_joystick(index: int):
     try:
         import pygame

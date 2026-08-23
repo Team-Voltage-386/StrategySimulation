@@ -111,6 +111,57 @@ def test_a_capacity_on_an_action_the_region_does_not_offer_is_an_error():
     assert any("which this region does not offer" in p.problem for p in problems)
 
 
+def _gated_goal(**overrides) -> ScoringRegion:
+    kwargs = dict(
+        name="gated", vertices=((300, 90), (340, 90), (340, 130), (300, 130)),
+        actions=frozenset({"stow"}), piece_types=frozenset({WIDGET}),
+        blocked_until_collected={"stow": "obstruction"},
+    )
+    kwargs.update(overrides)
+    return ScoringRegion(**kwargs)
+
+
+OBSTRUCTION = IntakeLocation(
+    name="obstruction", vertices=((280, 90), (296, 90), (296, 130), (280, 130)),
+    piece_type=WIDGET, starting_pieces=1,
+)
+
+
+def test_a_well_formed_gate_is_clean():
+    field = clean_field(scoring_regions=(GOAL, _gated_goal()), intake_locations=(FEEDER, OBSTRUCTION))
+    assert check(field) == []
+
+
+def test_a_gate_on_an_action_the_region_does_not_offer_is_an_error():
+    field = clean_field(
+        scoring_regions=(GOAL, _gated_goal(blocked_until_collected={"hoist": "obstruction"})),
+        intake_locations=(FEEDER, OBSTRUCTION),
+    )
+    problems = problems_of(check(field), ERROR)
+    assert any("blocked_until_collected gates" in p.problem for p in problems)
+
+
+def test_a_gate_on_a_missing_location_is_an_error():
+    field = clean_field(
+        scoring_regions=(GOAL, _gated_goal(blocked_until_collected={"stow": "no-such-thing"})),
+        intake_locations=(FEEDER, OBSTRUCTION),
+    )
+    problems = problems_of(check(field), ERROR)
+    assert any("unknown intake location" in p.problem for p in problems)
+
+
+def test_a_gate_on_an_unlimited_location_never_opens_and_is_an_error():
+    """FEEDER has no starting_pieces cap, so it never runs dry -- gating
+    on it would make the action unscoreable for the whole match while
+    looking, on a results table, like nobody chose to use it."""
+    field = clean_field(
+        scoring_regions=(GOAL, _gated_goal(blocked_until_collected={"stow": "feeder"})),
+        intake_locations=(FEEDER, OBSTRUCTION),
+    )
+    problems = problems_of(check(field), ERROR)
+    assert any("unlimited supply" in p.problem for p in problems)
+
+
 def test_an_emitter_linked_to_a_missing_station_is_an_error():
     emitter = EmitterRegion(
         name="drop", vertices=((150, 20), (170, 20), (170, 40), (150, 40)),
