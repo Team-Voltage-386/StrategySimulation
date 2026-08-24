@@ -42,7 +42,24 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # The packages that must not reach into a game, per the constraint above.
 GAME_AGNOSTIC_PACKAGES = ("common_sim", "gui_utils")
 
-FORBIDDEN_ROOT = "game_specific"
+# What they must not import, and why -- the reason is printed on failure,
+# because "you broke the contract" is only useful alongside "and here is the
+# shape of the fix".
+FORBIDDEN_ROOTS = {
+    "game_specific": (
+        "If it needs to branch on 'which game is this', the abstraction is wrong: "
+        "the branch belongs in a game_specific subclass."
+    ),
+    # Same direction, one layer out. The maple-sim bridge adapts the simulator
+    # onto real robot code and depends on a JVM, a robot project, and pyntcore.
+    # A dependency the other way would make running a headless sweep require
+    # all three -- and would break the spawn workers, which have none of them.
+    "bridge": (
+        "The bridge depends on the simulator, never the reverse. If the simulator "
+        "needs something the bridge has, that thing belongs in common_sim and the "
+        "bridge should import it from there."
+    ),
+}
 
 
 def _imported_module_names(source: str) -> set[str]:
@@ -69,8 +86,9 @@ def _python_files(package: str) -> list[Path]:
 
 
 @pytest.mark.parametrize("package", GAME_AGNOSTIC_PACKAGES)
-def test_no_declared_game_specific_imports(package: str) -> None:
-    """No module under `package` names `game_specific` in an import."""
+@pytest.mark.parametrize("forbidden", sorted(FORBIDDEN_ROOTS))
+def test_no_declared_forbidden_imports(package: str, forbidden: str) -> None:
+    """No module under `package` names `forbidden` in an import."""
     files = _python_files(package)
     assert files, f"found no Python files under {package}/ -- has the layout moved?"
 
@@ -79,16 +97,15 @@ def test_no_declared_game_specific_imports(package: str) -> None:
         imported = _imported_module_names(path.read_text(encoding="utf-8"))
         leaks = sorted(
             name for name in imported
-            if name == FORBIDDEN_ROOT or name.startswith(FORBIDDEN_ROOT + ".")
+            if name == forbidden or name.startswith(forbidden + ".")
         )
         if leaks:
             offenders.append(f"{path.relative_to(REPO_ROOT).as_posix()} imports {', '.join(leaks)}")
 
     assert not offenders, (
         "ARCHITECTURE.md's import contract is broken -- "
-        f"{package}/ must stay game-agnostic:\n  " + "\n  ".join(offenders)
-        + f"\n\nIf {package} needs to branch on 'which game is this', the abstraction is "
-          "wrong: the branch belongs in a game_specific subclass."
+        f"{package}/ must not depend on {forbidden}/:\n  " + "\n  ".join(offenders)
+        + "\n\n" + FORBIDDEN_ROOTS[forbidden]
     )
 
 
@@ -112,9 +129,18 @@ leaked_game = sorted(
     m for m in sys.modules if m == "game_specific" or m.startswith("game_specific.")
 )
 leaked_qt = sorted(m for m in sys.modules if "PyQt" in m or "pyqtgraph" in m)
+# The bridge and the WPILib bindings it needs. Catching `ntcore` directly as
+# well as `bridge` covers the case where common_sim reaches for NetworkTables
+# without going through the bridge at all -- same broken dependency, and it
+# would fail on any machine that has not installed bridge/requirements.txt.
+leaked_bridge = sorted(
+    m for m in sys.modules
+    if m == "bridge" or m.startswith("bridge.") or m in ("ntcore", "websocket")
+)
 
 assert not leaked_game, "common_sim pulled in game_specific: %s" % leaked_game
 assert not leaked_qt, "common_sim pulled in Qt: %s" % leaked_qt
+assert not leaked_bridge, "common_sim pulled in the bridge: %s" % leaked_bridge
 print("ok")
 """
 

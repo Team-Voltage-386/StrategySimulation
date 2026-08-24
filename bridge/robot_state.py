@@ -48,6 +48,31 @@ DS_ENABLED = f"{INPUTS}/DriverStation/Enabled"
 DS_AUTONOMOUS = f"{INPUTS}/DriverStation/Autonomous"
 DS_ATTACHED = f"{INPUTS}/DriverStation/DSAttached"
 
+# AdvantageKit's own cycle counter, in microseconds. The cheapest possible
+# "is robot code still running" signal: if this stops advancing while NT is
+# still connected, the loop is wedged rather than merely idle.
+TIMESTAMP = f"{INPUTS}/Timestamp"
+
+# What the drive was last *told* to do, downstream of the binding layer
+# (Drive.java:218). Separate from what the stick said, on purpose -- the gap
+# between the two is its own kind of failure.
+CHASSIS_SETPOINT = f"{OUTPUTS}/SwerveChassisSpeeds/Setpoints"
+CHASSIS_MEASURED = f"{OUTPUTS}/SwerveChassisSpeeds/Measured"
+
+# Note the doubled slash: the recordOutput key really does begin with "/".
+FLYWHEEL_SETPOINT_RPM = f"{OUTPUTS}//Shooter/Flywheel/VelocitySetpoint"
+FLYWHEEL_SPEED_RAD_S = f"{INPUTS}/Shooter/Flywheel/Inputs/FlywheelSpeed"
+
+LOOP_CYCLE_MS = f"{OUTPUTS}/LoggedRobot/FullCycleMS"
+BROWNED_OUT = f"{INPUTS}/SystemStats/BrownedOut"
+BATTERY_VOLTAGE = f"{INPUTS}/SystemStats/BatteryVoltage"
+
+# AdvantageKit's Alert API, already used by PathPlanner and the vision code.
+# A structured second source for oracle 01 that needs no log parsing.
+ALERT_GROUPS = ("Alerts", "PathPlanner")
+
+_CHASSIS_SPEEDS = struct.Struct("<ddd")
+
 
 def joystick_axes_key(joystick: int = 0) -> str:
     return f"{INPUTS}/DriverStation/Joystick{joystick}/AxisValues"
@@ -58,6 +83,26 @@ def joystick_buttons_key(joystick: int = 0) -> str:
     return f"{INPUTS}/DriverStation/Joystick{joystick}/ButtonValues"
 
 _POSE2D = struct.Struct("<ddd")
+
+
+@dataclass(frozen=True)
+class ChassisSpeeds:
+    vx: float  # m/s
+    vy: float  # m/s
+    omega: float  # rad/s
+
+    @classmethod
+    def decode(cls, raw: bytes) -> "ChassisSpeeds":
+        if len(raw) != _CHASSIS_SPEEDS.size:
+            raise ValueError(f"expected {_CHASSIS_SPEEDS.size} bytes for ChassisSpeeds, got {len(raw)}")
+        return cls(*_CHASSIS_SPEEDS.unpack(raw))
+
+    @property
+    def linear(self) -> float:
+        return (self.vx**2 + self.vy**2) ** 0.5
+
+    def is_moving(self, linear_min: float = 0.05, omega_min: float = 0.1) -> bool:
+        return self.linear >= linear_min or abs(self.omega) >= omega_min
 
 
 @dataclass(frozen=True)
@@ -156,8 +201,25 @@ class RobotStateLink:
         return self.pose(POSE_TRUTH)
 
     def odometry_pose(self) -> Pose2d | None:
-        """Where the robot *thinks* it is. Diverging from truth is itself a finding."""
+        """Where the robot *thinks* it is. See POSE_ODOMETRY -- currently pinned to truth."""
         return self.pose(POSE_ODOMETRY)
+
+    def chassis_speeds(self, name: str = CHASSIS_SETPOINT) -> ChassisSpeeds | None:
+        value = self._raw_sub(name, "struct:ChassisSpeeds").getAtomic()
+        if value.time == 0:
+            return None
+        return ChassisSpeeds.decode(bytes(value.value))
+
+    def string_array(self, name: str) -> list[str]:
+        return list(self._string_array_sub(name).get([]))
+
+    def alerts(self, group: str, level: str = "errors") -> list[str]:
+        """AdvantageKit Alert strings, e.g. alerts("PathPlanner", "errors").
+
+        A structured second source for the fault oracle: these are already
+        published, already categorised by severity, and need no log parsing.
+        """
+        return self.string_array(f"{OUTPUTS}/{group}/{level}")
 
     def number(self, name: str, default: float = 0.0) -> float:
         return self._double_sub(name).get(default)
@@ -233,8 +295,8 @@ class RobotStateLink:
                 time.sleep(0.02)
         return self._subs[key]
 
-    def _raw_sub(self, name: str) -> ntcore.RawSubscriber:
-        return self._sub("raw", name, lambda: self._inst.getRawTopic(name).subscribe("struct:Pose2d", b""))
+    def _raw_sub(self, name: str, type_str: str = "struct:Pose2d") -> ntcore.RawSubscriber:
+        return self._sub(f"raw:{type_str}", name, lambda: self._inst.getRawTopic(name).subscribe(type_str, b""))
 
     def _double_sub(self, name: str) -> ntcore.DoubleSubscriber:
         return self._sub("double", name, lambda: self._inst.getDoubleTopic(name).subscribe(0.0))
@@ -247,3 +309,6 @@ class RobotStateLink:
 
     def _float_array_sub(self, name: str) -> ntcore.FloatArraySubscriber:
         return self._sub("float[]", name, lambda: self._inst.getFloatArrayTopic(name).subscribe([]))
+
+    def _string_array_sub(self, name: str) -> ntcore.StringArraySubscriber:
+        return self._sub("string[]", name, lambda: self._inst.getStringArrayTopic(name).subscribe([]))
