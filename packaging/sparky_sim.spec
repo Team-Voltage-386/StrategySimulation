@@ -47,6 +47,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=os.path.join(REPO_ROOT, "assets", "VoltageLogo.ico"),
 )
 coll = COLLECT(
     exe,

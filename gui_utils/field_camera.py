@@ -51,7 +51,7 @@ class ViewPreset:
 # compromise (raised and pulled back); ELEVATED reads more like a
 # coach/scouting view from the stands. Both are starting points a UI can
 # offer a slider around rather than the only two options.
-DRIVER = ViewPreset("DRIVER", eye_height=110.0, eye_setback=90.0, lateral=0.0, fov_deg=70.0, pitch_deg=-22.0)
+DRIVER = ViewPreset("DRIVER", eye_height=100.0, eye_setback=65.0, lateral=0.0, fov_deg=70.0, pitch_deg=-22.0)
 ELEVATED = ViewPreset("ELEVATED", eye_height=220.0, eye_setback=160.0, lateral=0.0, fov_deg=60.0, pitch_deg=-35.0)
 
 

@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-from pyqtgraph.Qt import QtCore, QtWidgets
+from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
 from apps.reefscape_widgets import (
     AllianceRosterBox,
@@ -1339,7 +1339,16 @@ class ReefscapeWindow(QtWidgets.QMainWindow):
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        # Without a distinct AppUserModelID, Windows groups python.exe-hosted
+        # windows under python.exe's own taskbar entry/icon regardless of
+        # the window icon set below.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Voltage.SparkySim.Reefscape")
+
     app = QtWidgets.QApplication(sys.argv)
+    app.setWindowIcon(QtGui.QIcon(str(ASSETS_DIR / "VoltageLogo.png")))
     theme.apply_app_theme(app)
     window = ReefscapeWindow()
     window.show()
