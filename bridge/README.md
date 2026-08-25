@@ -6,9 +6,10 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–3 of 7 done — the spine is complete.** The loop closes, the
-oracles fire, and the harness runs unattended and leaves a morning report. What
-remains widens the variety of situations it reaches.
+**Status: steps 1–3 of 7 done — the spine is complete — and step 4 is half
+done.** The loop closes, the oracles fire, the harness runs unattended and
+leaves a morning report, and the live REBUILT world is readable. What remains
+widens the variety of situations it reaches.
 
 ## Run it
 
@@ -17,6 +18,7 @@ pip install -r bridge/requirements.txt
 python apps/run_bridge_smoke.py      # step 1: does the loop close?
 python apps/run_bridge_oracles.py    # step 2: can it tell a failure from a run?
 python apps/run_bridge_overnight.py --matches 40    # step 3: the product
+python apps/run_bridge_world.py      # step 4: can it see the field?
 ```
 
 Each takes ~90 s: gradle compiles, the JVM boots, the checks run, the sim is killed.
@@ -43,6 +45,8 @@ No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
 | `oracles.py` | — | decides whether a run failed |
 | `scenario.py` | — | the seeded virtual operator |
 | `harness.py` | — | campaign lifecycle, retention, and the report |
+| `world_state.py` | robot → Python | the live REBUILT field, over NT |
+| `arena.py` | — | REBUILT's static geometry, transcribed from maple-sim |
 
 Input is injected **at the joystick layer**, not at the command layer. The
 binding layer and its interlocks are a substantial part of what is being
@@ -210,6 +214,114 @@ contact never reaches it; what survives is the finding worth having.
 **Measured effect of the two changes together: 1/3 → 1/8 → 0/8 matches failing.**
 The remaining pins are reported as warnings and counted, which is what they are.
 
+## Reading the world — and why REBUILT is not implemented here
+
+```
+python apps/run_bridge_world.py
+```
+
+The strategy layer needs to know what is on the field before it can decide
+anything. The obvious way to give it that is to implement REBUILT in
+`game_specific/`, the way REEFSCAPE and SALVAGE are — and it is the wrong way.
+**maple-sim already implements REBUILT, including its scoring, and publishes
+the result.** A second implementation on this side would not be a shortcut
+skipped; it would be a model to keep in agreement with the one that actually
+decides what happens, and a bridge whose two halves disagree about the score
+reports failures that are really disagreements.
+
+So the split is: everything that *changes* is read live, and only the static
+geometry — which nobody publishes — is written down.
+
+| | source |
+|---|---|
+| fuel positions | `/AdvantageKit/RealOutputs/FieldSimulation/Fuel` (`Pose3d[]`) |
+| possession | `/AdvantageKit/RealOutputs/Intake/BallCount` |
+| which HUB is live | `…/MapleSim/MatchData/Breakdown/{blue,Red} Alliance/… is active` |
+| the 25 s HUB clock | `…/Breakdown/Time left in current phase` |
+| the score | `…/{blue,Red} Alliance/TotalScore`, `TotalFuelInHub`, `WastedFuel` |
+| field geometry | `bridge/arena.py`, transcribed from `Arena2026Rebuilt.java` |
+
+Everything in the `MapleSim/` tree is published by the arena itself, not through
+AdvantageKit, so it is there whatever the robot code does. Note the
+capitalisation: `Red Alliance` but `blue Alliance`. That is maple-sim's, and
+normalising it breaks the read.
+
+`Intake/BallCount` is worth calling out because an earlier note in this project
+said intake state was unobservable, and that was half wrong. The
+`IntakeIOInputs` — deployed, position, intaking state — really are invisible,
+because `IntakeSubsystem` holds a bare inputs object and never calls
+`Logger.processInputs`. But `BallCount` is published separately by a
+`recordOutput` inside the same `updateInputs`, which `periodic` runs every
+cycle. Possession is readable, and it is the one signal the strategy layer
+cannot work without.
+
+### The transcription checks itself
+
+`arena.py` is copied by hand out of maple-sim's source, which is exactly the
+kind of thing that is right today and wrong after an upgrade. But maple-sim
+publishes the HUB and OUTPOST poses it is really using, so the copy can be
+weighed against the running arena on every connection rather than trusted:
+
+```
+blue HUB centre: transcribed (4.5974, 4.0345) vs published (4.5974, 4.0345)  0.0 mm  [ok]
+```
+
+Tolerance is a millimetre — far tighter than the navigator would notice. The
+question is not "is this good enough to drive with", it is "did I transcribe
+the same field", and a loose tolerance passes a constant copied from the wrong
+season. What it cannot check is the obstacle *sizes*, which nothing publishes;
+those stay trusted, and the tests in `test/test_bridge_world.py` guard their
+shape instead.
+
+### What the geometry says about the wedging
+
+The transcription explains, outright, a false-positive rate that took a whole
+campaign to characterise empirically. `SimulatedArena.getInstance()` builds the
+arena with ramp colliders, which makes each HUB a **47 × 217 inch wall**. Two of
+them, on a 317-inch-wide field, leave about **50 inches at each end** — and
+those two gaps are the only ways past. A 30-inch robot needs 42.4 inches to
+turn. Passable and tight is exactly the combination that wedges.
+
+`validate_field` agrees the gaps are passable and flags nothing error-level, so
+the field is sound; the tightness is a fact about REBUILT, not a bug.
+
+Two smaller findings, both reproduced deliberately rather than corrected:
+
+* maple-sim 0.4.0-beta places **three** trench walls, not four —
+  `RebuiltFieldObstaclesMap` repeats the (−x, −y) corner verbatim in its fourth
+  call, so the (+x, +y) corner has no wall. Steering around an obstacle the
+  physics does not contain is wrong in the direction hardest to notice. It
+  matters little in practice: the trench walls end within a fiftieth of an inch
+  of the HUB ramps, so with ramps on they add nothing.
+* The tower poles leave 41 inches to the wall, under a robot diagonal. They are
+  wall furniture, and the validator says so.
+
+### Proving the reader reads
+
+Same discipline as the oracles app, one layer up. A reader that returns a
+plausible constant forever is indistinguishable from a working one, so the two
+live quantities the strategy layer cannot function without are not checked by
+reading them — they are checked by making the field change and requiring the
+reader to notice:
+
+* **POSSESSION** — the robot drives through the fuel grid and the ball count
+  must move. Measured: `held 8 → 32`, `loose 192 → 168`. The two agree, which
+  is the check that both topics are being read and not just one.
+* **CLOCK** — the active HUB must flip within the 25-second phase. Measured:
+  `blue → red after 14.5 s`.
+
+Getting the first of those to fire took two wrong attempts, and the reason is
+worth writing down. `IntakeSimulation.OverTheBumperIntake(..., FRONT, ...)`
+puts the collecting fixture 0.37–0.68 m ahead of the robot centre **along its
+heading**, while `joystickDrive` is field-relative — so the robot can translate
+in any direction while still facing +x, and collects only what crosses that
+forward band. Strafing north through the grid slides fuel down the robot's
+flank; reversing west drags the intake over ground the bumper already cleared.
+Both look exactly like "the intake is broken". The instrumented probe showed
+the nearest fuel pinned at 0.53 m from the intake for eight seconds, which is
+what said the problem was approach geometry rather than the intake or the
+reader. **Standing in a pile is not intaking from it.**
+
 ## Two things found on the way
 
 **Odometry is not an independent channel here.** `SimContainer.simulationPeriodic`
@@ -250,11 +362,17 @@ deterministic stepping.
 
 ## Next
 
-The spine is done. What remains widens the variety of situations reached:
+The spine is done and the world is readable. What remains widens the variety of
+situations reached:
 
-* **NT world-state reader + `MapleMatchView` adapter** — the strategy layer starts
-  reacting to the live field instead of driving a seeded script. This is where
-  the 2026-vs-REEFSCAPE mismatch finally starts to matter.
+* **The `MapleMatchView` adapter** — step 4's second half. The world-state
+  reader answers "what is on the field"; the adapter presents that answer in
+  the shape the strategy layer already reads, so tactics can run against it
+  unchanged. The contract is small and now fully surveyed: 14 members on
+  `match` (several of them `getattr`-guarded and safely absent) and 12 on
+  `Robot`, of which exactly three are writes — `drive_field_relative`,
+  `set_intake_active`, `set_deposit_active`. Those three are where it meets
+  step 5.
 * **Intent→button mapping**, broadened past the canned tactic.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

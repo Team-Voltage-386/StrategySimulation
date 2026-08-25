@@ -17,7 +17,19 @@ import struct
 import time
 from dataclasses import dataclass
 
-import ntcore
+try:
+    import ntcore  # pyntcore
+except ImportError as exc:  # pragma: no cover - depends on the install
+    # The topic names and the struct decoders are plain data and arithmetic,
+    # and have no business requiring NetworkTables. Keeping this module
+    # importable without pyntcore is what lets the pose decoding and the
+    # world-state helpers be unit-tested in CI, where there is no JVM and no
+    # robot project -- the same reason bridge.oracles imports without it.
+    # `RobotStateLink` still fails, but on construction rather than on import.
+    ntcore = None  # type: ignore[assignment]
+    _NTCORE_ERROR = exc
+else:
+    _NTCORE_ERROR = None
 
 DEFAULT_SERVER = "127.0.0.1"
 DEFAULT_CLIENT_NAME = "sparky-bridge"
@@ -28,6 +40,36 @@ INPUTS = "/AdvantageKit"
 
 # Ground truth from maple-sim's dyn4j world (SimContainer.java).
 POSE_TRUTH = f"{OUTPUTS}/FieldSimulation/RobotPosition"
+
+# Every FUEL loose on the field, also from SimContainer.simulationPeriodic.
+# This is what makes a world-state reader possible without predicting where
+# pieces went: maple-sim owns the piece physics and publishes the answer.
+FUEL_POSES = f"{OUTPUTS}/FieldSimulation/Fuel"
+
+# How many FUEL the robot is carrying, from IntakeIOSim.updateInputs.
+#
+# Worth being precise about, because a note in an earlier session said intake
+# state was unobservable and that was half wrong. The *IntakeIOInputs* -- the
+# deployed flag, the position, the intaking state -- really are invisible:
+# IntakeSubsystem holds a bare inputs object and never calls
+# Logger.processInputs on it. But `Intake/BallCount` is published separately by
+# a `Logger.recordOutput` inside the same `updateInputs`, and `periodic` calls
+# that every cycle. So possession *is* readable, and it is the one signal the
+# strategy layer cannot work without: collect-versus-score turns on it.
+#
+# Only in simulation. IntakeIOSim reads it from maple-sim's IntakeSimulation,
+# and the real IO has no such sensor.
+BALL_COUNT = f"{OUTPUTS}/Intake/BallCount"
+
+# The intake arm's commanded angle, out of the Mechanism2d IntakeIOSim draws:
+# 90 degrees is stowed, 0 is deployed (IntakeConstants.retractedAngle /
+# .extendedAngle). The nearest thing to an observable deploy state -- the
+# IntakeIOInputs that carry the real `deployed` flag are never run through
+# Logger.processInputs, so this drawing is what there is. Worth having,
+# because "the robot collected nothing" has two very different causes and
+# this separates them: the intake never came down, or it came down and
+# missed.
+INTAKE_ARM_ANGLE = f"{OUTPUTS}/Intake/Mech/Intake/IntakeArm/angle"
 
 # What the robot code *believes*, from its own odometry (Drive.java:312).
 #
@@ -133,6 +175,55 @@ class Pose2d:
         return f"({self.x:+.3f} m, {self.y:+.3f} m, {math.degrees(self.theta):+.1f} deg)"
 
 
+# Translation3d(x, y, z) followed by Rotation3d, which serialises as a
+# Quaternion(w, x, y, z) -- seven little-endian doubles, 56 bytes.
+_POSE3D = struct.Struct("<ddddddd")
+
+
+@dataclass(frozen=True)
+class Pose3d:
+    """A pose from a `struct:Pose3d` topic, carrying only what a floor
+    plan needs.
+
+    The rotation is dropped on decode rather than converted to Euler
+    angles. Everything read as a Pose3d here is a game piece or a fixed
+    goal, and neither a sphere's orientation nor a bolted-down HUB's has
+    any bearing on where a robot should drive. Adding the conversion
+    would mean either a quaternion-to-yaw implementation to maintain or
+    the wpimath dependency this module exists to avoid.
+    """
+
+    x: float
+    y: float
+    z: float
+
+    @classmethod
+    def decode(cls, raw: bytes) -> "Pose3d":
+        if len(raw) != _POSE3D.size:
+            raise ValueError(f"expected {_POSE3D.size} bytes for a Pose3d struct, got {len(raw)}")
+        x, y, z = _POSE3D.unpack(raw)[:3]
+        return cls(x, y, z)
+
+    @classmethod
+    def decode_array(cls, raw: bytes) -> list["Pose3d"]:
+        """Decode a `struct:Pose3d[]` payload.
+
+        WPILib serialises a struct array as its elements back to back with
+        no header, so the count is the length. A payload that is not a
+        whole number of poses means the topic is not what it claims to be
+        -- worth an exception rather than a truncated read, because the
+        caller would otherwise get a plausible-looking short list.
+        """
+        if len(raw) % _POSE3D.size:
+            raise ValueError(
+                f"{len(raw)} bytes is not a whole number of {_POSE3D.size}-byte Pose3d structs"
+            )
+        return [cls.decode(raw[i:i + _POSE3D.size]) for i in range(0, len(raw), _POSE3D.size)]
+
+    def __str__(self) -> str:
+        return f"({self.x:+.3f} m, {self.y:+.3f} m, {self.z:+.3f} m)"
+
+
 class RobotStateLink:
     """An NT4 client subscribed to the robot's published state.
 
@@ -147,6 +238,11 @@ class RobotStateLink:
         client_name: str = DEFAULT_CLIENT_NAME,
         first_read_timeout: float = 2.0,
     ):
+        if ntcore is None:  # pragma: no cover - depends on the install
+            raise RuntimeError(
+                "pyntcore is not installed, so nothing can be read back from the robot. "
+                "pip install -r bridge/requirements.txt"
+            ) from _NTCORE_ERROR
         self.server = server
         self.first_read_timeout = first_read_timeout
         self._inst = ntcore.NetworkTableInstance.create()
@@ -210,6 +306,25 @@ class RobotStateLink:
     def odometry_pose(self) -> Pose2d | None:
         """Where the robot *thinks* it is. See POSE_ODOMETRY -- currently pinned to truth."""
         return self.pose(POSE_ODOMETRY)
+
+    def pose3d(self, name: str) -> Pose3d | None:
+        value = self._raw_sub(name, "struct:Pose3d").getAtomic()
+        if value.time == 0:
+            return None
+        return Pose3d.decode(bytes(value.value))
+
+    def pose3d_array(self, name: str) -> list[Pose3d] | None:
+        """Decode a `struct:Pose3d[]` topic, or None if it has never published.
+
+        None and `[]` are different answers and both happen here: the fuel
+        array is legitimately empty once every piece has been collected,
+        while None means nothing has been published at all. A caller
+        counting pieces must not read the second as the first.
+        """
+        value = self._raw_sub(name, "struct:Pose3d[]").getAtomic()
+        if value.time == 0:
+            return None
+        return Pose3d.decode_array(bytes(value.value))
 
     def chassis_speeds(self, name: str = CHASSIS_SETPOINT) -> ChassisSpeeds | None:
         value = self._raw_sub(name, "struct:ChassisSpeeds").getAtomic()
