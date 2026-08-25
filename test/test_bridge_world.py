@@ -185,6 +185,63 @@ def test_a_scoring_region_does_not_share_a_name_with_a_structure():
     assert len(names) == len(set(names)), sorted(names)
 
 
+def test_a_robot_only_scores_from_inside_its_own_alliance_zone():
+    """`RobotContainer.isInAllianceArea`, transcribed. Blue is
+    `x < 4.625594`, red is `x > 11.915394`."""
+    bound = arena._in(4.625594)
+    assert arena.in_alliance_zone(bound - 1, "blue")
+    assert not arena.in_alliance_zone(bound + 1, "blue")
+
+    bound = arena._in(11.915394)
+    assert arena.in_alliance_zone(bound + 1, "red")
+    assert not arena.in_alliance_zone(bound - 1, "red")
+
+
+def test_the_alliance_boundary_is_the_trench_wall_line():
+    """The two constants come from unrelated arithmetic in two different
+    repos -- `8.27 - (120 + 47/2) inches` in maple-sim's obstacle map,
+    and a bare `4.625594` in the robot code -- so their agreeing to a
+    millimetre is a real cross-check that both were read off the same
+    field."""
+    for alliance, sign in (("blue", -1), ("red", +1)):
+        trench = arena._in(arena.TRENCH_CENTRE_M[0]) + sign * arena.TRENCH_OFFSET_X_IN
+        assert trench == pytest.approx(arena._in(arena.ALLIANCE_ZONE_BOUND_M[alliance]), abs=0.05)
+
+
+def test_the_goal_regions_are_inside_the_alliance_zone_they_belong_to():
+    """The rule that makes shooting *score* rather than pass.
+
+    `Turret.setTarget` aims at the HUB only while the robot is in its own
+    zone; outside it, the turret retargets a corner of that zone and
+    throws the fuel back instead. The shot happens either way, the ball
+    lands on the field either way, and nothing distinguishes the two from
+    outside -- so a scoring region placed at the goal mouth (which faces
+    *midfield*, outside the zone) produces a robot that shoots
+    beautifully and scores nothing. Sixty-five shots went that way.
+    """
+    for region in arena.build_arena().scoring_regions:
+        alliance = region.alliance
+        for x, _ in region.vertices:
+            assert arena.in_alliance_zone(x, alliance), (
+                f"{region.name} reaches x={x:.1f} in, outside the {alliance} zone"
+            )
+
+
+def test_the_goal_regions_sit_behind_the_hub_not_at_its_mouth():
+    """The counter-intuitive consequence: the mouths open toward
+    midfield, and a robot shoots from the other side, over the
+    structure. The goal is 1.57 m up and the turret has a pitch."""
+    for alliance in ("blue", "red"):
+        assert arena.shooting_face_x(alliance) != arena.goal_face_x(alliance)
+        region = next(
+            r for r in arena.build_arena().scoring_regions if r.name == f"{alliance} GOAL"
+        )
+        hub_x = arena.hub_centre(alliance)[0]
+        midfield = arena.FIELD_LENGTH / 2
+        for x, _ in region.vertices:
+            assert abs(x - midfield) > abs(hub_x - midfield), "the region is on the far side"
+
+
 def test_the_goal_regions_stand_off_the_structure_they_shoot_at():
     """A scoring region is tested against the robot's *centre*, so one
     reaching the goal face describes robot positions half inside the HUB."""

@@ -401,6 +401,44 @@ by speed — a couple of degrees at full stick, nothing at half. That is samplin
 skew, not a wrong model, and one lumped tolerance would have to be either loose
 enough to hide a real scaling error or tight enough to fail on it every run.
 
+### A robot outside its own zone does not miss — it passes
+
+The single most consequential rule after the HUB collider, and the one that
+cost the most to learn. `RobotContainer.isInAllianceArea`:
+
+```java
+blue: pose.x < 4.625594      red: pose.x > 11.915394
+```
+
+`Turret.setTarget` branches on exactly that. Inside the zone it aims at the
+HUB; outside it, `isScoring = false` and the turret retargets a **corner of its
+own zone** and throws the fuel back. The shot happens either way, the ball
+leaves the robot either way, the ball lands on the field either way — and
+nothing distinguishes the two from outside.
+
+Which is why the first working runs shot 65 pieces of fuel from midfield with
+auto-aim confirmed on and scored nothing, and why that read as "the robot's aim
+is broken". It was doing precisely what it was told. **The scoring regions were
+in the wrong place.**
+
+The trap is that the goal mouths face *midfield* — `RebuiltHub` puts the shoot
+poses at `+GoalRadius` in x from the blue hub centre — so the obvious place to
+put a scoring region is the one place a robot cannot score from. The regions
+now sit **behind** each HUB, inside the zone, and the fuel goes over the
+structure: the goal is 1.57 m up and the turret has a pitch. `build_scoring_regions`
+asserts every vertex is inside the zone, so this cannot regress quietly.
+
+Two things fall out of it worth keeping:
+
+* The zone boundaries agree with the trench-wall line to within a millimetre,
+  and the two constants come from unrelated arithmetic in two different repos.
+  That is a real cross-check that both transcriptions read the same field.
+* `Turret.isScoring` is not logged, but `isInAllianceArea` is a pure function
+  of the pose — so `arena.in_alliance_zone` evaluates the same rule exactly
+  rather than observing its consequences. The run report carries a `Z` flag
+  per line and splits the shot count by it, so "passed" and "missed" are never
+  reported as the same number again.
+
 ### The 25-second clock, as a strategy input
 
 `region_blocked` returns True for a HUB that is not currently accepting. That
@@ -484,6 +522,20 @@ runs did: fuel left the robot, the loose count rose by the same amount, and the
 score stayed at zero. The robot publishes `autoAimEnabled`, so the press is
 conditioned on it.
 
+### The cycle this creates, and where it breaks
+
+Putting the scoring regions where they belong changes the shape of the whole
+match. The fuel is at midfield; the only place to score it is behind your own
+HUB; and the HUB is a 217-inch wall with two ~50-inch gaps. **Every scoring
+cycle threads one of those gaps twice.**
+
+That is the navigation problem this tool exists to fuzz, and the first run to
+score also found it — 25 of 75 seconds spent asking to move and not moving,
+wedged in the upper gap at (3.76, 7.52). The run still passed every check, so
+the report now carries a longest-stall line and raises it as a finding: a PASS
+that hides a third of the match spent stuck is the same mistake as a report
+path that only runs on bad news.
+
 ### What 75 seconds of it already showed
 
 The demo strategy is two rules — collect fuel, shoot it when there is enough
@@ -499,9 +551,12 @@ in REBUILT that has nothing to do with the bridge:
 
 The intake fills to its 40-ball capacity in a single sweep of the centre grid,
 and then there is nothing to do: it cannot collect more and its HUB is not
-accepting. A real strategy needs a third behaviour — position near the goal
-while the clock runs down — and sparky-sim has no positioning tactic to build
-it from today. That is the kind of thing this was built to find, and it found
+accepting. A real strategy needs a third behaviour, and now that the alliance-zone rule is
+modelled there are two obvious candidates: **drive to the goal and wait there**,
+or **pass the fuel deliberately** toward your own corner, which is what the
+turret does anyway when you are out of position. sparky-sim has no vocabulary
+for either — no positioning tactic, and no notion of a shot that is not a
+scoring attempt. That is the kind of thing this was built to find, and it found
 it in the first minute rather than in a match.
 
 ### The intake reach is load-bearing
@@ -564,11 +619,17 @@ What remains widens the variety of situations reached.
   capacity with a dead HUB has nothing in its repertoire to do. sparky-sim has
   `Collect`, `Score`, `Pursue`, `Defend` and `Idle`, and none of them mean
   "stand somewhere useful and wait".
-* **Why the shots miss.** Fuel leaves the robot and lands on the field; nothing
-  has reached the HUB yet. `TurretIOSim` aims with `turretYaw` plus the chassis
-  heading and maple-sim adjudicates the hit against a ±0.5 m tolerance around
-  `Constants.blueHubPose`. A robot-code question, and the first real one this
-  tool has raised.
+* **Passing as a tactic.** Now that the difference between scoring and passing
+  is visible, a robot holding fuel outside its zone with a dead HUB has a third
+  option nobody has modelled: throw it toward its own corner deliberately. That
+  is a real REBUILT strategy and sparky-sim has no vocabulary for it.
+* **Shot calibration.** Hit rates so far are 1 in 29 and 0 in 55, all from
+  inside the zone with auto-aim on. `RebuiltHub.checkCollision` scores a piece
+  within 0.597 m of the HUB centre **in 3D**, and that centre is 1.57 m up — a
+  60 cm sphere at chest height, not a mouth on a wall. Whether the shot is
+  mis-calibrated or the standoff in `SHOOTING_STANDOFF_IN` is simply the wrong
+  range is the open question, and it is answerable now that the robot reliably
+  gets into position.
 * **Intent→button mapping**, broadened past the canned tactic.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

@@ -57,6 +57,13 @@ from common_sim.match.match import Phase
 # `Calibration.direction_error_deg`. Lumping them would mean a tolerance
 # either loose enough to hide a real scaling error or tight enough to
 # fail on sampling skew every run.
+# What counts as "asking to move and not moving", for the stall summary.
+# Matched to the liveness oracle's own thresholds so the two agree about
+# what a stall is.
+STALL_COMMAND_MIN = 1.0  # in/s
+STALL_METRES = 0.08
+STALL_WORTH_REPORTING = 3.0  # seconds
+
 SPEED_TOLERANCE_MPS = 0.15
 OMEGA_TOLERANCE_RAD_S = 0.15
 DIRECTION_TOLERANCE_DEG = 8.0
@@ -227,7 +234,12 @@ def run_strategy(
     next_report = 0.0
     ticks = 0
     shot = 0
+    shot_in_zone = 0
     last_held = start_world.held
+    stall_from: float | None = None
+    stall_pose = None
+    longest_stall = 0.0
+    stall_where = None
 
     while (elapsed := time.monotonic() - started) < seconds:
         world = view.sync(elapsed, Phase.TELEOP)
@@ -240,11 +252,32 @@ def run_strategy(
         peak_held = max(peak_held, world.held)
         peak_command = max(peak_command, robot.commanded_speed)
         saturated = saturated or robot.saturated
+
+        # Longest stretch of "asking to move and not moving". A run can
+        # pass every check above while spending a third of itself wedged
+        # in a HUB gap, and a PASS that hides that is the same mistake as
+        # a report path that only runs on bad news.
+        if robot.commanded_speed > STALL_COMMAND_MIN and world.robot is not None:
+            if stall_from is None or world.robot.distance_to(stall_pose) > STALL_METRES:
+                stall_from, stall_pose = elapsed, world.robot
+            longest_stall = max(longest_stall, elapsed - stall_from)
+            if longest_stall == elapsed - stall_from:
+                stall_where = world.robot
+        else:
+            stall_from, stall_pose = None, None
         # Every drop in the ball count is fuel that left the robot. Summed
         # rather than taken start-to-end, because the robot refills
         # between shots and the endpoints hide most of it.
         if world.held < last_held:
-            shot += last_held - world.held
+            # Where the robot was standing decides whether that fuel was
+            # *scored at* or *passed*. `Turret.setTarget` aims at the HUB
+            # only from inside the alliance zone; outside it, it throws
+            # the fuel back toward a corner instead -- and the two are
+            # indistinguishable from the ball count alone.
+            leaving = last_held - world.held
+            shot += leaving
+            if arena.in_alliance_zone(robot.pose.x, robot.alliance):
+                shot_in_zone += leaving
         last_held = world.held
 
         if elapsed >= next_report:
@@ -255,7 +288,10 @@ def run_strategy(
             # move". `arm` is the Mechanism2d angle -- 90 stowed, 0
             # deployed -- and is the only observable deploy state there
             # is, since IntakeIOInputs never reach NetworkTables.
-            io = ("I" if robot.intake_active else "-") + ("D" if robot.deposit_active else "-")
+            # "Z" means the robot is inside its own alliance zone, i.e.
+            # the turret is aiming at the HUB rather than passing.
+            io = ("I" if robot.intake_active else "-") + ("D" if robot.deposit_active else "-") \
+                + ("Z" if arena.in_alliance_zone(robot.pose.x, robot.alliance) else "-")
             _log(f"   {elapsed:5.1f}  {name:<14}  ({world.robot.x:5.2f},{world.robot.y:5.2f})"
                  f"  {_target_text(intent):<14}  {world.held:4d}  {world.fuel_count:5d}"
                  f"  {(active or ['-'])[0]:<4}  {robot.commanded_speed:5.0f}"
@@ -292,6 +328,9 @@ def run_strategy(
         "aim_toggles": robot.aim_toggles,
         "auto_aim": end_world.auto_aim,
         "shot": shot,
+        "shot_in_zone": shot_in_zone,
+        "longest_stall": longest_stall,
+        "stall_where": stall_where,
         "held_start": start_world.held,
         "held_end": end_world.held,
         "peak_held": peak_held,
@@ -370,19 +409,43 @@ def check_progress(result: dict, seconds: float) -> None:
     _log(f"   intake edges re-issued: {result['intake_reasserts']}")
     _log(f"   auto-aim    : {'on' if result['auto_aim'] else 'OFF'} "
          f"after {result['aim_toggles']} toggle(s)")
-    _log(f"   fuel shot   : {result['shot']}, of which {result['hub_fuel']:.0f} reached the HUB")
+    _log(f"   fuel shot   : {result['shot']} ({result['shot_in_zone']} from inside the "
+         f"alliance zone), of which {result['hub_fuel']:.0f} reached the HUB")
+    _log(f"   longest stall: {result['longest_stall']:.1f} s"
+         + (f" at {result['stall_where']}" if result["stall_where"] is not None else ""))
+
+    if result["longest_stall"] >= STALL_WORTH_REPORTING:
+        _log()
+        _log(f"   [!] FINDING: the robot spent {result['longest_stall']:.0f}s asking to move "
+             "and not moving,")
+        _log(f"       at {result['stall_where']}. Scoring in REBUILT means crossing one of the")
+        _log("       two ~50 in HUB gaps twice a cycle -- collect at midfield, thread the gap,")
+        _log("       shoot from behind the HUB -- and that is where the navigator wedges.")
+        _log("       This is the navigation problem the bridge exists to fuzz.")
 
     # Not a failure of this app -- it tests the bridge, not the robot's
     # aim -- but the loudest thing in the report, because a zero next to
-    # "score" is the easiest number in the world to read past.
+    # "score" is the easiest number in the world to read past. The two
+    # branches point at completely different repos.
     if result["shot"] and result["hub_fuel"] == 0:
         _log()
-        _log(f"   [!] FINDING: {result['shot']} pieces of fuel were shot and none reached the HUB.")
-        _log("       The projectiles land on the field (the loose count rises by the same")
-        _log("       amount), so the shots are being taken and missing. That is a robot-code")
-        _log(f"       result, not a bridge one -- auto-aim reads "
-             f"{'on' if result['auto_aim'] else 'OFF'}, and TurretIOSim aims with turretYaw")
-        _log("       plus the chassis heading. Replay the kept WPILOG to see where they went.")
+        if result["shot_in_zone"] == 0:
+            _log(f"   [!] FINDING: all {result['shot']} shots were taken from *outside* the "
+                 "alliance zone,")
+            _log("       so the turret was passing rather than scoring "
+                 "(Turret.setTarget retargets a")
+            _log("       corner of the zone when isInAllianceArea is false). Not a miss. The")
+            _log("       strategy layer is being sent to the wrong place -- check the GOAL")
+            _log("       regions in bridge/arena.py against RobotContainer.isInAllianceArea.")
+        else:
+            _log(f"   [!] FINDING: {result['shot_in_zone']} of {result['shot']} shots were taken "
+                 "from inside the alliance")
+            _log("       zone, where the turret aims at the HUB, and none reached it. These are")
+            _log(f"       real misses -- auto-aim reads "
+                 f"{'on' if result['auto_aim'] else 'OFF'} and the robot was in position.")
+            _log("       RebuiltHub.checkCollision scores a piece within 0.597 m of the HUB")
+            _log("       centre *in 3D*, and that centre is 1.57 m up, so this is a shot")
+            _log("       calibration question. Replay the kept WPILOG to see where they went.")
 
     _require(result["travelled"] > 0.5, _stuck_diagnosis(result, seconds))
     _require(

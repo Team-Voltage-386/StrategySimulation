@@ -63,7 +63,19 @@ HUB_CENTRE_M = {
 # RebuiltHub.GoalRadius -- the radius of the goal mouth, and also the
 # +x offset of the four shoot poses from the hub centre, which is what
 # puts the goal face on the midfield side of each HUB.
+#
+# It is also the *scoring* test, and this is the number that decides how
+# hard REBUILT is to score in. `RebuiltHub.checkCollision` counts a piece
+# as scored when it is within GoalRadius of the hub position **in three
+# dimensions** -- and that position is 1.5748 m up. So the target is a
+# 60 cm sphere floating at chest height, not a mouth on a wall, and a
+# shot that is well aimed in plan view can still miss it entirely.
+#
+# `addPoints` then returns the fuel to the field from one of the four
+# shoot poses at 2 m/s, so scored fuel comes back. That is the chute,
+# not a bug in the piece accounting.
 GOAL_RADIUS_M = 0.5969
+GOAL_HEIGHT_M = 1.5748
 
 # Arena2026Rebuilt.RebuiltFieldObstaclesMap, the `AddRampCollider` branch.
 # The no-argument `Arena2026Rebuilt()` constructor passes true, and
@@ -151,6 +163,49 @@ register_piece_spec(
 )
 
 
+# -- the alliance zones -------------------------------------------------
+# `RobotContainer.isInAllianceArea`, and the single most consequential
+# rule in this file after the HUB collider:
+#
+#     blue: pose.x < 4.625594      red: pose.x > 11.915394
+#
+# **A robot outside its own zone cannot score.** `Turret.setTarget`
+# branches on exactly this: inside, it aims at the HUB; outside, it aims
+# at a corner of its own zone and *passes* the fuel back. The shot still
+# happens, the ball still leaves, the ball still lands on the field --
+# and nothing about that looks different from a missed shot.
+#
+# This was worth a whole run to learn. The strategy layer shot 65 pieces
+# from midfield with auto-aim confirmed on and scored nothing, which read
+# as "the robot's aim is broken" when it was doing precisely what it was
+# told. The scoring regions were in the wrong place.
+#
+# Note the boundaries are the trench-wall line to within a millimetre
+# (TRENCH_CENTRE_M[0] -/+ TRENCH_OFFSET_X_IN), which is a useful check
+# that both transcriptions read the same field.
+ALLIANCE_ZONE_BOUND_M = {"blue": 4.625594, "red": 11.915394}
+
+# Where a robot outside its zone throws fuel instead: Constants
+# blue/red Left/RightCorner, chosen by `verticalHalfOfField` (which side
+# of y = 4.034536 the robot is on).
+PASS_TARGETS_M = {
+    "blue": ((2.5, 2.0), (2.5, 6.069326)),
+    "red": ((14.0, 6.069326), (14.0, 2.0)),
+}
+
+
+def in_alliance_zone(x_in: float, alliance: str) -> bool:
+    """Whether a robot at this x (inches) can score rather than pass.
+
+    Computed here rather than read off NetworkTables because
+    `Turret.isScoring` is not logged -- but `isInAllianceArea` is a pure
+    function of the pose, so the Python side can evaluate the same rule
+    exactly rather than observe its consequences.
+    """
+    bound = _in(ALLIANCE_ZONE_BOUND_M[alliance])
+    return x_in < bound if alliance == "blue" else x_in > bound
+
+
 # -- the HUB clock ------------------------------------------------------
 # Arena2026Rebuilt.simulationSubTick: outside autonomous, exactly one
 # alliance's HUB is active at a time and they swap every 25 seconds.
@@ -172,14 +227,27 @@ def hub_centre(alliance: str) -> tuple[float, float]:
 
 
 def goal_face_x(alliance: str) -> float:
-    """The x of the HUB's goal mouth -- the side a robot shoots at.
+    """The x of the HUB's goal mouth.
 
-    Both HUBs open toward midfield: RebuiltHub puts the blue shoot poses
-    at +GoalRadius in x from the blue hub centre, and mirrors them for
-    red. Approaching from behind is approaching a wall.
+    RebuiltHub puts the blue shoot poses at +GoalRadius in x from the
+    blue hub centre, and mirrors them for red, so both mouths open toward
+    midfield.
+
+    Which is *not* where a robot shoots from. The mouths face midfield
+    and the alliance zone is behind the HUB, so a robot scores from its
+    own side and the fuel goes over the structure -- see
+    `build_scoring_regions`. This function describes the goal, not the
+    approach.
     """
     x = _in(HUB_CENTRE_M[alliance][0])
     return x + _in(GOAL_RADIUS_M) if alliance == "blue" else x - _in(GOAL_RADIUS_M)
+
+
+def shooting_face_x(alliance: str) -> float:
+    """The x of the HUB face a robot in its own zone actually stands at:
+    the *back* of the structure, on the alliance's own side."""
+    x = _in(HUB_CENTRE_M[alliance][0])
+    return x - _in(GOAL_RADIUS_M) if alliance == "blue" else x + _in(GOAL_RADIUS_M)
 
 
 def trench_wall_centres(*, faithful: bool = True) -> tuple[tuple[float, float], ...]:
@@ -248,7 +316,21 @@ GOAL_MIN_STANDOFF_IN = 18.0
 
 
 def build_scoring_regions() -> tuple[ScoringRegion, ...]:
-    """One region per HUB: the band of floor in front of its goal mouth.
+    """One region per HUB: a pocket of floor **inside the alliance zone**,
+    behind the HUB, from which a robot can shoot at it.
+
+    Behind, not in front. The goal mouths open toward midfield, which is
+    the intuitive place to put this and is wrong: `RobotContainer.
+    isInAllianceArea` puts the blue zone at `x < 4.6256 m` and the blue
+    goal mouth at `x = 5.19 m`, so a robot standing at the mouth is
+    *outside* its own zone and `Turret.setTarget` switches it from
+    scoring to passing. It still shoots, the fuel still lands on the
+    field, and nothing distinguishes that from a miss. Sixty-five shots
+    went that way before anyone checked.
+
+    So the region sits west of the blue HUB (east of the red one),
+    entirely inside the zone, and the fuel goes over the structure -- the
+    goal is 1.57 m up and the turret has a pitch.
 
     Named GOAL rather than HUB because the obstacle is already called
     HUB, and the field validator is right that a name shared by a
@@ -256,23 +338,19 @@ def build_scoring_regions() -> tuple[ScoringRegion, ...]:
     and every bench resolve features by name and would take whichever
     was declared first.
 
-    Deliberately narrow in y -- the mouth is about 47 inches across while
-    the HUB collider is 217 -- because a robot parked beside the ramp is
-    not looking at the goal, and a region spanning the whole structure
-    would send it there.
-
     `capacity_by_action` is left unset: the HUB has no capacity, and
     whether it is *accepting* right now is the 25-second clock, which
     changes during the match and is read live rather than declared here.
     """
     regions = []
     for alliance in ("blue", "red"):
-        sign = 1.0 if alliance == "blue" else -1.0
-        near = goal_face_x(alliance) + sign * GOAL_MIN_STANDOFF_IN
-        far = goal_face_x(alliance) + sign * SHOOTING_STANDOFF_IN
+        # Away from midfield: blue's own side is -x, red's is +x.
+        outward = -1.0 if alliance == "blue" else 1.0
+        near = shooting_face_x(alliance) + outward * GOAL_MIN_STANDOFF_IN
+        far = shooting_face_x(alliance) + outward * SHOOTING_STANDOFF_IN
         cy = _in(HUB_CENTRE_M[alliance][1])
         half_mouth = _in(GOAL_RADIUS_M)
-        regions.append(ScoringRegion(
+        region = ScoringRegion(
             name=f"{alliance} GOAL",
             vertices=(
                 (near, cy - half_mouth), (far, cy - half_mouth),
@@ -281,7 +359,12 @@ def build_scoring_regions() -> tuple[ScoringRegion, ...]:
             actions=frozenset({"shoot"}),
             piece_types=frozenset({PIECE_TYPE}),
             alliance=alliance,
-        ))
+        )
+        assert all(in_alliance_zone(x, alliance) for x, _ in region.vertices), (
+            f"the {alliance} GOAL region reaches outside the {alliance} alliance zone, so a "
+            "robot sent there would pass the fuel instead of scoring it"
+        )
+        regions.append(region)
     return tuple(regions)
 
 
