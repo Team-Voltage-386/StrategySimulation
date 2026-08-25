@@ -247,12 +247,18 @@ def main(argv: list[str] | None = None) -> int:
     elif not ran["provoke"]:
         problems.append("provoke phase never ran, so oracle 02 is unverified")
         _log("   FAIL  provoke phase never ran")
-    elif [f for f in provoke_findings if f.kind == "frozen-robot"]:
-        _log("   ok    provoke phase detected frozen-robot -- the detector works")
+    elif [f for f in provoke_findings if f.kind in oracles.STUCK_KINDS]:
+        kind = next(f.kind for f in provoke_findings if f.kind in oracles.STUCK_KINDS)
+        _log(f"   ok    provoke phase detected {kind} -- the detector works")
+        if kind != "robot-pinned":
+            problems.append(
+                f"the wall pin was classified {kind}, not robot-pinned; a robot leaning "
+                f"on a wall draws ~58 A, so the drive-current threshold looks wrong"
+            )
+            _log("   FAIL  ...but classified wrong, so the current threshold is off")
     else:
         problems.append(
-            "provoke phase did not report frozen-robot; oracle 02 cannot be trusted "
-            "to catch a real one"
+            "provoke phase reported nothing; oracle 02 cannot be trusted to catch a real one"
         )
         _log("   FAIL  provoke phase went undetected")
 

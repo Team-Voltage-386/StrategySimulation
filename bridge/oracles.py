@@ -53,6 +53,12 @@ else:
 ERROR = "error"
 WARNING = "warning"
 
+#: The two ways "commanded but not moving" gets reported. Callers that want to
+#: know whether the stuck detector fired at all -- the preflight, mainly --
+#: should test against this rather than against one kind, since which one comes
+#: back depends on the drive current at the moment it fired.
+STUCK_KINDS = ("frozen-robot", "robot-pinned")
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -124,6 +130,13 @@ DEFAULT_MUFFLES = (
         r"Warning at .*DriverStation.*Joystick .* not available",
         "emitted for the joystick ports the bridge does not populate; the ports it "
         "does populate are covered by the smoke test's ECHO check",
+    ),
+    Muffle(
+        r"Warning at edu\.wpi\.first\.wpilibj\.Tracer\.",
+        "the per-epoch breakdown WPILib prints immediately after a loop overrun "
+        "(printLoopOverrunMessage calls printEpochs, and every epoch goes out as its "
+        "own reportWarning). The overrun is already counted; these lines are detail "
+        "on that one event, not a dozen separate findings",
     ),
 )
 
@@ -312,6 +325,9 @@ class Sample:
     flywheel_speed_rad_s: float
     cycle_ms: float
     browned_out: bool
+    #: None when no module has published a current reading -- distinct from a
+    #: genuine zero, which means the motors are not being driven.
+    drive_current: float | None = None
 
 
 class _Latch:
@@ -347,6 +363,26 @@ class _Latch:
 RPM_TO_RAD_S = 2.0 * math.pi / 60.0
 
 
+def classify_stuck(drive_current: float | None, threshold: float) -> tuple[str, str]:
+    """Decide which kind of "commanded but not moving" this is.
+
+    Pulled out as a plain function because it is the highest-stakes line in the
+    oracle: it alone decides whether a match passes or fails, and getting it
+    wrong in either direction is expensive. Too eager and a third of matches
+    fail on contact a driver would not notice; too shy and a drivetrain that
+    stopped working gets waved through as "just pushing".
+
+    Returns (kind, severity).
+    """
+    if drive_current is None:
+        # Blind. Fail toward the benign reading rather than manufacture an
+        # error out of a missing measurement.
+        return "robot-pinned", WARNING
+    if drive_current >= threshold:
+        return "robot-pinned", WARNING
+    return "frozen-robot", ERROR
+
+
 @dataclass
 class LivenessThresholds:
     """Every number oracle 02 decides on, in one place.
@@ -363,12 +399,26 @@ class LivenessThresholds:
     input_ignored_seconds: float = 2.0
     stick_deadband: float = 0.2
 
-    # Commanded but not moving: the frozen-robot signature.
+    # Commanded but not moving. Two different things wear this signature, and
+    # only one of them is a fault -- see `pinned_current_amps`.
     frozen_seconds: float = 2.0
     commanded_linear_min: float = 0.15  # m/s
     commanded_omega_min: float = 0.3  # rad/s
     moved_min_metres: float = 0.10
     turned_min_radians: float = 0.10
+
+    # Mean per-module drive current above which "not moving" means the robot is
+    # *pushing* on something rather than failing to drive at all.
+    #
+    # Deliberately a floor, not a high-water mark. Stall current scales with
+    # applied voltage, so how hard a pinned robot pulls depends entirely on how
+    # hard it was told to go: 58 A leaning on a wall at 2.06 m/s commanded, but
+    # only 14 A nudging the hub at 0.50 m/s. A threshold picked from the first
+    # number calls the second one a fault. What actually separates the two
+    # cases is much simpler -- a drivetrain that is not being driven draws
+    # nothing at all (measured: 0.0 A idle), so any real current means the
+    # motors are working and something is holding the robot back.
+    pinned_current_amps: float = 5.0
 
     # Requested but never reaching setpoint.
     mechanism_seconds: float = 3.0
@@ -443,6 +493,7 @@ class LivenessMonitor:
             flywheel_speed_rad_s=self.state.number(rs.FLYWHEEL_SPEED_RAD_S),
             cycle_ms=self.state.number(rs.LOOP_CYCLE_MS),
             browned_out=self.state.boolean(rs.BROWNED_OUT),
+            drive_current=self.state.drive_current(),
         )
 
     def poll(self) -> list[Finding]:
@@ -601,15 +652,41 @@ class LivenessMonitor:
                 self._anchor = s.truth  # it moved; the clock restarts
                 self._latches["frozen-robot"].update(False, now)
             elif self._latches["frozen-robot"].update(True, now):
-                fire(
-                    "frozen-robot",
-                    ERROR,
+                # Same symptom, two very different causes, told apart by
+                # whether the motors are drawing current at all. A robot
+                # leaning on the hub is doing physics; a robot whose drive is
+                # commanded but drawing nothing never got the command to the
+                # motors. Reporting both as errors made a third of matches fail
+                # on contact that a driver would not even notice.
+                symptom = (
                     f"commanded {commanded.linear:.2f} m/s, {commanded.omega:+.2f} rad/s for "
                     f"{self.th.frozen_seconds:.1f}s but moved {moved:.3f} m / "
-                    f"{math.degrees(turned):.1f} deg",
-                    f"Robot is at {s.truth}. Pinned, wedged, or commanding a mechanism that "
-                    f"cannot act. Worth reporting either way -- a driver would notice.",
+                    f"{math.degrees(turned):.1f} deg"
                 )
+                kind, severity = classify_stuck(s.drive_current, self.th.pinned_current_amps)
+                if s.drive_current is None:
+                    reading = "; drive current unavailable, so this could not be classified"
+                    why = (
+                        f"{rs.DRIVE_CURRENT[0]} and its siblings published nothing, so "
+                        f"pinned-on-geometry and drive-not-working cannot be told apart. "
+                        f"Check the topic names against the robot project before trusting "
+                        f"any stuck finding from this run."
+                    )
+                elif kind == "robot-pinned":
+                    reading = f", drawing {s.drive_current:.0f} A"
+                    why = (
+                        "The drivetrain is straining, so it is pushing on something -- a "
+                        "wall, a field element, another robot. Physical, not a code fault, "
+                        "but a match spent wedged is still a strategy problem worth seeing."
+                    )
+                else:
+                    reading = f", drawing only {s.drive_current:.1f} A"
+                    why = (
+                        "The drive is commanded but the motors are not working, so nothing "
+                        "is holding the robot back -- it simply is not being driven. This "
+                        "is the one worth waking up for."
+                    )
+                fire(kind, severity, symptom + reading, f"Robot is at {s.truth}. {why}")
 
         # 4. Mechanism requested but not following.
         wanted = s.flywheel_setpoint_rpm * RPM_TO_RAD_S

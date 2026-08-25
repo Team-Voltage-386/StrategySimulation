@@ -17,13 +17,16 @@ import math
 
 from bridge.oracles import (
     ERROR,
+    STUCK_KINDS,
     WARNING,
     FaultOracle,
     Finding,
+    LivenessThresholds,
     Muffle,
     RPM_TO_RAD_S,
     _Latch,
     _wrap,
+    classify_stuck,
     summarize,
 )
 
@@ -96,6 +99,20 @@ def test_jni_boilerplate_does_not_read_as_an_error():
     """Regression guard: this line contains 'errors' and reports nothing."""
     line = "If you receive errors loading the JNI dependencies, make sure you have the latest Visual Studio C++ Redstributable installed."
     assert FaultOracle().scan_lines([line]) == []
+
+
+def test_tracer_epochs_do_not_multiply_one_overrun_into_many_findings():
+    """Real lines from a campaign run. WPILib's printLoopOverrunMessage calls
+    printEpochs, and every epoch goes out as its own reportWarning."""
+    console = [
+        "Warning at edu.wpi.first.wpilibj.IterativeRobotBase.printLoopOverrunMessage(IterativeRobotBase.java:436): Loop time of 0.02s overrun",
+        "Warning at edu.wpi.first.wpilibj.Tracer.lambda$printEpochs$0(Tracer.java:62): teleopPeriodic(): 0.000019s",
+        "Warning at edu.wpi.first.wpilibj.Tracer.lambda$printEpochs$0(Tracer.java:62): robotPeriodic(): 0.021443s",
+        "Warning at edu.wpi.first.wpilibj.Tracer.lambda$printEpochs$0(Tracer.java:62): LiveWindow.updateValues(): 0.000004s",
+    ]
+    oracle = FaultOracle()
+    assert oracle.scan_lines(console) == []
+    assert oracle.loop_overrun_count == 1, "one overrun, counted once"
 
 
 def test_loop_overruns_only_matter_in_bulk():
@@ -180,6 +197,56 @@ def test_flywheel_units_line_up_with_what_the_robot_publishes():
     a real run holding the left bumper.
     """
     assert math.isclose(2200.0 * RPM_TO_RAD_S, 230.3834612632515, rel_tol=1e-12)
+
+
+def test_the_pinned_threshold_separates_undriven_from_straining():
+    """Measured on this field, mean per-module drive current:
+
+        0.0 A   enabled and idle -- motors not being driven
+       13.9 A   pinned on the hub at a gentle 0.50 m/s command
+       58.2 A   pinned on a wall at a hard 2.06 m/s command
+
+    The threshold has to sit above the first and below the *weakest* pin, not
+    below the strongest -- stall current scales with applied voltage, so a
+    threshold chosen from the 58 A case calls the 14 A case a fault. That is
+    exactly the bug this replaced.
+    """
+    amps = LivenessThresholds().pinned_current_amps
+    idle, gentle_pin, hard_pin = 0.0, 13.9, 58.17
+
+    assert idle < amps < gentle_pin < hard_pin
+    assert amps >= 2.0, "some margin above sensor noise on an idle drivetrain"
+    assert amps < gentle_pin / 2, "a pin gentler still must not read as a fault"
+
+
+def test_both_stuck_classifications_are_discoverable():
+    """The preflight tests that the detector fired, not which way it classified."""
+    assert set(STUCK_KINDS) == {"frozen-robot", "robot-pinned"}
+
+
+def test_straining_motors_mean_pinned_and_do_not_fail_the_match():
+    amps = LivenessThresholds().pinned_current_amps
+    for observed in (13.9, 58.17, amps):
+        assert classify_stuck(observed, amps) == ("robot-pinned", WARNING)
+
+
+def test_motors_drawing_nothing_mean_a_real_fault():
+    amps = LivenessThresholds().pinned_current_amps
+    assert classify_stuck(0.0, amps) == ("frozen-robot", ERROR)
+    assert classify_stuck(amps - 0.01, amps) == ("frozen-robot", ERROR)
+
+
+def test_a_missing_current_reading_does_not_manufacture_an_error():
+    """None is "the topic published nothing", not "the motors drew nothing".
+
+    `number()` returns its default for an unresolved topic, so a renamed key
+    would otherwise read as 0 A and turn every pinned robot back into a
+    reported fault -- silently, and looking exactly like a regression in the
+    robot code.
+    """
+    kind, severity = classify_stuck(None, LivenessThresholds().pinned_current_amps)
+    assert severity == WARNING
+    assert kind in STUCK_KINDS
 
 
 def test_wrap_takes_the_short_way_round():

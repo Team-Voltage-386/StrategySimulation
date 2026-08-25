@@ -85,14 +85,15 @@ proceeds. Six detectors, each debounced by *duration* — a single sample of "no
 moving" is scheduling jitter, two seconds of it is a bug — and each latched to
 fire once per episode, re-arming only after the condition clears.
 
-| kind | fires when |
-|---|---|
-| `robot-code-stalled` | AdvantageKit's timestamp stops advancing while NT is still up |
-| `input-ignored` | stick pushed, drive commands nothing — the binding layer dropped it |
-| `frozen-robot` | drive commanded, world not changing — pinned, wedged, or dead |
-| `mechanism-not-following` | flywheel setpoint commanded, speed never gets near it |
-| `loop-overrun-sustained` | cycle time above threshold continuously |
-| `brownout` | the robot says so |
+| kind | severity | fires when |
+|---|---|---|
+| `robot-code-stalled` | error | AdvantageKit's timestamp stops advancing while NT is still up |
+| `input-ignored` | error | stick pushed, drive commands nothing — the binding layer dropped it |
+| `frozen-robot` | error | drive commanded, not moving, **motors drawing nothing** |
+| `robot-pinned` | warning | drive commanded, not moving, **motors straining** |
+| `mechanism-not-following` | error | flywheel setpoint commanded, speed never gets near it |
+| `loop-overrun-sustained` | warning | cycle time above threshold continuously |
+| `brownout` | error | the robot says so |
 
 As with the Python-side stall audit, these are **detectors, not watchdogs**.
 Nothing intervenes or nudges the robot back into motion; a detector that fixes
@@ -151,12 +152,39 @@ drown the report each morning. That flag needs at least three matches to mean
 anything: in a one-match campaign it is true of everything, including the single
 failure the reader came to look at.
 
-### False positives get fixed in the operator, not the thresholds
+### False positives: find a signal, or fix the operator — don't move the threshold
 
 The first real campaign failed a third of its matches with `frozen-robot`, all
-of them genuine "commanded but not moving" — and all of them the robot leaning
-on the hub. Tightening the detector would have hidden real wedges. Making the
-operator behave like a person removed the noise at its source:
+of them genuine "commanded but not moving", and all of them the robot leaning on
+the hub. (`SimulatedArena.getInstance()` gives the real 2026 field, so there is
+substantial geometry mid-field that a perimeter-only wall margin never sees.)
+
+Raising the detector's time threshold would have "fixed" it by hiding real
+wedges. Two better answers, applied in order:
+
+**1. Find a signal that separates the cases.** Pinned-on-geometry and
+drive-not-working look identical in pose, and identical in wheel speed —
+maple-sim stalls a blocked drivetrain rather than letting it slip, so the
+encoders read zero either way. Drive-motor *current* separates them cleanly:
+
+| regime | commanded | wheel | mean drive current |
+|---|---|---|---|
+| enabled, idle | 0.00 m/s | 0.0 rad/s | **0.0 A** |
+| driving freely | 1.47 m/s | 21.3 rad/s | 9.4 A |
+| pinned, gentle command | 0.50 m/s | 0.0 rad/s | **13.9 A** |
+| pinned, hard command | 2.06 m/s | 0.0 rad/s | **58.2 A** |
+
+So `frozen-robot` (error) now means *commanded, not moving, and the motors are
+drawing nothing* — the command never reached them. `robot-pinned` (warning)
+means the motors are working and something is holding the robot back. Still
+reported, because a match spent wedged is a strategy problem; just not a fault.
+
+The threshold is a **floor at 5 A, not a high-water mark**. Stall current scales
+with applied voltage, so how hard a pinned robot pulls depends on how hard it
+was told to go. A threshold picked from the 58 A case calls the 14 A case a
+fault — which it did, on the first attempt.
+
+**2. Make the operator behave like a person.** Independently of the above:
 
 * it steers away from the field perimeter, and
 * it **reverses out of anything it has run into**, escalating — straight back,
@@ -169,10 +197,8 @@ free eventually, and one whose code has wedged never does, however many times it
 is asked. Every back-off is shorter than the detector's window, so ordinary
 contact never reaches it; what survives is the finding worth having.
 
-Measured effect: **1/3 → 1/8** of matches, and the residual is still hub
-contact. The next lever is more operator patience or field-element awareness —
-not detector thresholds. Worth re-measuring on a real overnight run before
-tuning further.
+**Measured effect of the two changes together: 1/3 → 1/8 → 0/8 matches failing.**
+The remaining pins are reported as warnings and counted, which is what they are.
 
 ## Two things found on the way
 

@@ -74,14 +74,22 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
             link.disable()
             time.sleep(0.5)
 
-        detected = [f for f in monitor.findings if f.kind == "frozen-robot"]
+        detected = [f for f in monitor.findings if f.kind in oracles.STUCK_KINDS]
         if not detected:
             raise RuntimeError(
-                "preflight: a deliberate wall pin produced no frozen-robot finding. "
+                "preflight: a deliberate wall pin produced no stuck finding at all. "
                 "Oracle 02 cannot be trusted, so the campaign would be a rubber stamp. "
                 f"Console: {console}"
             )
-        return f"ok -- wall pin detected as frozen-robot at {detected[0].where}"
+        kind = detected[0].kind
+        status = f"ok -- wall pin detected as {kind} at {detected[0].where}"
+        if kind != "robot-pinned":
+            # It fired, so the campaign is not blind and there is no reason to
+            # refuse the night. But a wall pin *is* a pin, so the current-based
+            # classifier is suspect and every finding it produces should be
+            # read with that in mind.
+            status += "  [!] expected robot-pinned; the current threshold looks wrong"
+        return status
     finally:
         sim.stop()
         for path in (set((repo / hz.BRIDGE_LOG_DIR).glob("*.wpilog")) - logs_before):

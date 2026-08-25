@@ -63,6 +63,13 @@ CHASSIS_MEASURED = f"{OUTPUTS}/SwerveChassisSpeeds/Measured"
 FLYWHEEL_SETPOINT_RPM = f"{OUTPUTS}//Shooter/Flywheel/VelocitySetpoint"
 FLYWHEEL_SPEED_RAD_S = f"{INPUTS}/Shooter/Flywheel/Inputs/FlywheelSpeed"
 
+#: Per-module drive current. This is what separates a robot that is *pushing*
+#: against something from one that is not being driven at all -- measured on
+#: this field: 0.0 A idle, 9.4 A driving freely, 58.2 A pinned against a wall.
+#: Wheel speed does not separate them; maple-sim stalls a blocked drivetrain
+#: rather than letting it slip, so the encoders read zero in both cases.
+DRIVE_CURRENT = tuple(f"{INPUTS}/Drive/Module{i}/DriveCurrentAmps" for i in range(4))
+
 LOOP_CYCLE_MS = f"{OUTPUTS}/LoggedRobot/FullCycleMS"
 BROWNED_OUT = f"{INPUTS}/SystemStats/BrownedOut"
 BATTERY_VOLTAGE = f"{INPUTS}/SystemStats/BatteryVoltage"
@@ -209,6 +216,23 @@ class RobotStateLink:
         if value.time == 0:
             return None
         return ChassisSpeeds.decode(bytes(value.value))
+
+    def drive_current(self) -> float | None:
+        """Mean drive-motor current across the four modules in amps, or None.
+
+        None rather than 0.0 when nothing has published, because those are very
+        different facts and `number()` cannot tell them apart -- an unresolved
+        topic returns its default, which here would read as "the motors are
+        drawing nothing" and turn every pinned robot into a reported fault.
+        That is the exact bug this signal was added to fix, so it must not be
+        reintroduced by a topic name going stale.
+        """
+        readings = [abs(self.number(key)) for key in DRIVE_CURRENT if self.has_value(key)]
+        return sum(readings) / len(readings) if readings else None
+
+    def has_value(self, name: str) -> bool:
+        """Whether `name` has ever carried a value, as opposed to reading as its default."""
+        return self._double_sub(name).getAtomic().time != 0
 
     def string_array(self, name: str) -> list[str]:
         return list(self._string_array_sub(name).get([]))
