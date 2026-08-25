@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from bridge import harness as hz
 from bridge import operator as op
 from bridge import oracles
+from bridge import robot_state as rs
 from bridge.robot_state import POSE_TRUTH, RobotStateLink
 from bridge.sim_process import DEFAULT_ROBOT_REPO, RobotSim
 
@@ -64,11 +65,20 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
             time.sleep(1.0)
 
             monitor = oracles.LivenessMonitor(state, link)
+            amps = None
             with monitor:
                 # Positive leftX is -y; the lower wall is at y=0 and the robot
                 # starts within about half a metre of it.
                 link.set_axis(op.AXIS_LEFT_X, 0.7)
-                time.sleep(seconds)
+                time.sleep(seconds * 0.6)
+                # Read the current straight off the link while the robot is
+                # definitely pinned. `robot-pinned` is also what the classifier
+                # returns when the current signal is *missing*, so the kind
+                # alone cannot tell a working classifier from a blind one --
+                # and a blind one silently retires the frozen-robot error path
+                # for the whole campaign.
+                amps = state.drive_current()
+                time.sleep(seconds * 0.4)
                 link.set_axis(op.AXIS_LEFT_X, 0.0)
             link.neutral()
             link.disable()
@@ -82,12 +92,21 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
                 f"Console: {console}"
             )
         kind = detected[0].kind
-        status = f"ok -- wall pin detected as {kind} at {detected[0].where}"
+        reading = "no current reading" if amps is None else f"{amps:.0f} A while pinned"
+        status = f"ok -- wall pin detected as {kind} at {detected[0].where}, {reading}"
+        if amps is None:
+            raise RuntimeError(
+                "preflight: the wall pin was detected, but no drive-current reading was "
+                "available, so pinned-on-geometry cannot be told from drive-not-working. "
+                "Every stuck finding this campaign produced would be a warning and the "
+                f"frozen-robot error path would never fire. Check {rs.DRIVE_CURRENT[0]} "
+                f"against the robot project. Console: {console}"
+            )
         if kind != "robot-pinned":
-            # It fired, so the campaign is not blind and there is no reason to
-            # refuse the night. But a wall pin *is* a pin, so the current-based
-            # classifier is suspect and every finding it produces should be
-            # read with that in mind.
+            # It fired and the signal is live, so the campaign is not blind and
+            # there is no reason to refuse the night. But a wall pin *is* a
+            # pin, so the threshold is suspect and every finding it produces
+            # should be read with that in mind.
             status += "  [!] expected robot-pinned; the current threshold looks wrong"
         return status
     finally:

@@ -137,10 +137,20 @@ night of nothing gets reported as a night of clean runs. Three consecutive
 `error`s abort the campaign: something is wrong with the setup, not the robot,
 and the rest of the night would just be a longer report of the same thing.
 
-The campaign is **preflighted**: one deliberate wall pin that must produce
-`frozen-robot`, before committing eight hours to a detector that might not
-detect. Results are flushed to `campaign.jsonl` as they happen, so the report
-survives the machine going down at 3am.
+The campaign is **preflighted**: one deliberate wall pin, which must be detected
+*and* classified `robot-pinned` off a live drive-current reading, before
+committing eight hours to a detector that might not detect. The current reading
+is checked explicitly because `robot-pinned` is also what the classifier returns
+when the signal is *missing* — so the kind alone cannot distinguish a working
+classifier from a blind one, and a blind one silently retires the `frozen-robot`
+error path for the whole night. The preflight line records the amperage it saw:
+
+```
+preflight  : ok -- wall pin detected as robot-pinned at t=3.8s, 58 A while pinned
+```
+
+Results are flushed to `campaign.jsonl` as they happen, so the report survives
+the machine going down at 3am.
 
 Failing matches keep their console, findings, and WPILOG. Passing matches keep
 one JSONL line and everything else is deleted — that is the ~8.5 GB question,
