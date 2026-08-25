@@ -6,9 +6,9 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–2 of 7 done.** The loop is closed, and the campaign can now
-fail: both oracles are armed, quiet on clean operation, and proven to fire.
-Next is the overnight harness.
+**Status: steps 1–3 of 7 done — the spine is complete.** The loop closes, the
+oracles fire, and the harness runs unattended and leaves a morning report. What
+remains widens the variety of situations it reaches.
 
 ## Run it
 
@@ -16,6 +16,7 @@ Next is the overnight harness.
 pip install -r bridge/requirements.txt
 python apps/run_bridge_smoke.py      # step 1: does the loop close?
 python apps/run_bridge_oracles.py    # step 2: can it tell a failure from a run?
+python apps/run_bridge_overnight.py --matches 40    # step 3: the product
 ```
 
 Each takes ~90 s: gradle compiles, the JVM boots, the checks run, the sim is killed.
@@ -40,6 +41,8 @@ No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
 | `robot_state.py` | robot → Python | NetworkTables 4, via `pyntcore` |
 | `sim_process.py` | — | launches and reaps `gradlew simulateJava -Pbridge` |
 | `oracles.py` | — | decides whether a run failed |
+| `scenario.py` | — | the seeded virtual operator |
+| `harness.py` | — | campaign lifecycle, retention, and the report |
 
 Input is injected **at the joystick layer**, not at the command layer. The
 binding layer and its interlocks are a substantial part of what is being
@@ -112,6 +115,65 @@ The report also tracks whether each phase *ran*. "No findings" and "never ran"
 are the same empty list, and the first version of this cheerfully reported a run
 that died during gradle configuration as "exercise phase clean".
 
+## The overnight harness
+
+```
+python apps/run_bridge_overnight.py --matches 200 --max-hours 8
+```
+
+Each match gets a fresh JVM (isolation beats throughput when the deliverable is
+a crash), 15 s of autonomous, a transition into teleop *while something is
+running*, then teleop to the buzzer — and the buzzer disables mid-action rather
+than tidying up first, because that is what a real match end does.
+
+Measured on this machine: **~11 s of boot per match, 15% overhead** at 60 s
+matches and ~7% at 150 s. That puts a 150 s campaign at roughly 22 matches/hour,
+close to the brief's ~190 per night.
+
+Statuses are `pass`, `fail`, and **`error`** — the last meaning the harness
+could not run the match at all. Folding that into either of the others is how a
+night of nothing gets reported as a night of clean runs. Three consecutive
+`error`s abort the campaign: something is wrong with the setup, not the robot,
+and the rest of the night would just be a longer report of the same thing.
+
+The campaign is **preflighted**: one deliberate wall pin that must produce
+`frozen-robot`, before committing eight hours to a detector that might not
+detect. Results are flushed to `campaign.jsonl` as they happen, so the report
+survives the machine going down at 3am.
+
+Failing matches keep their console, findings, and WPILOG. Passing matches keep
+one JSONL line and everything else is deleted — that is the ~8.5 GB question,
+and an unreaped log is a slow leak that fills the disk somewhere around 3am.
+
+A finding present in *every* match is flagged environmental rather than treated
+as a regression, so the known `Vision camera 0 is disconnected` warning does not
+drown the report each morning. That flag needs at least three matches to mean
+anything: in a one-match campaign it is true of everything, including the single
+failure the reader came to look at.
+
+### False positives get fixed in the operator, not the thresholds
+
+The first real campaign failed a third of its matches with `frozen-robot`, all
+of them genuine "commanded but not moving" — and all of them the robot leaning
+on the hub. Tightening the detector would have hidden real wedges. Making the
+operator behave like a person removed the noise at its source:
+
+* it steers away from the field perimeter, and
+* it **reverses out of anything it has run into**, escalating — straight back,
+  then back with more rotation, then sliding sideways along the obstacle — and
+  then **gives up** after four tries.
+
+Giving up is the part that keeps the detector sharp. Being *more* patient
+increases discrimination rather than reducing it: a robot held by geometry comes
+free eventually, and one whose code has wedged never does, however many times it
+is asked. Every back-off is shorter than the detector's window, so ordinary
+contact never reaches it; what survives is the finding worth having.
+
+Measured effect: **1/3 → 1/8** of matches, and the residual is still hub
+contact. The next lever is more operator patience or field-element awareness —
+not detector thresholds. Worth re-measuring on a real overnight run before
+tuning further.
+
 ## Two things found on the way
 
 **Odometry is not an independent channel here.** `SimContainer.simulationPeriodic`
@@ -135,13 +197,28 @@ a deliverable. Logs land in the robot repo's gitignored `logs/bridge/` at roughl
 **45 MB per 150 s match** — about 8.5 GB across an overnight run. The harness
 will have to keep the failures and delete the rest.
 
+## Reproducing a reported failure
+
+```
+python apps/run_bridge_overnight.py --matches 1 --first-seed 8106          # re-run it
+python apps/run_bridge_overnight.py --matches 1 --first-seed 8106 --gui    # and watch
+```
+
+A seed reproduces the **script**, not the run: the same moves in the same order,
+but the back-off is closed-loop and the physics does not repeat bit-for-bit
+across processes, so the robot will not land on the same coordinates. The kept
+WPILOG is the authoritative record, and it replays through the robot code
+deterministically in AdvantageScope. That is the same division the feasibility
+brief settled on — reproducibility comes from the recorded input trace, not from
+deterministic stepping.
+
 ## Next
 
-Step 3 is the overnight harness: N seeded matches, a pass/fail summary, failing
-logs kept and passing ones deleted. Everything it needs now exists — the console
-is captured, the oracles report structured `Finding`s, and each run leaves a
-replayable WPILOG.
+The spine is done. What remains widens the variety of situations reached:
 
-After that: the NT world-state reader and `MapleMatchView` adapter, at which
-point the strategy layer starts reacting to the live field and the game mismatch
-starts to matter.
+* **NT world-state reader + `MapleMatchView` adapter** — the strategy layer starts
+  reacting to the live field instead of driving a seeded script. This is where
+  the 2026-vs-REEFSCAPE mismatch finally starts to matter.
+* **Intent→button mapping**, broadened past the canned tactic.
+* **AI opponents** — the other five robots driven by sparky-sim.
+* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

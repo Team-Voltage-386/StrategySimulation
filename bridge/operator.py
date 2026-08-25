@@ -34,7 +34,17 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-import websocket  # websocket-client
+try:
+    import websocket  # websocket-client
+except ImportError as exc:  # pragma: no cover - depends on the install
+    # The button numbers, the axis map and the state dataclasses are plain
+    # data and have no business requiring a transport library. Keeping this
+    # module importable without one is what lets the scenario generator and
+    # the campaign report be unit-tested where no JVM exists.
+    websocket = None  # type: ignore[assignment]
+    _WEBSOCKET_ERROR = exc
+else:
+    _WEBSOCKET_ERROR = None
 
 DEFAULT_URL = "ws://127.0.0.1:3300/wpilibws"
 
@@ -119,9 +129,18 @@ class OperatorLink:
     up on its next tick.
     """
 
-    def __init__(self, url: str = DEFAULT_URL, num_joysticks: int = 2, tick_hz: float = TICK_HZ):
+    def __init__(
+        self,
+        url: str = DEFAULT_URL,
+        num_joysticks: int = 2,
+        tick_hz: float = TICK_HZ,
+        connect_timeout: float = 60.0,
+    ):
         self.url = url
         self.tick_hz = tick_hz
+        # Used by `__enter__`, where there is nowhere to pass one. A cold
+        # gradle build is well over the 60 s that suffices once it is warm.
+        self.connect_timeout = connect_timeout
         self._lock = threading.Lock()
         self._ds = DriverStationState()
         self._joysticks = [JoystickState() for _ in range(num_joysticks)]
@@ -149,6 +168,12 @@ class OperatorLink:
         Waiting here is simpler than trying to parse readiness out of the
         build log.
         """
+        if websocket is None:  # pragma: no cover - depends on the install
+            raise RuntimeError(
+                "the operator link needs websocket-client: "
+                "pip install -r bridge/requirements.txt"
+            ) from _WEBSOCKET_ERROR
+
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
         while time.monotonic() < deadline:
@@ -207,7 +232,7 @@ class OperatorLink:
             self._reader.join(timeout=2.0)
 
     def __enter__(self) -> "OperatorLink":
-        self.connect()
+        self.connect(timeout=self.connect_timeout)
         return self
 
     def __exit__(self, *exc) -> None:
