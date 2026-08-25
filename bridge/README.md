@@ -6,10 +6,10 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–3 of 7 done — the spine is complete — and step 4 is half
-done.** The loop closes, the oracles fire, the harness runs unattended and
-leaves a morning report, and the live REBUILT world is readable. What remains
-widens the variety of situations it reaches.
+**Status: steps 1–4 of 7 done.** The loop closes, the oracles fire, the harness
+runs unattended and leaves a morning report, the live REBUILT world is
+readable, and sparky-sim's strategy layer drives the real robot code from it.
+What remains widens the variety of situations it reaches.
 
 ## Run it
 
@@ -47,6 +47,8 @@ No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
 | `harness.py` | — | campaign lifecycle, retention, and the report |
 | `world_state.py` | robot → Python | the live REBUILT field, over NT |
 | `arena.py` | — | REBUILT's static geometry, transcribed from maple-sim |
+| `drive_model.py` | Python → robot | velocities ↔ joystick axes, and its calibration |
+| `match_view.py` | both | the live world in the shape tactics already read |
 
 Input is injected **at the joystick layer**, not at the command layer. The
 binding layer and its interlocks are a substantial part of what is being
@@ -322,6 +324,199 @@ the nearest fuel pinned at 0.53 m from the intake for eight seconds, which is
 what said the problem was approach geometry rather than the intake or the
 reader. **Standing in a pile is not intaking from it.**
 
+## Letting the strategy layer drive
+
+```
+python apps/run_bridge_strategy.py --seconds 45
+python apps/run_bridge_strategy.py --seconds 60 --gui     # watch it
+```
+
+A real `StrategyController`, running the same `Collect` and `Score` tactics
+the strategy sim uses, reading `MapleMatchView` and pressing the buttons
+itself. **Nothing in `common_sim/control` was changed to make this work** — the
+tactics do not know they are driving a JVM.
+
+`MapleMatchView` duck-types the `match` contract rather than subclassing
+`Match`, for the same reason REBUILT is not implemented here: a real `Match`
+brings its own pymunk world, its own scoring and its own piece bookkeeping,
+all of which would drift from the simulation that actually decides what
+happens. `MapleRobot` *does* subclass `Robot`, for the opposite reason — its
+geometry helpers are pure functions of a pose and a set of characteristics,
+and a reimplementation is a copy that disagrees at the edges. Its pymunk body
+is never stepped; it is somewhere to write the pose that arrives over the wire.
+
+### The three writes
+
+| tactic calls | bridge presses |
+|---|---|
+| `drive_field_relative` | left stick + right stick X, through the inverse joystick model |
+| `set_intake_active` | manip Y (`DeployIntake`) / manip B (`RetractIntake`), drive right trigger |
+| `set_deposit_active` | drive left bumper (flywheel) + manip right trigger (feeder) |
+
+Manip Y and B are bound `onTrue`, so they need *edges*, not held buttons. The
+mapping is "hold Y while intaking, hold B while not" — one rising edge per
+transition, none while held, and no sleeping inside a control loop. Nothing is
+pressed before the first call, because a robot that has never been told either
+way should not be issuing retract commands.
+
+### The drive model is an inverse, not a scale factor
+
+`DriveCommands.joystickDrive` deadbands the stick, **squares** it, and **halves
+the whole drivetrain** while the feeder is running (`spindexer::isFeederOn` is
+its speed multiplier). Miss any of the three and the robot drives — just not
+where it was told, which is the hardest kind of wrong to see in a report.
+
+Translation is inverted as a magnitude and a direction rather than per-axis,
+because the squaring applies to the magnitude: undoing it component-wise
+rotates the commanded direction. A request beyond the drivetrain is clipped to
+full stick *in the requested direction* and flagged `saturated` — a robot that
+cannot go as fast as asked still goes the right way, whereas one whose heading
+quietly bends looks like a navigation bug.
+
+### Calibrate, don't transcribe
+
+The maxima are **measured off the running robot**, not read out of
+`DriveConstants` — which sets them inside an `if (isReefscape)` branch resolved
+at class-init, where which values win is not obvious from reading the file.
+That decision paid immediately:
+
+```
+measured    : 4.45 m/s, 11.09 rad/s (DriveConstants nominal 5.3 m/s)
+```
+
+Transcribing the 5.3 would have made every commanded velocity 19% low — and
+nothing would have failed. The robot would just have arrived somewhere the
+navigator did not plan for.
+
+The probes then check the model at *intermediate* stick, not only at full,
+because at magnitude 1 the deadband rescale and the squaring are both
+identities: a model fitted at full stick and checked at full stick confirms a
+scale factor and misses the squaring entirely.
+
+Speed and direction get separate error budgets. `joystickDrive` builds
+field-relative speeds and immediately converts them to robot-relative using the
+robot's heading; the check converts back using a pose read a moment later. Any
+heading change between those two instants shows up as a direction error scaled
+by speed — a couple of degrees at full stick, nothing at half. That is sampling
+skew, not a wrong model, and one lumped tolerance would have to be either loose
+enough to hide a real scaling error or tight enough to fail on it every run.
+
+### The 25-second clock, as a strategy input
+
+`region_blocked` returns True for a HUB that is not currently accepting. That
+routes maple-sim's alternating-HUB rule into the place the strategy layer
+already looks: `world_view.scoring_slots_for_type` drops a blocked slot, so a
+robot holding fuel with no live HUB stops presenting a scoring option and falls
+through to collecting or repositioning instead of shooting fuel into a HUB that
+returns it as `WastedFuel`.
+
+`region_blocked` and not `region_full`, deliberately — "full" says the same
+thing and means something permanent.
+
+`deposit_region_for` is also overridden rather than inherited. `Match`'s version
+asks whether a bumper *side* engages the region, which is right for a robot
+reaching into a structure and wrong for one with a turret: this robot shoots
+from wherever it is standing, so position is the whole test.
+
+### Three ways an object identity went wrong
+
+Every one of these produced a robot that looked like it was working, and none
+of them looked like an adapter bug from the outside. They are the same mistake
+in three places: treating a *position in a list* as an identity.
+
+**1. The fuel array's order is not stable.** `SimulatedArena.gamePieces` is a
+`HashSet`, and `getGamePiecesPosesByType` walks it directly, so the order can
+change whenever a piece is added or removed. Handing out pooled `GamePiece`
+objects by array index gives `Collect` a target whose coordinates jump to some
+other piece somewhere else on the field between ticks. The robot chases a ghost
+at full stick and never arrives. `PieceTracker` matches by position through a
+coarse spatial hash instead.
+
+**2. Recycling a collected piece reintroduces the same bug.** The obvious
+optimisation — keep freed `GamePiece` objects in a pool — means a tactic
+holding the piece it just collected finds that object silently reissued for a
+*new* piece elsewhere. Retired instead, and marked `scored` so a stale
+reference reads as "not an option any more" rather than as a live target.
+Retirement costs one allocation per piece that leaves the field, a few hundred
+over a match rather than a few hundred per tick.
+
+**3. A hopper is a queue, and the order is load-bearing.**
+`behavior.RunManipulator` names `held_pieces[0]` as the piece it is depositing
+and returns SUCCESS when that object is no longer held. Truncating the held
+list from the tail — the obvious implementation — means the named piece never
+leaves, so `Score` runs to its timeout every time instead of finishing.
+Collected fuel goes on the back; shot fuel leaves from the front.
+
+### Edge-triggered buttons over a 50 Hz link need a controller, not a translator
+
+Manip Y and B are bound `onTrue`, so the mapping depends on the robot *seeing*
+a transition. Two things break that, and both did:
+
+* **The command chatters.** `behavior.RunIntake` turns the intake off the
+  instant a piece is captured and on again on the next tick, so a robot
+  collecting a stream of fuel toggles it once per ball. The arm takes about a
+  tenth of a second each way, so obeying every toggle leaves it halfway
+  whenever it matters — and a driver does not stow the intake between pieces
+  anyway. A 0.5 s debounce on *stopping* an intake that is already running.
+* **Edges get swallowed.** The operator link transmits at 50 Hz; a press and
+  release inside one 20 ms window never reaches the wire. The result is a
+  command that reads as active while the mechanism sits stowed.
+
+So the adapter drives the intake from the arm's *observed* angle rather than
+from the last thing it sent, re-issuing an edge when the two disagree for more
+than 0.6 s. `intake_reasserts` counts those and the run reports it — a rising
+count means the transport is losing edges faster than expected, which is worth
+knowing rather than silently compensating for.
+
+The feeder needed the same debounce for the same reason — `Score` runs one
+`RunManipulator` per piece and cycles the deposit command between them, and a
+burst that emptied twenty balls then sat with the deposit commanded and nothing
+leaving for fourteen seconds. **Unlike the intake there is no observable to
+close the loop on**: nothing publishes the feeder's state, so a lost edge there
+can only be avoided, not detected. If the robot code ever logs
+`spindexer.isFeederOn` this should become a reconciliation too.
+
+Auto-aim is the same shape. Manip Start is a *toggle*
+(`turret.toggleAutoAimCommand`), so pressing it blind is as likely to turn
+auto-aim off as on — and without auto-aim the turret points wherever it was
+left and every shot lands on the floor. That is exactly what the first working
+runs did: fuel left the robot, the loose count rose by the same amount, and the
+score stayed at zero. The robot publishes `autoAimEnabled`, so the press is
+conditioned on it.
+
+### What 75 seconds of it already showed
+
+The demo strategy is two rules — collect fuel, shoot it when there is enough
+and a HUB will take it — and the first clean run surfaced a real strategic gap
+in REBUILT that has nothing to do with the bridge:
+
+```
+17.5  Collect   ( 7.42, 3.89)  ( 7.80, 4.65)   27  125  red    38  I- arm  0
+19.5  Idle      ( 7.66, 4.75)  -               40  112  red     0  -- arm 90
+   ...  twenty seconds of nothing ...
+41.9  Score     ( 7.65, 4.77)  blue GOAL       40  112  blue   98  -- arm 90
+```
+
+The intake fills to its 40-ball capacity in a single sweep of the centre grid,
+and then there is nothing to do: it cannot collect more and its HUB is not
+accepting. A real strategy needs a third behaviour — position near the goal
+while the clock runs down — and sparky-sim has no positioning tactic to build
+it from today. That is the kind of thing this was built to find, and it found
+it in the first minute rather than in a match.
+
+### The intake reach is load-bearing
+
+`INTAKE_REACH_IN = 11.6` is not cosmetic. `Collect._piece_aim` parks the robot
+so the target sits *mid-wedge*, at `half_length + intake_range/2` from the
+piece — so getting the reach wrong parks the robot somewhere the intake cannot
+reach, and the symptom is a robot that drives beautifully to a piece and never
+picks it up. It comes from maple-sim's own
+`IntakeSimulation.getIntakeRectangle`: with 30-inch bumpers and a 12-inch
+extension the collecting fixture spans 14.6–26.6 inches from the chassis
+centre, i.e. 11.6 past the bumper. That the strategy layer then handles the
+approach geometry correctly, with no changes, is the payoff for adapting rather
+than reimplementing.
+
 ## Two things found on the way
 
 **Odometry is not an independent channel here.** `SimContainer.simulationPeriodic`
@@ -362,17 +557,18 @@ deterministic stepping.
 
 ## Next
 
-The spine is done and the world is readable. What remains widens the variety of
-situations reached:
+Step 4 is done: the strategy layer reads the live field and drives the robot.
+What remains widens the variety of situations reached.
 
-* **The `MapleMatchView` adapter** — step 4's second half. The world-state
-  reader answers "what is on the field"; the adapter presents that answer in
-  the shape the strategy layer already reads, so tactics can run against it
-  unchanged. The contract is small and now fully surveyed: 14 members on
-  `match` (several of them `getattr`-guarded and safely absent) and 12 on
-  `Robot`, of which exactly three are writes — `drive_field_relative`,
-  `set_intake_active`, `set_deposit_active`. Those three are where it meets
-  step 5.
+* **A positioning tactic.** The first thing the bridge found: a robot at
+  capacity with a dead HUB has nothing in its repertoire to do. sparky-sim has
+  `Collect`, `Score`, `Pursue`, `Defend` and `Idle`, and none of them mean
+  "stand somewhere useful and wait".
+* **Why the shots miss.** Fuel leaves the robot and lands on the field; nothing
+  has reached the HUB yet. `TurretIOSim` aims with `turretYaw` plus the chassis
+  heading and maple-sim adjudicates the hit against a ±0.5 m tolerance around
+  `Constants.blueHubPose`. A robot-code question, and the first real one this
+  tool has raised.
 * **Intent→button mapping**, broadened past the canned tactic.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

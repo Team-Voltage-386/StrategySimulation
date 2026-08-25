@@ -26,7 +26,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from bridge import arena
-from bridge.robot_state import BALL_COUNT, FUEL_POSES, POSE_TRUTH, Pose2d, Pose3d, RobotStateLink
+from bridge.robot_state import (
+    AUTO_AIM_ENABLED, BALL_COUNT, CHASSIS_MEASURED, FUEL_POSES, INTAKE_ARM_ANGLE,
+    POSE_TRUTH, Pose2d, Pose3d, RobotStateLink,
+)
 
 # -- maple-sim's own NT surface ----------------------------------------
 # Published by SimulatedArena and Arena2026Rebuilt directly, not through
@@ -88,6 +91,19 @@ class WorldState:
     hub_active: dict[str, bool]
     score: dict[str, float]
 
+    #: Intake arm angle in degrees: 90 stowed, 0 deployed. The only
+    #: observable deploy state there is, since the IntakeIOInputs that
+    #: carry the real flag never reach NetworkTables. Carried in the
+    #: snapshot because the adapter closes a loop on it -- see
+    #: `MapleRobot._reconcile_intake`. Defaults to stowed, which is the
+    #: safe reading for a caller that has not got one.
+    intake_arm_deg: float = 90.0
+
+    #: Whether the turret is tracking the HUB on its own. Bound as a
+    #: toggle, so the adapter has to read it before pressing anything --
+    #: a toggle pressed blind is as likely to turn the thing off as on.
+    auto_aim: bool = False
+
     @property
     def fuel_count(self) -> int:
         return len(self.fuel)
@@ -100,6 +116,27 @@ class WorldState:
         if origin is None or not self.fuel:
             return None
         return min(self.fuel, key=lambda p: (p.x - origin.x) ** 2 + (p.y - origin.y) ** 2)
+
+
+def on_field(poses) -> list[Pose3d]:
+    """Drop the poses in the fuel array that are not fuel on the field.
+
+    `Arena2026Rebuilt.getGamePiecesPosesByType` overrides the base
+    implementation to append `blueOutpost.draw(poses)` and
+    `redOutpost.draw(poses)` -- twenty-four Pose3ds per OUTPOST that are
+    a *drawing* of the fuel a human player is holding, stacked at
+    `blueRenderPose` (x = -0.12) and `redRenderPose` (x = 16.64). Both
+    sit outside the field walls, which is what makes them separable, and
+    exactly accounts for the 192 poses on a field carrying 144 pieces.
+
+    They matter because they are collectable-looking. A `Collect` tactic
+    that picks one drives at a spot behind the alliance wall, arrives at
+    the wall instead, and leans on it for the rest of the match.
+    """
+    return [
+        p for p in poses
+        if 0.0 <= p.x <= arena.FIELD_LENGTH_M and 0.0 <= p.y <= arena.FIELD_WIDTH_M
+    ]
 
 
 class WorldStateReader:
@@ -116,8 +153,10 @@ class WorldStateReader:
     def read(self) -> WorldState:
         return WorldState(
             robot=self.link.pose(POSE_TRUTH),
-            fuel=tuple(self.link.pose3d_array(FUEL_POSES) or ()),
+            fuel=tuple(on_field(self.link.pose3d_array(FUEL_POSES) or ())),
             held=self.link.integer(BALL_COUNT),
+            intake_arm_deg=self.link.number(INTAKE_ARM_ANGLE, default=90.0),
+            auto_aim=self.link.boolean(AUTO_AIM_ENABLED),
             match_clock=self.link.number(MATCH_CLOCK),
             phase_clock=self.link.number(PHASE_CLOCK),
             hub_active={side: self.link.boolean(key) for side, key in HUB_ACTIVE.items()},
@@ -126,6 +165,19 @@ class WorldStateReader:
                 for side in ALLIANCE_TABLE
             },
         )
+
+    def measured_chassis_speeds(self) -> tuple[float, float, float] | None:
+        """What the drivetrain is actually doing, **robot-relative**, from
+        the module states -- m/s, m/s, rad/s.
+
+        Not folded into `WorldState` because it is not a fact about the
+        field, and because the frame differs from everything else there:
+        every other quantity in a snapshot is field-relative and this one
+        is not. Keeping it separate is what makes the rotation into the
+        field frame a visible step rather than an assumption.
+        """
+        speeds = self.link.chassis_speeds(CHASSIS_MEASURED)
+        return None if speeds is None else (speeds.vx, speeds.vy, speeds.omega)
 
     def fuel_in_hub(self, alliance: str) -> float:
         return self.link.number(score_key(alliance, "TotalFuelInHub"))

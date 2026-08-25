@@ -71,6 +71,12 @@ BALL_COUNT = f"{OUTPUTS}/Intake/BallCount"
 # missed.
 INTAKE_ARM_ANGLE = f"{OUTPUTS}/Intake/Mech/Intake/IntakeArm/angle"
 
+# Whether the turret is tracking the HUB by itself. Bound to manip Start as a
+# *toggle* (`turret.toggleAutoAimCommand`), which is why the published state
+# matters: a toggle pressed blind is as likely to turn the thing off as on.
+# Reading it first is what makes the press idempotent.
+AUTO_AIM_ENABLED = f"{OUTPUTS}/Shooter/Turret/autoAimEnabled"
+
 # What the robot code *believes*, from its own odometry (Drive.java:312).
 #
 # Careful: in this sim configuration these two are the same number, not two
