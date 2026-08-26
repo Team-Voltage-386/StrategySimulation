@@ -42,7 +42,7 @@ from bridge import oracles
 from bridge import robot_state as rs
 from bridge import world_state as ws
 from bridge.robot_state import POSE_TRUTH, RobotStateLink
-from bridge.sim_process import DEFAULT_ROBOT_REPO, RobotSim
+from bridge.sim_process import find_robot_repo, RobotSim
 from common_sim.control.behavior import BehaviorContext
 from common_sim.control.strategy import Rule, Strategy, StrategyController
 from common_sim.control.tactics import Collect, Idle, Score
@@ -57,16 +57,16 @@ from common_sim.match.match import Phase
 # `Calibration.direction_error_deg`. Lumping them would mean a tolerance
 # either loose enough to hide a real scaling error or tight enough to
 # fail on sampling skew every run.
+SPEED_TOLERANCE_MPS = 0.15
+OMEGA_TOLERANCE_RAD_S = 0.15
+DIRECTION_TOLERANCE_DEG = 8.0
+
 # What counts as "asking to move and not moving", for the stall summary.
 # Matched to the liveness oracle's own thresholds so the two agree about
 # what a stall is.
 STALL_COMMAND_MIN = 1.0  # in/s
 STALL_METRES = 0.08
 STALL_WORTH_REPORTING = 3.0  # seconds
-
-SPEED_TOLERANCE_MPS = 0.15
-OMEGA_TOLERANCE_RAD_S = 0.15
-DIRECTION_TOLERANCE_DEG = 8.0
 
 
 def _log(msg: str = "") -> None:
@@ -467,7 +467,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--repo", type=Path, default=DEFAULT_ROBOT_REPO)
+    parser.add_argument("--repo", type=Path, default=None,
+                        help="robot project root (default: the sibling checkout, or $SPARKY_ROBOT_REPO)")
     parser.add_argument("--attach", action="store_true")
     parser.add_argument("--seconds", type=float, default=45.0)
     parser.add_argument("--rate", type=float, default=20.0, help="strategy ticks per second")
@@ -477,6 +478,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gui", action="store_true", help="keep the Sim GUI up to watch")
     parser.add_argument("--log", type=Path, default=Path("build/bridge/strategy-console.log"))
     args = parser.parse_args(argv)
+    # Resolved once, here, so the run prints the project it actually
+    # picked and a missing one fails before a JVM is started.
+    args.repo = find_robot_repo(args.repo)
 
     _log("=" * 64)
     _log("  BRIDGE STRATEGY LAYER")

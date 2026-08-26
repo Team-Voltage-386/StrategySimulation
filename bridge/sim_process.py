@@ -33,10 +33,103 @@ import time
 from collections import deque
 from pathlib import Path
 
-DEFAULT_ROBOT_REPO = Path(r"D:\git\TyRapXXVI_2")
+#: Env var naming the robot project, for a machine where it does not sit
+#: beside this one.
+ROBOT_REPO_ENV = "SPARKY_ROBOT_REPO"
+
+#: What a robot project looks like from outside: a Gradle build with the
+#: maple-sim vendordep. Checking the vendordep as well as build.gradle is
+#: what stops a sibling checkout of some *other* Gradle project being
+#: picked up and then failing much later with a confusing gradle error.
+ROBOT_REPO_MARKERS = ("build.gradle", "vendordeps/maple-sim.json")
+
+#: What the robot project's `build.gradle` must contain for the bridge to
+#: be able to drive it at all: the gated `-Pbridge` block that swaps the
+#: Sim GUI and the real DriverStation for `halsim_ws_server`.
+#:
+#: Checked separately from the markers above because "is a robot project"
+#: and "is a robot project this can talk to" are different questions, and
+#: the second one is the one that matters. Two checkouts of the same
+#: project side by side -- one on a branch with the profile and one on
+#: main without it -- is not hypothetical; it is the layout on the
+#: machine this was written on, and picking the wrong one launches a sim
+#: that never opens the WebSocket.
+BRIDGE_PROFILE_MARKER = "hasProperty('bridge')"
 
 # Where the WPILib installer puts its bundled JDK, all-users and per-user.
 WPILIB_ROOTS = (Path(r"C:\Users\Public\wpilib"), Path.home() / "wpilib")
+
+
+def looks_like_robot_repo(path: Path) -> bool:
+    return all((path / marker).is_file() for marker in ROBOT_REPO_MARKERS)
+
+
+def supports_bridge(path: Path) -> bool:
+    """Whether this robot project has the `-Pbridge` profile."""
+    build = path / "build.gradle"
+    try:
+        return BRIDGE_PROFILE_MARKER in build.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+
+
+def find_robot_repo(explicit: Path | str | None = None) -> Path:
+    """Locate the robot project.
+
+    Order: an explicit argument, then $SPARKY_ROBOT_REPO, then any sibling
+    of this repository that looks like a robot project.
+
+    The sibling search is what makes the bridge work on a machine that is
+    not the one it was written on. This used to be a hardcoded absolute
+    path, which was invisible right up until the branch was pushed and
+    somebody else cloned it -- at which point every app fails on a
+    directory that only ever existed on one laptop.
+
+    Deliberately not a search of the whole disk, and deliberately not a
+    guess when there are several: a tool that launches a JVM and drives a
+    robot should say which project it picked, or refuse.
+    """
+    if explicit is not None:
+        repo = Path(explicit).expanduser()
+        if not looks_like_robot_repo(repo):
+            raise FileNotFoundError(
+                f"{repo} does not look like the robot project "
+                f"(expected {' and '.join(ROBOT_REPO_MARKERS)})"
+            )
+        return repo
+
+    if os.environ.get(ROBOT_REPO_ENV):
+        return find_robot_repo(os.environ[ROBOT_REPO_ENV])
+
+    siblings = sorted(
+        p for p in Path(__file__).resolve().parents[1].parent.iterdir()
+        if p.is_dir() and looks_like_robot_repo(p)
+    )
+    # Narrow to the ones that can actually be driven. This is what
+    # separates two checkouts of the same project, one on a branch that
+    # has the bridge profile and one on main that does not.
+    drivable = [p for p in siblings if supports_bridge(p)]
+    if len(drivable) == 1:
+        return drivable[0]
+    if len(drivable) > 1:
+        raise FileNotFoundError(
+            f"found {len(drivable)} robot projects beside this one that support the bridge "
+            f"({', '.join(p.name for p in drivable)}). Say which with --repo, "
+            f"or set {ROBOT_REPO_ENV}."
+        )
+    if siblings:
+        raise FileNotFoundError(
+            f"found {len(siblings)} robot project(s) beside this one "
+            f"({', '.join(p.name for p in siblings)}), but none has the bridge profile in "
+            "build.gradle. That profile is what swaps the Sim GUI for halsim_ws_server, and "
+            "without it there is nothing for this to connect to -- the robot-side branch has "
+            "not been merged or checked out. See bridge/README.md."
+        )
+    raise FileNotFoundError(
+        "no robot project found. Pass --repo, or set "
+        f"{ROBOT_REPO_ENV}, or check out the robot project beside this one. "
+        f"A robot project is a directory containing {' and '.join(ROBOT_REPO_MARKERS)}."
+    )
 
 
 def find_java_home(explicit: Path | str | None = None) -> Path:
@@ -74,7 +167,7 @@ class RobotSim:
 
     def __init__(
         self,
-        repo: Path | str = DEFAULT_ROBOT_REPO,
+        repo: Path | str | None = None,
         log_path: Path | str | None = None,
         *,
         gradle_args: tuple[str, ...] = ("simulateJava", "-Pbridge", "--no-daemon"),
@@ -82,9 +175,7 @@ class RobotSim:
         echo: bool = False,
         java_home: Path | str | None = None,
     ):
-        self.repo = Path(repo)
-        if not (self.repo / "build.gradle").is_file():
-            raise FileNotFoundError(f"{self.repo} does not look like the robot project")
+        self.repo = find_robot_repo(repo)
         self.log_path = Path(log_path) if log_path is not None else None
         self.gradle_args = gradle_args
         self.echo = echo

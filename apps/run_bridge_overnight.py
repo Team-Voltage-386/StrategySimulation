@@ -37,7 +37,7 @@ from bridge import operator as op
 from bridge import oracles
 from bridge import robot_state as rs
 from bridge.robot_state import POSE_TRUTH, RobotStateLink
-from bridge.sim_process import DEFAULT_ROBOT_REPO, RobotSim
+from bridge.sim_process import find_robot_repo, RobotSim
 
 
 def _log(msg: str = "") -> None:
@@ -119,7 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--repo", type=Path, default=DEFAULT_ROBOT_REPO)
+    parser.add_argument("--repo", type=Path, default=None,
+                        help="robot project root (default: the sibling checkout, or $SPARKY_ROBOT_REPO)")
     parser.add_argument("--matches", type=int, default=10)
     parser.add_argument("--first-seed", type=int, default=None,
                         help="default: random, and printed so the campaign can be repeated")
@@ -128,6 +129,11 @@ def main(argv: list[str] | None = None) -> int:
                         help="autonomous before the transition into teleop")
     parser.add_argument("--max-hours", type=float, default=None)
     parser.add_argument("--boot-timeout", type=float, default=300.0)
+    parser.add_argument("--driver", choices=hz.DRIVERS, default=hz.SCRIPTED,
+                        help="scripted: step 3's seeded button-masher. "
+                             "strategy: step 4's live strategy layer.")
+    parser.add_argument("--shoot-at", type=int, default=20,
+                        help="strategy driver: fuel held before going to score")
     parser.add_argument("--gui", action="store_true",
                         help="keep the Sim GUI up; for watching one seed, useless overnight")
     parser.add_argument("--no-preflight", action="store_true",
@@ -135,6 +141,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None,
                         help="campaign directory (default: build/bridge/runs/<timestamp>)")
     args = parser.parse_args(argv)
+    # Resolved once, here, so the run prints the project it actually
+    # picked and a missing one fails before a JVM is started.
+    args.repo = find_robot_repo(args.repo)
 
     first_seed = args.first_seed if args.first_seed is not None else random.randrange(1, 10_000)
     workdir = args.out or Path("build/bridge/runs") / time.strftime("%Y%m%d-%H%M%S")
@@ -146,6 +155,7 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"  robot repo   : {args.repo}")
     _log(f"  matches      : {args.matches} x {args.match_seconds:.0f}s "
          f"({args.auto_seconds:.0f}s auto, then teleop)")
+    _log(f"  driver       : {args.driver}")
     _log(f"  seeds        : {first_seed}..{first_seed + args.matches - 1}")
     _log(f"  output       : {workdir}")
     if args.max_hours:
@@ -171,13 +181,21 @@ def main(argv: list[str] | None = None) -> int:
         auto_seconds=args.auto_seconds,
         boot_timeout=args.boot_timeout,
         gui=args.gui,
+        driver=args.driver,
+        shoot_at=args.shoot_at,
     )
+
+    # The count means different things per driver -- discrete button
+    # actions for the scripted operator, control-loop ticks for the
+    # strategy layer, which differ by more than an order of magnitude.
+    # Printing both as "actions" invites a comparison that is meaningless.
+    unit = "ticks  " if args.driver == hz.STRATEGY else "actions"
 
     def announce(result: hz.MatchResult) -> None:
         mark = {hz.PASS: "  ok  ", hz.FAIL: " FAIL ", hz.HARNESS_ERROR: "ERROR "}[result.status]
         kinds = ", ".join(sorted(result.kinds)) or "-"
         _log(f"   [{mark}] match {result.index:04d} seed {result.seed:<6} "
-             f"{result.wall_seconds:5.0f}s wall  {result.actions:3d} actions  {kinds}")
+             f"{result.wall_seconds:5.0f}s wall  {result.actions:5d} {unit}  {kinds}")
 
     campaign = hz.Campaign(
         runner=runner,

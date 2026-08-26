@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from bridge import harness as hz
 from bridge import operator as op
 from bridge.scenario import Action, ScenarioGenerator
@@ -392,3 +394,99 @@ def test_clean_night_says_so_plainly(tmp_path):
     report = render_report(_campaign_with(results, tmp_path))
     assert "No failures" in report
     assert "WHAT TO LOOK AT" not in report
+
+
+# ---------------------------------------------------------------------------
+# driver selection
+# ---------------------------------------------------------------------------
+
+
+def test_an_unknown_driver_is_refused_at_construction(tmp_path):
+    """Not at match time. A campaign that discovers its driver name is a
+    typo after booting the first JVM has already spent a minute on it, and
+    an overnight run would spend the whole night on `error` statuses."""
+    with pytest.raises(ValueError, match="unknown driver"):
+        hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver="stragety")
+
+
+def test_both_drivers_are_selectable_and_default_to_scripted(tmp_path):
+    """Scripted stays the default deliberately: it is what the
+    false-positive work in step 3 was tuned against, and changing what an
+    unqualified `run_bridge_overnight.py` does would silently re-baseline
+    every number in this README."""
+    assert hz.MatchRunner(repo=tmp_path, workdir=tmp_path).driver == hz.SCRIPTED
+    for name in hz.DRIVERS:
+        assert hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=name).driver == name
+
+
+def test_the_drive_model_is_measured_once_and_reused(tmp_path):
+    """A property of the robot code, not of a match. Re-measuring per
+    match would spend four seconds each time confirming a constant."""
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY)
+    assert runner.limits is None, "nothing measured until a match needs it"
+
+    handed_in = object()
+    reused = hz.MatchRunner(
+        repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY, limits=handed_in
+    )
+    assert reused.limits is handed_in
+
+
+def test_the_strategy_is_overridable_without_touching_the_harness(tmp_path):
+    """The harness runs *a* strategy many times; it does not own which
+    one. Overriding this is how a campaign compares two."""
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY, shoot_at=7)
+    strategy = runner.strategy(seed=1)
+    assert [r.name for r in strategy.rules] == ["shoot_fuel", "collect_fuel"]
+
+    shoot = next(r for r in strategy.rules if r.name == "shoot_fuel")
+    held = next(t for t in shoot.trigger.triggers if hasattr(t, "min_count"))
+    assert held.min_count == 7, "shoot_at reaches the trigger it configures"
+
+
+def test_the_shoot_rule_also_waits_for_a_live_hub(tmp_path):
+    """REBUILT's 25-second clock, in the campaign as well as the demo. A
+    shoot rule that fires on ball count alone sends the robot to stand in
+    a goal that is not accepting."""
+    from common_sim.control.triggers import ScoringAvailable
+
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY)
+    shoot = next(r for r in runner.strategy(seed=1).rules if r.name == "shoot_fuel")
+    assert any(isinstance(t, ScoringAvailable) for t in shoot.trigger.triggers)
+
+
+class _Check:
+    """Stands in for drive_model.Calibration."""
+
+    def __init__(self, label="probe", speed=0.0, direction=0.0, omega=0.0):
+        self.label = label
+        self.speed_error = speed
+        self.direction_error_deg = direction
+        self.omega_error = omega
+
+
+def test_a_drive_model_that_agrees_lets_the_campaign_start(tmp_path):
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY)
+    runner._require_model_agrees([_Check(), _Check(speed=0.01, direction=2.0)])
+
+
+def test_a_wrong_drive_model_aborts_rather_than_logging_a_finding(tmp_path):
+    """A finding says "this match went wrong". This says "every match from
+    here commands the wrong velocity", which is a harness error -- and
+    three of those end the campaign. The alternative is eight hours of
+    matches that all look plausible and all navigated to the wrong place.
+    """
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY)
+    with pytest.raises(RuntimeError, match="disagrees with the drive"):
+        runner._require_model_agrees([_Check(label="forward full", speed=1.2)])
+
+
+def test_direction_gets_its_own_budget(tmp_path):
+    """Speed and direction have different noise floors -- the direction
+    comparison goes through a frame round trip whose two headings are
+    sampled a frame apart. One lumped tolerance would be either loose
+    enough to hide a scaling error or tight enough to fail every run."""
+    runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY)
+    runner._require_model_agrees([_Check(direction=runner.DIRECTION_TOLERANCE_DEG - 0.1)])
+    with pytest.raises(RuntimeError):
+        runner._require_model_agrees([_Check(direction=runner.DIRECTION_TOLERANCE_DEG + 0.1)])

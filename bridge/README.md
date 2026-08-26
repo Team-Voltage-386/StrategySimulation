@@ -18,7 +18,8 @@ pip install -r bridge/requirements.txt
 python apps/run_bridge_smoke.py      # step 1: does the loop close?
 python apps/run_bridge_oracles.py    # step 2: can it tell a failure from a run?
 python apps/run_bridge_overnight.py --matches 40    # step 3: the product
-python apps/run_bridge_world.py      # step 4: can it see the field?
+python apps/run_bridge_world.py      # step 4a: can it see the field?
+python apps/run_bridge_strategy.py   # step 4b: can it play?
 ```
 
 Each takes ~90 s: gradle compiles, the JVM boots, the checks run, the sim is killed.
@@ -34,6 +35,37 @@ python apps/run_bridge_oracles.py --no-provoke   # exercise only (leaves oracle 
 involved, so they run in CI.
 
 No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
+
+## Pointing it at the robot project
+
+Check the robot repo out **beside** this one and the bridge finds it:
+
+```
+somewhere/
+  sparky-sim/        <- this repo, on feature/maple-bridge
+  TyRapXXVI/         <- the robot repo, on feature/maple-bridge
+```
+
+Otherwise, either per run or once:
+
+```
+python apps/run_bridge_smoke.py --repo /path/to/robot-project
+export SPARKY_ROBOT_REPO=/path/to/robot-project
+```
+
+Discovery looks for a directory with both `build.gradle` and
+`vendordeps/maple-sim.json`, **and** the `-Pbridge` profile inside that
+`build.gradle`. The last condition is the one that earns its keep: "is a robot
+project" and "is a robot project this can talk to" are different questions, and
+two checkouts of the same repo side by side — one on the bridge branch, one on
+`main` — is not a hypothetical layout. Picking the wrong one launches a sim
+that never opens its WebSocket, and that surfaces as a connection timeout three
+minutes into a gradle build.
+
+It refuses to guess when more than one candidate qualifies, and says so. If
+*none* does, the error names the missing profile rather than the missing
+directory — the usual cause is that the robot-side branch has not been checked
+out, and the two branches have to move together.
 
 ## Shape
 
@@ -126,7 +158,39 @@ that died during gradle configuration as "exercise phase clean".
 
 ```
 python apps/run_bridge_overnight.py --matches 200 --max-hours 8
+python apps/run_bridge_overnight.py --matches 200 --driver strategy
 ```
+
+### Two drivers, and neither subsumes the other
+
+`--driver scripted` (the default) is step 3's seeded operator: a weighted random
+walk of button presses that never asks where anything is. `--driver strategy` is
+step 4's — sparky-sim's own `StrategyController` reading the live field and
+playing a real cycle.
+
+They find different things, and that is the point. A scripted operator reaches
+**strange** states cheaply: it will mash two contradictory buttons, retract an
+intake mid-collection, and spin in place against a wall, none of which a
+strategy would ever do on purpose. A strategy reaches **plausible** states: it
+will drive a full collect-and-score cycle, thread a HUB gap under time pressure,
+and hold a shot while its HUB clock runs out, none of which a random walk will
+ever reach by accident.
+
+Scripted stays the default deliberately — it is what the false-positive work
+below was tuned against, so changing what an unqualified run does would silently
+re-baseline every number on this page.
+
+The drive model is measured once, before the first strategy match's autonomous,
+and reused: it is a property of the robot code rather than of a match, and
+re-measuring would spend four seconds per match confirming a constant. Before
+autonomous, because the calibration probes drive the robot and would otherwise
+be fighting whatever auto is doing.
+
+A seed means something different under each. Scripted, it replays the same
+button sequence. Strategy, it replays the same *starting conditions* against a
+field that no longer unfolds identically — which is the honest reading anyway,
+since the physics does not repeat bit-for-bit across processes. The kept WPILOG
+is the record either way.
 
 Each match gets a fresh JVM (isolation beats throughput when the deliverable is
 a crash), 15 s of autonomous, a transition into teleop *while something is

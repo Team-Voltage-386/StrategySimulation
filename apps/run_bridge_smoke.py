@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bridge import operator as op
 from bridge.robot_state import DS_ENABLED, POSE_ODOMETRY, POSE_TRUTH, Pose2d, RobotStateLink
-from bridge.sim_process import DEFAULT_ROBOT_REPO, RobotSim
+from bridge.sim_process import find_robot_repo, RobotSim
 
 # Clears DriveCommands.DEADBAND (0.06) with room to spare, and slow enough
 # that a 2 s push stays well inside the field.
@@ -239,7 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--repo", type=Path, default=DEFAULT_ROBOT_REPO, help="robot project root")
+    parser.add_argument("--repo", type=Path, default=None,
+                        help="robot project root (default: the sibling checkout, or $SPARKY_ROBOT_REPO)")
     parser.add_argument("--attach", action="store_true", help="use a sim that is already running")
     parser.add_argument("--keep-alive", action="store_true", help="leave the sim running on exit")
     parser.add_argument("--echo", action="store_true", help="stream the robot console to stdout")
@@ -248,6 +249,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--boot-timeout", type=float, default=300.0)
     parser.add_argument("--log", type=Path, default=Path("build/bridge/robot-console.log"))
     args = parser.parse_args(argv)
+    # Resolved once, here, so the run prints the project it actually
+    # picked and a missing one fails before a JVM is started.
+    args.repo = find_robot_repo(args.repo)
 
     sim: RobotSim | None = None
     failures: list[str] = []

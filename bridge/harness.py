@@ -42,6 +42,23 @@ from bridge import scenario
 from bridge.oracles import ERROR, FaultOracle, Finding, LivenessMonitor
 from bridge.sim_process import RobotSim
 
+#: How the robot is driven during a match.
+#:
+#: `scripted` is step 3's seeded operator: a weighted random walk of button
+#: presses that never asks where anything is. It reaches strange states
+#: cheaply and it is what the false-positive work was tuned against.
+#:
+#: `strategy` is step 4's -- sparky-sim's own `StrategyController` reading
+#: the live field. It reaches *plausible* states rather than strange ones,
+#: which is a different and complementary kind of coverage: a scripted
+#: operator will never drive a full scoring cycle by accident, and a
+#: strategy will never mash two contradictory buttons on purpose.
+#:
+#: Both are worth running. Neither subsumes the other.
+SCRIPTED = "scripted"
+STRATEGY = "strategy"
+DRIVERS = (SCRIPTED, STRATEGY)
+
 try:
     from bridge.robot_state import POSE_TRUTH, RobotStateLink
 except ImportError as exc:  # pragma: no cover - depends on the install
@@ -101,6 +118,10 @@ class MatchRunner:
         auto_seconds: float = 15.0,
         boot_timeout: float = 300.0,
         gui: bool = False,
+        driver: str = SCRIPTED,
+        shoot_at: int = 20,
+        tick_hz: float = 20.0,
+        limits=None,
     ):
         self.repo = Path(repo)
         self.workdir = Path(workdir)
@@ -108,6 +129,17 @@ class MatchRunner:
         self.auto_seconds = auto_seconds
         self.boot_timeout = boot_timeout
         self.gui = gui
+        if driver not in DRIVERS:
+            raise ValueError(f"unknown driver {driver!r}; expected one of {', '.join(DRIVERS)}")
+        self.driver = driver
+        self.shoot_at = shoot_at
+        self.tick_hz = tick_hz
+        #: Measured once and reused across matches. The drive model is a
+        #: property of the robot code, not of a match, and re-measuring it
+        #: every time would spend four seconds a match confirming a
+        #: constant. Lazily filled on the first strategy match, or handed
+        #: in by a caller that measured it during preflight.
+        self.limits = limits
 
     def run(self, index: int, seed: int) -> MatchResult:
         if RobotStateLink is None:  # pragma: no cover - depends on the install
@@ -186,6 +218,163 @@ class MatchRunner:
 
     def _play(self, link: op.OperatorLink, state: RobotStateLink, seed: int) -> int:
         """Drive the robot for `match_seconds`, in auto then teleop."""
+        if self.driver == STRATEGY:
+            return self._play_strategy(link, state, seed)
+        return self._play_scripted(link, state, seed)
+
+    # -- the strategy driver -----------------------------------------------
+
+    def _play_strategy(self, link: op.OperatorLink, state: RobotStateLink, seed: int) -> int:
+        """Drive with sparky-sim's own strategy layer instead of a script.
+
+        The seed still matters, but it means something different here. A
+        scripted match replays the same button sequence; a strategy match
+        replays the same *starting conditions* and then reacts to a field
+        that no longer unfolds identically. That is the honest thing for
+        it to mean -- the physics does not repeat bit-for-bit across
+        processes anyway (see the reproduction note in
+        `run_bridge_overnight.py`), and the kept WPILOG is the record.
+
+        Calibration happens once, before the first match's autonomous, in
+        a short teleop window. Once, because the joystick-to-velocity
+        model is a property of the robot code rather than of a match;
+        before autonomous, because the probes drive the robot and would
+        otherwise be fighting whatever auto is doing.
+        """
+        # Imported here rather than at module scope on purpose. The
+        # strategy path pulls in pymunk and half of common_sim; the
+        # scripted path needs none of it, and neither does the campaign
+        # report or any of the rules tests. Keeping `bridge.harness`
+        # light is what lets those run where the strategy sim's
+        # dependencies are not installed.
+        from bridge import drive_model as dm
+        from bridge import match_view as mv
+        from bridge import world_state as ws
+        from common_sim.control.behavior import BehaviorContext
+        from common_sim.control.strategy import StrategyController
+        from common_sim.match.match import Phase
+
+        link.neutral()
+        if self.limits is None:
+            link.teleop_enable(station="blue1")
+            time.sleep(0.5)
+            self.limits, checks = dm.calibrate(link, state)
+            self._require_model_agrees(checks)
+            link.neutral()
+            link.disable()
+            time.sleep(0.3)
+
+        reader = ws.WorldStateReader(state, alliance="blue")
+        robot = mv.MapleRobot(link, self.limits, alliance="blue")
+        view = mv.MapleMatchView(robot, reader)
+        controller = StrategyController(self.strategy(seed), robot)
+        robot.controller = controller
+
+        link.autonomous_enable(station="blue1")
+        link.set_match_time(self.match_seconds)
+        started = time.monotonic()
+        ticks = self._tick_until(
+            view, robot, controller, BehaviorContext, Phase.AUTO,
+            started, started + self.auto_seconds,
+        )
+
+        link.teleop_enable()
+        ticks += self._tick_until(
+            view, robot, controller, BehaviorContext, Phase.TELEOP,
+            started, started + self.match_seconds,
+        )
+
+        # Same buzzer semantics as the scripted path: disable interrupts
+        # whatever was running rather than being handed a tidy release.
+        link.disable()
+        time.sleep(0.5)
+        return ticks
+
+    #: How far the joystick model may disagree with the drive before the
+    #: campaign is called off. Same budgets as `run_bridge_strategy.py`.
+    SPEED_TOLERANCE_MPS = 0.15
+    OMEGA_TOLERANCE_RAD_S = 0.15
+    DIRECTION_TOLERANCE_DEG = 8.0
+
+    def _require_model_agrees(self, checks) -> None:
+        """Abort rather than run the night against a wrong drive model.
+
+        Raised, not recorded as a finding, and the distinction matters. A
+        finding says "this match went wrong"; this says "every match from
+        here will be commanding the wrong velocities", which is a harness
+        error. Three of those in a row end the campaign -- which is the
+        behaviour wanted, because the alternative is eight hours of
+        matches that all look plausible and all navigated to the wrong
+        places.
+        """
+        bad = [
+            f"{c.label} (speed {c.speed_error:.3f} m/s, dir {c.direction_error_deg:.1f}deg, "
+            f"omega {c.omega_error:.3f} rad/s)"
+            for c in checks
+            if c.speed_error > self.SPEED_TOLERANCE_MPS
+            or c.omega_error > self.OMEGA_TOLERANCE_RAD_S
+            or c.direction_error_deg > self.DIRECTION_TOLERANCE_DEG
+        ]
+        if bad:
+            raise RuntimeError(
+                "the joystick model disagrees with the drive at: " + "; ".join(bad)
+                + ". bridge/drive_model.py no longer matches DriveCommands.joystickDrive, so "
+                "every strategy match would command the wrong velocity and arrive somewhere "
+                "the navigator did not plan for."
+            )
+
+    def _tick_until(self, view, robot, controller, BehaviorContext, phase,
+                    started: float, deadline: float) -> int:
+        dt = 1.0 / self.tick_hz
+        ticks = 0
+        while time.monotonic() < deadline:
+            elapsed = time.monotonic() - started
+            view.sync(elapsed, phase)
+            controller.tick(BehaviorContext(robot=robot, dt=dt, elapsed=elapsed, match=view))
+            ticks += 1
+            time.sleep(dt)
+        return ticks
+
+    def strategy(self, seed: int):
+        """The strategy a strategy-driven match plays.
+
+        A method so a caller can subclass or monkeypatch it -- the point
+        of the harness is to run *a* strategy many times, not to own which
+        one. Overriding this is how a future campaign compares two.
+        """
+        from bridge import arena
+        from bridge import match_view as mv
+        from common_sim.control.strategy import Rule, Strategy
+        from common_sim.control.tactics import Collect, Idle, Score
+        from common_sim.control.triggers import AllOf, PiecesHeld, ScoringAvailable
+
+        return Strategy(
+            name="cycle_fuel",
+            rules=[
+                Rule(
+                    name="shoot_fuel",
+                    trigger=AllOf(triggers=(
+                        PiecesHeld(piece_type=arena.PIECE_TYPE, min_count=self.shoot_at),
+                        ScoringAvailable(),
+                    )),
+                    tactic=Score(action=mv.SHOOT),
+                    priority=10,
+                ),
+                Rule(
+                    name="collect_fuel",
+                    trigger=PiecesHeld(
+                        piece_type=arena.PIECE_TYPE, max_count=mv.INTAKE_CAPACITY - 1
+                    ),
+                    tactic=Collect(piece_type=arena.PIECE_TYPE, mode="nearest"),
+                    priority=5,
+                ),
+            ],
+            fallback=Idle(),
+        )
+
+    # -- the scripted driver -----------------------------------------------
+
+    def _play_scripted(self, link: op.OperatorLink, state: RobotStateLink, seed: int) -> int:
         gen = scenario.ScenarioGenerator(seed)
         link.neutral()
 

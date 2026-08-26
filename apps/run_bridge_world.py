@@ -43,7 +43,7 @@ from bridge import operator as op
 from bridge import robot_state as rs
 from bridge import world_state as ws
 from bridge.robot_state import RobotStateLink, POSE_TRUTH
-from bridge.sim_process import DEFAULT_ROBOT_REPO, RobotSim
+from bridge.sim_process import find_robot_repo, RobotSim
 from common_sim.field.validation import describe_problems, validate_field
 
 # maple-sim's DriveTrainSimulationConfig in SimContainer: 30 x 30 inch bumpers.
@@ -259,13 +259,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--repo", type=Path, default=DEFAULT_ROBOT_REPO)
+    parser.add_argument("--repo", type=Path, default=None,
+                        help="robot project root (default: the sibling checkout, or $SPARKY_ROBOT_REPO)")
     parser.add_argument("--attach", action="store_true", help="use a sim that is already running")
     parser.add_argument("--boot-timeout", type=float, default=300.0)
     parser.add_argument("--clock-timeout", type=float, default=40.0,
                         help=f"how long to wait for the {arena.HUB_PHASE_SECONDS:.0f}s HUB swap")
     parser.add_argument("--log", type=Path, default=Path("build/bridge/world-console.log"))
     args = parser.parse_args(argv)
+    # Resolved once, here, so the run prints the project it actually
+    # picked and a missing one fails before a JVM is started.
+    args.repo = find_robot_repo(args.repo)
 
     _log("=" * 64)
     _log("  BRIDGE WORLD-STATE READER")
