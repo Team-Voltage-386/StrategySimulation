@@ -12,6 +12,7 @@ from common_sim.geometry import Pose2d
 from common_sim.match.match import Match, MatchConfig
 from common_sim.robot.characteristics import RobotCharacteristics
 from common_sim.field.field_config import point_in_polygon
+from common_sim.field.game_piece import piece_spec
 from game_specific.reefscape.field import (
     FIELD_LENGTH,
     FIELD_WIDTH,
@@ -47,6 +48,20 @@ def test_field_has_two_reef_obstacles_and_coral_stations():
     coral_stations = [r for r in field.intake_locations if r.name in station_names]
     assert all(r.piece_type == CORAL_TYPE for r in coral_stations)
     assert all(r.starting_pieces == 30 for r in coral_stations)
+
+
+def test_driver_view_hardware_is_visual_only_and_complete():
+    field = build_field()
+    assert all(o.render_style == "lattice" for o in field.obstacles)
+    assert {v.kind for v in field.visuals} == {"frame"}
+    assert len([v for v in field.visuals if "coral_station" in v.name]) == 4
+    assert len([v for v in field.visuals if "processor" in v.name]) == 2
+    assert not [v for v in field.visuals if "barge_net" in v.name]
+
+
+def test_game_pieces_declare_distinct_driver_view_silhouettes():
+    assert piece_spec(CORAL_TYPE).display_shape == "capsule"
+    assert piece_spec(ALGAE_TYPE).display_shape == "sphere"
 
 
 def test_field_has_pre_staged_algae_on_each_reef_face():

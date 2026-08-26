@@ -22,7 +22,7 @@ from __future__ import annotations
 import math
 
 from common_sim.field.field_config import (
-    EmitterRegion, FieldConfig, IntakeLocation, Obstacle, PinRule, ProtectedZone, ScoringRegion,
+    EmitterRegion, FieldConfig, FieldVisual, IntakeLocation, Obstacle, PinRule, ProtectedZone, ScoringRegion,
 )
 from game_specific.reefscape.game_pieces import ALGAE_RADIUS, ALGAE_TYPE, CORAL_TYPE
 from game_specific.reefscape.scoring import PROCESSOR_TO_OPPONENT_NET_AWARD
@@ -374,8 +374,14 @@ def build_field() -> FieldConfig:
     red_reef_center = reef_center("red")
 
     obstacles = (
-        Obstacle(name="blue_reef", vertices=_hex_vertices(blue_reef_center, REEF_HEX_APOTHEM), height=REEF_STRUCTURE_HEIGHT),
-        Obstacle(name="red_reef", vertices=_hex_vertices(red_reef_center, REEF_HEX_APOTHEM), height=REEF_STRUCTURE_HEIGHT),
+        Obstacle(
+            name="blue_reef", vertices=_hex_vertices(blue_reef_center, REEF_HEX_APOTHEM),
+            height=REEF_STRUCTURE_HEIGHT, render_style="lattice",
+        ),
+        Obstacle(
+            name="red_reef", vertices=_hex_vertices(red_reef_center, REEF_HEX_APOTHEM),
+            height=REEF_STRUCTURE_HEIGHT, render_style="lattice",
+        ),
     )
 
     # Each alliance's REEF ZONE protects *that* alliance's robots: blue
@@ -468,10 +474,29 @@ def build_field() -> FieldConfig:
         for alliance in ("blue", "red")
     )
 
+    # Recognisable hardware for the driver camera only. These do not enter
+    # collision detection or scoring checks; the polygons above remain the
+    # simulation's authoritative interaction geometry.
+    visuals = tuple(
+        FieldVisual(
+            name=f"{alliance}_coral_station_frame_{i}", kind="frame",
+            points=_rect(pos, 36.0, 36.0), height=42.0, alliance=alliance,
+        )
+        for alliance in ("blue", "red")
+        for i, pos in enumerate(coral_station_positions(alliance))
+    ) + tuple(
+        FieldVisual(
+            name=f"{alliance}_processor_frame", kind="frame",
+            points=_rect(processor_position(alliance), PROCESSOR_WIDTH, PROCESSOR_DEPTH),
+            height=20.0, alliance=alliance,
+        )
+        for alliance in ("blue", "red")
+    )
+
     return FieldConfig(
         width=FIELD_LENGTH, height=FIELD_WIDTH,
         obstacles=obstacles, scoring_regions=scoring_regions, intake_locations=intake_locations,
-        emitter_regions=emitter_regions, protected_zones=protected_zones,
+        emitter_regions=emitter_regions, protected_zones=protected_zones, visuals=visuals,
         secondary_awards=(PROCESSOR_TO_OPPONENT_NET_AWARD,),
         pin_rule=PinRule(
             max_seconds=PIN_MAX_SECONDS,

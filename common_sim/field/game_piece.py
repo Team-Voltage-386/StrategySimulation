@@ -14,7 +14,7 @@ import pymunk
 @dataclass(frozen=True)
 class GamePieceSpec:
     """Physical/visual characteristics for one piece_type -- radius, mass,
-    and display color. A game package registers one of these per piece
+    display color, and a renderer silhouette. A game package registers one of these per piece
     type it defines (see register_piece_spec), so every place that spawns
     a piece of that type (Match.spawn_piece, an EmitterRegion, a station
     dispense, a robot's preload) gets the same characteristics automatically
@@ -24,6 +24,11 @@ class GamePieceSpec:
     radius: float = 8.0
     mass: float = 0.5
     color: str | None = None
+    # Visual-only silhouette used by FieldCanvas. Physics intentionally
+    # remains circular: a CORAL tube, for example, is still represented by
+    # its conservative top-down collision radius while the driver view can
+    # draw a recognisable capsule. Unknown values fall back to "disc".
+    display_shape: str = "disc"  # disc | sphere | capsule | box | shard
 
 
 # piece_type -> GamePieceSpec, populated by game-specific packages at
