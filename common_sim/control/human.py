@@ -64,8 +64,9 @@ def _synthesize_intent(ctx: BehaviorContext) -> Intent:
     """Best-effort Intent for a human driver, who has no internal tactic
     for `StrategyController._update_intent` to read one off of. Built
     from what the robot is physically doing instead: carrying a piece
-    declares the nearest reachable scoring region for it (mirrors
-    Score); empty-handed declares whichever of the nearest reachable
+    declares the nearest legal scoring region for one of the pieces it
+    actually holds (mirrors Score); empty-handed declares whichever of
+    the nearest reachable
     piece or station is closer, ties going to the station (mirrors
     Collect._pick_target's own tie-break -- a station never runs dry
     mid-cycle the way a contested piece can be beaten to).
@@ -92,11 +93,18 @@ def _synthesize_intent(ctx: BehaviorContext) -> Intent:
         return Intent(tactic_name="Human")
 
     if robot.held_pieces:
-        region = world_view.likely_scoring_region(match, robot)
+        # Do not choose from all alliance scoring regions: a human holding
+        # ALGAE, for example, must not publish a nearby CORAL-only REEF
+        # branch.  `scoring_options` is also the legality definition used
+        # by Score, including piece type, configured scoring side, alliance,
+        # and full/blocked slots.
+        origin = (robot.pose.x, robot.pose.y)
+        options = world_view.scoring_options(match, robot)
+        option, _ = _nearest(options, origin, lambda o: polygon_centroid(o.region.vertices))
         return Intent(
             tactic_name="Human",
-            target_region=region.name if region is not None else None,
-            target_piece=robot.held_pieces[0],
+            target_region=option.region.name if option is not None else None,
+            target_piece=option.piece if option is not None else robot.held_pieces[0],
         )
 
     origin = (robot.pose.x, robot.pose.y)
