@@ -573,10 +573,25 @@ knowing rather than silently compensating for.
 The feeder needed the same debounce for the same reason — `Score` runs one
 `RunManipulator` per piece and cycles the deposit command between them, and a
 burst that emptied twenty balls then sat with the deposit commanded and nothing
-leaving for fourteen seconds. **Unlike the intake there is no observable to
-close the loop on**: nothing publishes the feeder's state, so a lost edge there
-can only be avoided, not detected. If the robot code ever logs
-`spindexer.isFeederOn` this should become a reconciliation too.
+leaving for fourteen seconds.
+
+It also needed the same reconciliation, and for a while it could not have one:
+nothing published the feeder's state, so a lost edge there could be avoided but
+not detected. `SpindexerSubsystem.periodic` now logs `Spindexer/FeederOn`, and
+`feeder_reasserts` counts alongside `intake_reasserts`.
+
+**The quieter half of that is the drivetrain, not the feeder.**
+`joystickDrive` takes `spindexer::isFeederOn` as its speed multiplier, so the
+bridge has to know whether the feeder is running before it can invert the drive
+model at all — and it was inferring that from the last button it had sent. A
+lost edge did not just stall the shot; it left every commanded velocity out by
+a factor of two, in the direction that reads as a navigation bug rather than a
+transport one. That inference is now an observation.
+
+A run that reports `feeder 0` is only meaningful because the unit tests prove
+the counter fires when the observation reads off — which also makes the zero
+the evidence that the topic is live, since a missing topic reads as `false` and
+would re-issue continuously.
 
 Auto-aim is the same shape. Manip Start is a *toggle*
 (`turret.toggleAutoAimCommand`), so pressing it blind is as likely to turn
@@ -585,6 +600,76 @@ left and every shot lands on the floor. That is exactly what the first working
 runs did: fuel left the robot, the loose count rose by the same amount, and the
 score stayed at zero. The robot publishes `autoAimEnabled`, so the press is
 conditioned on it.
+
+### The shot was 14% too fast, and the fix was one number
+
+The first runs to reach a legal shooting position scored **1 in 29** and then
+**0 in 55**, from inside the zone with auto-aim confirmed on. That reads as a
+mis-aimed turret or a badly chosen `SHOOTING_STANDOFF_IN`, and it was neither.
+
+`TurretIOSim` converts the flywheel's commanded RPM into a launch speed:
+
+```java
+calculatedVelocity = (flywheel.getFlywheelVelocity() - randomOffsetVelocity(true))
+    * TurretConstants.turretRPMToMetersPerSecond
+    * 0.58;                        // <- this
+```
+
+The comment two lines below it reads "assumed to be 16 meters/second at 6000
+RPM". That statement and that literal are not the same number: 6000 RPM is
+31.4 m/s of wheel surface speed, so 16 m/s is a factor of **0.509**. The code
+had drifted to 0.58 and taken the shot with it.
+
+Fourteen percent high on the speed is not a near miss. Worked against the shot
+table in `Scoring.java` and maple-sim's `GRAVITY = 11`, it puts the fuel
+**0.61 m over the goal at 1.6 m and 1.25 m over it at 5.5 m**, against a goal
+radius of 0.597 m — a miss at every range in the table, marginal at the near
+end and hopeless past about 4 m. That is the 1-in-29.
+
+The number is recoverable without measuring anything, because the shot table is
+itself a claim about the physics: for each distance, solve for the speed that
+puts the trajectory through the HUB centre and divide by the wheel speed the
+table asks for at that distance.
+
+| distance | hood | RPM | required factor |
+|---|---|---|---|
+| 1.602 m | 62° | 2262 | 0.478 |
+| 2.602 m | 57° | 2400 | 0.516 |
+| 3.602 m | 53° | 2650 | 0.521 |
+| 4.602 m | 51° | 2975 | 0.510 |
+| 4.830 m | 50° | 3102 | 0.498 |
+| 5.540 m | 48° | 3270 | 0.500 |
+
+**The spread is ±4% across the whole table, and the code's own comment lands in
+the middle of it.** That agreement is the actual result: it says the table and
+the sim's physics were always consistent and one scalar was wrong, rather than
+the table being untrustworthy — which would have been a much longer job. The
+value it works out to is also what a single backed wheel does physically, since
+the contact point matches the wheel's surface speed and the ball's centre
+leaves at roughly half of it.
+
+So the constant is now *derived* from the documented intent rather than written
+as a literal, which is the only reason to think it will not drift again:
+
+```java
+private static final double shotSpeedAt6000RpmMPS = 16.0;
+private static final double flywheelSurfaceSpeedToShotSpeed =
+    shotSpeedAt6000RpmMPS / (6000.0 * TurretConstants.turretRPMToMetersPerSecond);
+```
+
+Measured over two live runs afterwards: **27 of 28**, then **53 of 59**.
+
+And the standoff was never the suspect it looked like. With the factor right,
+the table's whole declared range scores, so `SHOOTING_STANDOFF_IN = 100` was
+fine all along — it is kept at 100 because the pocket also has to be somewhere
+a robot can stand, not because the shot cannot reach further.
+
+**One caveat worth keeping.** The sim shooter is now *very* forgiving: with only
+±2° of yaw, ±3° of pitch and ±50 RPM of noise, and no air drag, it scores from
+anywhere in 0.8–7.0 m. A real shooter does not. That is fine for fuzzing
+navigation and possession, and it is a bad basis for any conclusion about how
+good the shot itself is — including, when it arrives, oracle 04's differential
+scoring.
 
 ### The cycle this creates, and where it breaks
 
@@ -687,13 +772,9 @@ What remains widens the variety of situations reached.
   is visible, a robot holding fuel outside its zone with a dead HUB has a third
   option nobody has modelled: throw it toward its own corner deliberately. That
   is a real REBUILT strategy and sparky-sim has no vocabulary for it.
-* **Shot calibration.** Hit rates so far are 1 in 29 and 0 in 55, all from
-  inside the zone with auto-aim on. `RebuiltHub.checkCollision` scores a piece
-  within 0.597 m of the HUB centre **in 3D**, and that centre is 1.57 m up — a
-  60 cm sphere at chest height, not a mouth on a wall. Whether the shot is
-  mis-calibrated or the standoff in `SHOOTING_STANDOFF_IN` is simply the wrong
-  range is the open question, and it is answerable now that the robot reliably
-  gets into position.
-* **Intent→button mapping**, broadened past the canned tactic.
+* **Intent→button mapping**, broadened past the canned tactic. Note that the
+  two tactics above need none of it: a positioning tactic only drives, and a
+  pass presses the same two controls a score does — the whole difference is
+  where the robot is standing.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

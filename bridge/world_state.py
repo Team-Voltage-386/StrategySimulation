@@ -27,8 +27,8 @@ from dataclasses import dataclass
 
 from bridge import arena
 from bridge.robot_state import (
-    AUTO_AIM_ENABLED, BALL_COUNT, CHASSIS_MEASURED, FUEL_POSES, INTAKE_ARM_ANGLE,
-    POSE_TRUTH, Pose2d, Pose3d, RobotStateLink,
+    AUTO_AIM_ENABLED, BALL_COUNT, CHASSIS_MEASURED, FEEDER_ON, FUEL_POSES,
+    INTAKE_ARM_ANGLE, POSE_TRUTH, Pose2d, Pose3d, RobotStateLink,
 )
 
 # -- maple-sim's own NT surface ----------------------------------------
@@ -104,6 +104,15 @@ class WorldState:
     #: a toggle pressed blind is as likely to turn the thing off as on.
     auto_aim: bool = False
 
+    #: Whether the feeder is running. Two things depend on it and neither
+    #: is about the feeder: fuel only leaves the robot while it is true,
+    #: and `joystickDrive` halves the drivetrain while it is true. The
+    #: adapter closes a loop on it -- see `MapleRobot._reconcile_deposit`
+    #: -- and, more quietly, uses it to pick which drive mapping to
+    #: invert. Defaults to off, which is the safe reading for a caller
+    #: that has not got one: a robot that is not shooting.
+    feeder_on: bool = False
+
     @property
     def fuel_count(self) -> int:
         return len(self.fuel)
@@ -157,6 +166,7 @@ class WorldStateReader:
             held=self.link.integer(BALL_COUNT),
             intake_arm_deg=self.link.number(INTAKE_ARM_ANGLE, default=90.0),
             auto_aim=self.link.boolean(AUTO_AIM_ENABLED),
+            feeder_on=self.link.boolean(FEEDER_ON),
             match_clock=self.link.number(MATCH_CLOCK),
             phase_clock=self.link.number(PHASE_CLOCK),
             hub_active={side: self.link.boolean(key) for side, key in HUB_ACTIVE.items()},

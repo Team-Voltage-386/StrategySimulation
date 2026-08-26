@@ -325,6 +325,7 @@ def run_strategy(
         "saturated": saturated,
         "stalled_amps": stalled_amps,
         "intake_reasserts": robot.intake_reasserts,
+        "feeder_reasserts": robot.feeder_reasserts,
         "aim_toggles": robot.aim_toggles,
         "auto_aim": end_world.auto_aim,
         "shot": shot,
@@ -406,7 +407,8 @@ def check_progress(result: dict, seconds: float) -> None:
     # Reported rather than silently compensated for: a rising count means
     # the transport is losing button edges faster than expected, which is
     # a fact about the link and not about the strategy.
-    _log(f"   intake edges re-issued: {result['intake_reasserts']}")
+    _log(f"   intake edges re-issued: {result['intake_reasserts']}, "
+         f"feeder {result['feeder_reasserts']}")
     _log(f"   auto-aim    : {'on' if result['auto_aim'] else 'OFF'} "
          f"after {result['aim_toggles']} toggle(s)")
     _log(f"   fuel shot   : {result['shot']} ({result['shot_in_zone']} from inside the "

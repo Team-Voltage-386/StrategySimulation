@@ -299,13 +299,20 @@ def build_obstacles(*, ramps: bool = True, faithful_trenches: bool = True) -> tu
 # How far out from the goal mouth the shooting zone reaches. This is the
 # one number in this file that maple-sim does not decide, because it is
 # not a property of the field: it is how far away the *robot* can score
-# from, which depends on its flywheel and hood. 100 inches is a guess
-# chosen to be a plausible standoff rather than a measured range, and it
-# only has to be roughly right -- it decides where the operator drives to
-# shoot, and being wrong makes for a worse shot, not a wrong field.
+# from, which depends on its flywheel and hood.
 #
-# Measure it and replace it. Until then, treat any conclusion that turns
-# on this number as untested.
+# Measured, 2026-08-26, and it was the wrong suspect. The shot table in
+# `Scoring.java` covers 1.5-6.7 m and the whole of it lands in the HUB
+# once `TurretIOSim`'s launch speed is right -- so the range was never
+# the constraint, and 100 inches (2.54 m from the face, 3.14 m from the
+# HUB centre) sits comfortably inside it. What was wrong was the sim's
+# flywheel-speed-to-shot-speed factor, 14% high, which put the fuel over
+# the goal at every range in the table. See `TurretIOSim`.
+#
+# Left at 100 rather than widened to the table's full 6.7 m, because the
+# region also has to be *reachable*: past about that the pocket runs into
+# the driver station wall and the outposts, and a scoring region a robot
+# cannot stand in is worse than a conservative one.
 SHOOTING_STANDOFF_IN = 100.0
 
 # The near edge. A scoring region is tested against the robot's *centre*

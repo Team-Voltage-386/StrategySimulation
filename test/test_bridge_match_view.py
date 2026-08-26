@@ -67,6 +67,7 @@ class FakeReader:
         self.speeds = (0.0, 0.0, 0.0)
         self.arm = 90.0  # stowed; IntakeConstants.retractedAngle
         self.auto_aim = False
+        self.feeder_on = False
 
     def read(self) -> ws.WorldState:
         return ws.WorldState(
@@ -74,6 +75,7 @@ class FakeReader:
             match_clock=10.0, phase_clock=20.0,
             hub_active=dict(self.hub_active), score={"blue": 0.0, "red": 0.0},
             intake_arm_deg=self.arm, auto_aim=self.auto_aim,
+            feeder_on=self.feeder_on,
         )
 
     def measured_chassis_speeds(self):
@@ -362,10 +364,14 @@ def test_driving_pushes_sticks_and_keeps_the_commanded_velocity_honest():
     assert robot.commanded_speed == pytest.approx(40.0)
 
 
-def _tick(view, robot, reader, at: float, *, arm: float | None = None):
-    """One `sync` at time `at`, optionally with the arm reading `arm`."""
+def _tick(view, robot, reader, at: float, *, arm: float | None = None,
+          feeder: bool | None = None):
+    """One `sync` at time `at`, optionally with the arm reading `arm` and
+    the feeder reading `feeder`."""
     if arm is not None:
         reader.arm = arm
+    if feeder is not None:
+        reader.feeder_on = feeder
     view.sync(at, Phase.TELEOP)
 
 
@@ -444,6 +450,64 @@ def test_an_arm_that_obeys_is_left_alone():
     assert link.buttons[(1, op.BTN_Y)] is True
 
 
+def test_a_feeder_that_never_starts_gets_its_edge_re_issued():
+    """The manip right trigger is `onTrue`/`onFalse`, so a press and
+    release inside one 50 Hz transmit window never reaches the wire and
+    the feeder simply stays off. Observed live before there was anything
+    to check against: a burst emptied twenty balls and then sat with the
+    deposit commanded and nothing leaving for fourteen seconds.
+
+    `Spindexer/FeederOn` is what makes that detectable rather than merely
+    avoidable, so this is the intake reconciliation's exact shape.
+    """
+    link, robot, view, reader = _view()
+    robot.set_deposit_active(True)
+    _tick(view, robot, reader, 0.1, feeder=False)
+    assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0
+    assert robot.feeder_reasserts == 0, "not yet -- give the command time to run"
+
+    # Commanded, and the feeder still reads off. Past the reassert window
+    # the trigger is released for one tick so the next press is an edge.
+    _tick(view, robot, reader, 2.0, feeder=False)
+    assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 0.0
+    assert robot.feeder_reasserts == 1
+
+    _tick(view, robot, reader, 2.05, feeder=False)
+    assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0, "and then pressed again"
+
+
+def test_a_feeder_that_obeys_is_left_alone():
+    """The counterpart, so a rising `feeder_reasserts` really does mean
+    edges are being lost rather than that the check is trigger-happy."""
+    link, robot, view, reader = _view()
+    robot.set_deposit_active(True)
+    for t in (1.0, 2.0, 3.0, 4.0):
+        _tick(view, robot, reader, t, feeder=True)
+    assert robot.feeder_reasserts == 0
+    assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0
+
+
+def test_the_drive_mapping_follows_the_observed_feeder_not_the_command():
+    """`joystickDrive` halves the whole drivetrain from
+    `spindexer::isFeederOn`, so which mapping to invert is a question
+    about the feeder's *actual* state. Inferring it from the last button
+    sent makes every commanded velocity out by a factor of two whenever
+    an edge is lost -- silently, and looking like a navigation bug.
+    """
+    link, robot, view, reader = _view()
+    robot.set_deposit_active(True, action=mv.SHOOT)
+    _tick(view, robot, reader, 0.1, feeder=False)   # commanded, not yet running
+    robot.drive_field_relative(0.05, 60.0, 0.0, 0.0)
+    commanded_only = link.axes[(0, op.AXIS_LEFT_Y)]
+
+    _tick(view, robot, reader, 0.2, feeder=True)    # now it really is running
+    robot.drive_field_relative(0.05, 60.0, 0.0, 0.0)
+
+    assert abs(link.axes[(0, op.AXIS_LEFT_Y)]) > abs(commanded_only), (
+        "the same velocity needs more stick once the feeder has actually halved the drivetrain"
+    )
+
+
 def test_auto_aim_is_toggled_on_only_when_it_reads_off():
     """Manip Start is a toggle, so pressing it blind is as likely to turn
     auto-aim off as on. Without auto-aim the turret points wherever it
@@ -484,23 +548,25 @@ def test_the_feeder_stays_on_between_two_shots_of_a_burst():
     the feeder simply stays off.
 
     Observed live before this: a burst emptied twenty balls, then sat with
-    the deposit commanded and nothing leaving for fourteen seconds. Unlike
-    the intake there is no observable to close the loop on -- nothing
-    publishes the feeder's state -- so a lost edge here can only be
-    avoided, not detected.
+    the deposit commanded and nothing leaving for fourteen seconds.
+
+    The feeder reads *on* throughout, because that is what a burst is --
+    which is what keeps this a test of the debounce rather than of the
+    reassert that now backs it up.
     """
     link, robot, view, reader = _view()
     robot.set_deposit_active(True, action=mv.SHOOT)
-    _tick(view, robot, reader, 1.0)
+    _tick(view, robot, reader, 1.0, feeder=True)
     assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0
 
     robot.set_deposit_active(False)
-    _tick(view, robot, reader, 1.05)
+    _tick(view, robot, reader, 1.05, feeder=True)
     assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0, "still the same burst"
 
     robot.set_deposit_active(True, action=mv.SHOOT)
-    _tick(view, robot, reader, 1.10)
+    _tick(view, robot, reader, 1.10, feeder=True)
     assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 1.0
+    assert robot.feeder_reasserts == 0, "the feeder was running; nothing to re-issue"
 
 
 def test_a_real_stop_does_stop_the_feeder():
@@ -509,23 +575,28 @@ def test_a_real_stop_does_stop_the_feeder():
     and keeps its drivetrain halved."""
     link, robot, view, reader = _view()
     robot.set_deposit_active(True, action=mv.SHOOT)
-    _tick(view, robot, reader, 1.0)
+    _tick(view, robot, reader, 1.0, feeder=True)
 
     robot.set_deposit_active(False)
-    _tick(view, robot, reader, 2.0)
+    _tick(view, robot, reader, 2.0, feeder=False)
     assert link.axes[(1, op.AXIS_RIGHT_TRIGGER)] == 0.0
     assert link.buttons[(0, op.BTN_LEFT_BUMPER)] is False
 
 
 def test_a_shot_in_progress_changes_how_the_next_drive_is_inverted():
     """The feeder halves the drivetrain, so the same velocity needs a
-    different stick. This is the coupling that makes `set_deposit_active`
-    record its state rather than only writing buttons."""
-    link, robot, _, _ = _view()
+    different stick.
+
+    Keyed to the feeder being *observed* running, not to the deposit
+    having been commanded. Those differ for as long as an edge takes to
+    land, and for ever if it is lost.
+    """
+    link, robot, view, reader = _view()
     robot.drive_field_relative(0.05, 60.0, 0.0, 0.0)
     idle_stick = link.axes[(0, op.AXIS_LEFT_Y)]
 
     robot.set_deposit_active(True, action=mv.SHOOT)
+    _tick(view, robot, reader, 0.1, feeder=True)
     robot.drive_field_relative(0.05, 60.0, 0.0, 0.0)
     assert abs(link.axes[(0, op.AXIS_LEFT_Y)]) > abs(idle_stick)
 

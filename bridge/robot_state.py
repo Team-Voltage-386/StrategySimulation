@@ -77,6 +77,13 @@ INTAKE_ARM_ANGLE = f"{OUTPUTS}/Intake/Mech/Intake/IntakeArm/angle"
 # Reading it first is what makes the press idempotent.
 AUTO_AIM_ENABLED = f"{OUTPUTS}/Shooter/Turret/autoAimEnabled"
 
+#: Whether the feeder is running. The one signal two *other* subsystems
+#: branch on: `DriveCommands.joystickDrive` halves the whole drivetrain
+#: while it is true, and `TurretIOSim` only launches fuel while it is
+#: true. Neither could be inverted without inferring this, and inferring
+#: it from the last button sent is wrong exactly when an edge is lost.
+FEEDER_ON = f"{OUTPUTS}/Spindexer/FeederOn"
+
 # What the robot code *believes*, from its own odometry (Drive.java:312).
 #
 # Careful: in this sim configuration these two are the same number, not two

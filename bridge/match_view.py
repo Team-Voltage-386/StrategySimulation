@@ -296,6 +296,15 @@ class MapleRobot(Robot):
         self._deposit_commanded = False
         self._deposit_want = False
         self._deposit_want_since = 0.0
+        self._deposit_changed_at = 0.0
+        self._deposit_reasserting = False
+        #: What the robot says the feeder is doing, as of the last `sync`.
+        #: Not what was last sent to it -- the difference is the whole
+        #: point, and it is also what `drive_field_relative` inverts
+        #: against, since the feeder halves the drivetrain.
+        self._feeder_on = False
+        #: Lost feeder edges re-issued, counted like `intake_reasserts`.
+        self.feeder_reasserts = 0
         self.saturated = False  # last drive command exceeded the drivetrain
 
         # Intake command state. `_want` is what the tactic asked for,
@@ -370,6 +379,7 @@ class MapleRobot(Robot):
         self._reconcile_aim(world.auto_aim)
         # Runs every tick, not only on a command change, so the feed
         # debounce can expire without waiting for the next call.
+        self._feeder_on = world.feeder_on
         self._apply_deposit()
 
     def _sync_held(self, count: int) -> None:
@@ -422,7 +432,13 @@ class MapleRobot(Robot):
         """
         super().drive_field_relative(dt, vx, vy, omega)
         request = dm.axes_for(
-            vx * IN_TO_M, vy * IN_TO_M, omega, self.limits, shooting=self._deposit_commanded
+            # `shooting` is the *observed* feeder, not the commanded one.
+            # `joystickDrive` halves the drivetrain from
+            # `spindexer::isFeederOn`, so inverting the wrong mapping
+            # makes every commanded velocity out by a factor of two --
+            # silently, and in the direction that looks like a navigation
+            # bug rather than a transport one.
+            vx * IN_TO_M, vy * IN_TO_M, omega, self.limits, shooting=self._feeder_on
         )
         self.saturated = request.saturated
         request.apply(self.link)
@@ -572,12 +588,15 @@ class MapleRobot(Robot):
         just written: the next `drive_field_relative` has to invert a
         different mapping.
 
-        Debounced like the intake, and for the same reason. Unlike the
-        intake there is **no observable to close the loop on** -- nothing
-        publishes the feeder's state, so a lost edge here cannot be
-        detected, only avoided. If the robot code ever logs
-        `spindexer.isFeederOn`, this should become a reconciliation like
-        `_reconcile_intake`.
+        Debounced like the intake, and for the same reason, and now
+        reconciled like it too: `SpindexerSubsystem.periodic` publishes
+        `Spindexer/FeederOn`, so a lost edge here is detected rather than
+        merely avoided. Before that it could only be avoided, and the
+        gap showed up twice -- as a burst that emptied twenty balls and
+        then sat with the deposit commanded and nothing leaving for
+        fourteen seconds, and as a drivetrain being told to go twice as
+        fast as intended because the halving was inferred from the last
+        button sent.
         """
         super().set_deposit_active(active, action)
         if active != self._deposit_want:
@@ -586,14 +605,41 @@ class MapleRobot(Robot):
         self._apply_deposit()
 
     def _apply_deposit(self) -> None:
+        """Make the buttons -- and then the feeder itself -- agree with
+        what the tactic asked for.
+
+        Same shape as `_reconcile_intake`, for the same reason: the manip
+        right trigger is `onTrue`/`onFalse`, so it needs edges, and a
+        press and release inside one 50 Hz transmit window never reaches
+        the wire at all.
+        """
         want = self._deposit_want
         if not want and self._deposit_commanded and self._now - self._deposit_want_since < self.FEED_DEBOUNCE:
             want = True  # between two shots of the same burst
-        if want == self._deposit_commanded:
+
+        if self._deposit_reasserting:
+            # One tick with the trigger released, so the next press is a
+            # real rising edge rather than a no-op on a held button.
+            self._deposit_reasserting = False
+            self._press_deposit(want)
             return
-        self._deposit_commanded = want
-        self.link.set_button(op.BTN_LEFT_BUMPER, want, joystick=0)
-        self.link.set_axis(op.AXIS_RIGHT_TRIGGER, 1.0 if want else 0.0, joystick=1)
+
+        if want != self._deposit_commanded:
+            self._press_deposit(want)
+            return
+
+        if want != self._feeder_on and self._now - self._deposit_changed_at > self.REASSERT_AFTER:
+            self.link.set_axis(op.AXIS_RIGHT_TRIGGER, 0.0, joystick=1)
+            self._deposit_reasserting = True
+            self.feeder_reasserts += 1
+
+    def _press_deposit(self, active: bool) -> None:
+        self._deposit_commanded = active
+        self._deposit_changed_at = self._now
+        # Left bumper is `whileTrue`, so it is a genuine hold and needs no
+        # edge; only the feeder trigger does.
+        self.link.set_button(op.BTN_LEFT_BUMPER, active, joystick=0)
+        self.link.set_axis(op.AXIS_RIGHT_TRIGGER, 1.0 if active else 0.0, joystick=1)
 
     def release_all(self) -> None:
         """Let go of everything. For the end of a match, or a handover
@@ -607,7 +653,8 @@ class MapleRobot(Robot):
         self._press_intake(False)
         self.set_deposit_active(False)
         self._deposit_want_since = -math.inf  # skip the feed debounce; the run is over
-        self._apply_deposit()
+        self._deposit_reasserting = False
+        self._press_deposit(False)
         self.link.set_button(op.BTN_B, False, joystick=1)
         self.want_auto_aim = False
         self.link.set_button(op.BTN_START, False, joystick=1)
