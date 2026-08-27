@@ -305,12 +305,61 @@ def build_obstacles(*, ramps: bool = True, faithful_trenches: bool = True) -> tu
 # alone, so the robot shoots outside this range too, and the
 # `InterpolatingDoubleTreeMap`s clamp to their end entries when it does.
 #
-# Transcribed anyway, because they are the robot code's own statement of
-# where it believes it can score, and because the check at the end of
-# `build_scoring_regions` uses the upper one to establish that the
-# scoring rule below is entitled to leave the range term out.
+# Transcribed for the record, and **not** the range this file enforces.
+# What actually scores is much narrower and is not derivable from this
+# table; see `SCORING_RANGE_M`.
 SHOT_MIN_DISTANCE_M = 1.5
 SHOT_MAX_DISTANCE_M = 6.7
+
+# How far from the HUB centre a shot actually lands in the goal, in
+# metres. **Measured, not derived, and three separate forward models got
+# it wrong before anyone measured it.**
+#
+# The reason models fail here is that the scoring geometry is not what
+# the source appears to say. Two independent things happen to a FUEL
+# projectile near the HUB:
+#
+# * `Goal.simulationSubTick` scores it -- using `checkValidity` ->
+#   `positionChecker`, which the `Goal` constructor set to
+#   `box(xyBox, position.getZ(), position.getZ() + height)`. RebuiltHub
+#   passes 47 x 47 inches and a height of 10 inches, so the target is a
+#   flat pad: +/-0.597 m in x and y, and z from 1.5748 to 1.8288.
+#   `RebuiltHub.checkCollision`, the 3D sphere test that reads like the
+#   scoring rule and that every model here was built on, is overridden
+#   and **never called by anything**.
+# * `GamePieceProjectile.launch()` walks the arc on a 0.02 s grid and
+#   latches `calculatedHitTargetTime` at the first step within the
+#   +/-0.5 m `withTargetTolerance` box. From then on
+#   `updateGamePieceProjectiles` *removes the piece* and runs
+#   `hitTargetCallBack` -- which `TurretIOSim` never sets. The ball is
+#   deleted whether it scored or not.
+#
+# So a ball has to be inside a 254 mm-tall pad during the 97 mm of travel
+# between entering the goal box and entering the delete box. That is thin
+# enough that the outcome turns on details a closed-form model does not
+# have, which is why this is a measurement.
+#
+# The measurement, on 60-second live runs: **22 of 24 at 2.04 m**, and
+# 2 of 42, 6 of 44 and 6 of 42 at 2.50-2.55 m. Somewhere between those
+# two the shot stops arriving, and nobody has swept it to find out where.
+#
+# So this is deliberately conservative rather than a survey. The near
+# edge is the old pocket's, which is the robot's own bumpers against the
+# HUB. The far edge sits just past the only distance measured to work and
+# well short of the nearest one measured to fail -- which matters more
+# than it looks, because the region's centroid is the pose `Score` and
+# `Stage` drive to, so **the far edge sets the distance the robot
+# actually shoots from**. Widening it is not free: it moves the aim point
+# outward, and 2.53 m is where scoring collapsed.
+#
+# Confirmed live at the resulting aim point, 1.80 m: **42 of 48**, on the
+# same test that gave 2 of 42 with no range term -- and with no
+# `robot-pinned` finding, because the y freedom the region keeps is what
+# stops the robot driving into the pinch.
+#
+# A distance sweep would replace this with a real band and is the obvious
+# next measurement.
+SCORING_RANGE_M = (1.05, 2.30)
 
 # Half a 30-inch frame plus bumpers. A scoring region is tested against
 # the robot's *centre* (`world_view.region_occupants` does a
@@ -320,77 +369,60 @@ ROBOT_STANDOFF_IN = 18.0
 
 
 def can_score_from(x_in: float, y_in: float, alliance: str) -> bool:
-    """Whether a shot taken from here would be *aimed at the HUB*.
+    """Whether a shot taken from here would go in.
 
-    This is the whole scoring rule, and it is one term: are you inside
-    your own alliance zone. `Turret.setTarget` branches on
+    Two terms, and they answer different questions.
+
+    **The alliance zone** decides whether the press is a score or a
+    *pass*. `Turret.setTarget` branches on
     `RobotContainer.isInAllianceArea` and on nothing else -- inside, the
-    turret aims at the HUB and the shot is a scoring attempt; outside, it
-    aims at a corner of your own zone and the identical press is a
-    *pass*.
+    turret aims at the HUB; outside, it aims at a corner of your own zone
+    and throws the fuel back. This is the term `Pass` reads.
 
-    `y_in` is unused and is in the signature anyway, because the omission
-    is the interesting part rather than an oversight: the rule is a
-    half-plane in x, so a robot pressed against its own alliance wall in
-    the far corner is as much in scoring position as one parked beside
-    the HUB.
-
-    **What is deliberately not here is a range term.** The shot table
-    declares 1.5-6.7 m, and leaving it out is a measurement rather than
-    an assumption:
-
-    * The far corner of an alliance zone is 6.12 m from its HUB, so the
-      upper bound cannot bind anywhere a robot could score from at all.
-      `build_scoring_regions` checks precisely that, so this paragraph
-      cannot quietly go stale.
-    * The lower bound can be crossed -- a robot with its bumpers on the
-      HUB's back face is 1.05 m from the centre -- but nothing enforces
-      it, and solving the maple-sim ballistics against `RebuiltHub`'s
-      goal sphere puts the >=95% hit band at 0.8-7.0 m once
-      `TurretIOSim`'s launch speed is right. The declared minimum is
-      conservative against what the simulated shot actually does.
-
-    That second point is a fact about *this simulation*, whose shooter is
-    forgiving -- no air drag, and a couple of degrees of aim noise. It is
-    not a claim about the real robot, and anything that starts judging
-    the *shot* rather than the navigation should read the shot caveat in
-    bridge/README.md first.
+    **The range** decides whether the shot that is aimed at the HUB
+    arrives in the goal. It is a radius from the HUB centre and not a
+    slab in x, because the turret rotates: standing off the HUB's axis in
+    y costs nothing, and the region this replaced said otherwise about
+    almost the whole field width. See `SCORING_RANGE_M` for why the
+    numbers are measured rather than computed.
     """
-    del y_in  # in the signature on purpose; see above
-    return in_alliance_zone(x_in, alliance)
+    if not in_alliance_zone(x_in, alliance):
+        return False
+    near, far = SCORING_RANGE_M
+    distance = math.dist((x_in, y_in), hub_centre(alliance))
+    return _in(near) <= distance <= _in(far)
 
 
 def build_scoring_regions() -> tuple[ScoringRegion, ...]:
-    """One region per HUB: **the alliance zone**, less the floor a robot
-    cannot stand on.
+    """One region per HUB: the arc of floor inside the alliance zone from
+    which a shot lands in the goal.
 
-    The zone, not a pocket beside the goal. This started as an 82 x 47
-    inch rectangle behind the HUB, sized to the goal mouth and a guessed
-    shooting standoff, and that was two mistakes stacked:
+    A lens, not a pocket, and the difference is the y axis. This started
+    as an 82 x 47 inch rectangle behind the HUB, and the 47 inches came
+    from the goal mouth's *width* -- which says nothing about where a
+    robot stands, because the turret rotates. Being off the HUB's axis in
+    y costs nothing at all, and a region sized to the mouth threw away
+    almost the whole field width.
 
-    * The goal mouth's *width* has nothing to say about where a robot
-      stands. The turret rotates, so being off the HUB's axis in y costs
-      nothing whatever, and a 47-inch-tall region claimed otherwise.
-    * The standoff in x was a guess at flywheel range, and measurement
-      later showed range was never the binding constraint at all (see
-      `can_score_from`).
-
-    So the region was a small arbitrary subset of the true one, and the
-    cost of that was not cosmetic. `Score` navigates at a region and
+    The cost of that was not cosmetic. `Score` navigates at a region and
     stops the moment `deposit_region_for` says the pose is legal; a
-    region a quarter the size of the legal area is a robot that drives
-    past perfectly good scoring positions to reach a nominated one --
-    here, straight into the 50-inch pinch between the HUB ramp and the
-    field wall, which is where the campaign's recurring `robot-pinned`
-    finding lives.
+    region far smaller than the legal area is a robot that drives past
+    perfectly good scoring positions to reach a nominated one -- here,
+    into the 50-inch pinch between the HUB ramp and the field wall, which
+    is where the campaign's recurring `robot-pinned` finding lives.
 
-    The polygon is a *navigation aid*: it is what `Score` and `Stage` aim
-    at, and what `region_occupants` shares out between robots. The
-    *rule* is `can_score_from`, which `MapleMatchView.deposit_region_for`
-    applies directly and which has no polygon in it. Keeping those two
-    jobs apart is what lets the polygon be the conservative inset below
-    without lying -- a robot in the 18-inch band beside the HUB is
-    outside the polygon and still, correctly, ready to score.
+    The *depth* is a different story and is kept: it is the one part of
+    the old pocket that measurement supports. Widening the region to the
+    whole alliance zone was tried, and scoring fell from 22-of-24 to
+    2-of-42 because the robot started shooting from half a metre further
+    out. See `SCORING_RANGE_M`.
+
+    The polygon is a navigation aid -- what `Score` and `Stage` aim at,
+    and what `region_occupants` shares between robots. The *rule* is
+    `can_score_from`. Keeping the two apart is what lets the polygon be
+    the conservative inset below without lying: a robot in the 18-inch
+    band beside the HUB is outside the polygon and still, correctly,
+    ready to score.
 
     Named GOAL rather than HUB because the obstacle is already called
     HUB, and the field validator is right that a name shared by a
@@ -403,24 +435,48 @@ def build_scoring_regions() -> tuple[ScoringRegion, ...]:
     changes during the match and is read live rather than declared here.
     """
     regions = []
+    near_m, far_m = SCORING_RANGE_M
     for alliance in ("blue", "red"):
         # Away from midfield: blue's own side is -x, red's is +x.
         outward = -1.0 if alliance == "blue" else 1.0
-        hub_x = _in(HUB_CENTRE_M[alliance][0])
-        wall_x = 0.0 if alliance == "blue" else FIELD_LENGTH
+        hub_x, hub_y = hub_centre(alliance)
+        far = _in(far_m)
+        # The near edge is not the shot's minimum range but the robot's
+        # own bumpers: the HUB is 47 inches across, so a robot cannot get
+        # closer than this whatever the flywheel could manage. The
+        # minimum range is left to `can_score_from`, where a robot that
+        # has somehow got closer still reads correctly.
+        chord = HUB_SIZE_IN[0] / 2.0 + ROBOT_STANDOFF_IN
+        assert chord < far, f"the {alliance} HUB is wider than the shot's reach"
 
-        # The zone boundary itself would be the near edge, except that
-        # the HUB straddles it -- blue's bound (182.1 in) lies 1.1 inches
-        # *past* the blue hub centre, so the last two feet of the zone
-        # are inside the structure. Stop at the face a robot can reach.
-        near = hub_x + outward * (HUB_SIZE_IN[0] / 2.0 + ROBOT_STANDOFF_IN)
-        far = wall_x - outward * ROBOT_STANDOFF_IN
-        lo_x, hi_x = min(near, far), max(near, far)
-        lo_y, hi_y = ROBOT_STANDOFF_IN, FIELD_WIDTH - ROBOT_STANDOFF_IN
+        # A circular segment: the arc at the far edge of the scoring
+        # range, closed by the chord along the face of the HUB. Every
+        # point on the arc is the same distance from the goal, which is
+        # the whole reason to describe the region as a radius -- a
+        # rectangle would have to shrink to the arc's narrowest point and
+        # hand back most of the y freedom this exists to win.
+        limit = math.acos(chord / far)
+        steps = 12
+        vertices = [
+            (hub_x + outward * far * math.cos(limit * (-1.0 + 2.0 * i / steps)),
+             hub_y + far * math.sin(limit * (-1.0 + 2.0 * i / steps)))
+            for i in range(steps + 1)
+        ]
+
+        # Clip to floor a robot can stand on: inside the field walls, and
+        # inside the alliance zone the shot has to be taken from.
+        bound = _in(ALLIANCE_ZONE_BOUND_M[alliance])
+        clipped = []
+        for x, y in vertices:
+            x = min(x, bound) if alliance == "blue" else max(x, bound)
+            x = min(max(x, ROBOT_STANDOFF_IN), FIELD_LENGTH - ROBOT_STANDOFF_IN)
+            y = min(max(y, ROBOT_STANDOFF_IN), FIELD_WIDTH - ROBOT_STANDOFF_IN)
+            if not clipped or (x, y) != clipped[-1]:
+                clipped.append((x, y))
 
         region = ScoringRegion(
             name=f"{alliance} GOAL",
-            vertices=((lo_x, lo_y), (hi_x, lo_y), (hi_x, hi_y), (lo_x, hi_y)),
+            vertices=tuple(clipped),
             actions=frozenset({"shoot"}),
             piece_types=frozenset({PIECE_TYPE}),
             alliance=alliance,
@@ -430,25 +486,6 @@ def build_scoring_regions() -> tuple[ScoringRegion, ...]:
             "robot sent there would pass the fuel instead of scoring it"
         )
         regions.append(region)
-
-    # The range term `can_score_from` leaves out, checked rather than
-    # argued in prose. Every corner of an alliance *zone* -- not of the
-    # inset polygon above, which is only a navigation aid -- has to lie
-    # inside the shot table's declared reach, or "you are in the zone"
-    # stops being the whole scoring rule and this file owes its callers a
-    # distance test.
-    for alliance in ("blue", "red"):
-        hub = HUB_CENTRE_M[alliance]
-        wall_m = 0.0 if alliance == "blue" else FIELD_LENGTH_M
-        reach = max(
-            math.dist(hub, (x, y))
-            for x in (wall_m, ALLIANCE_ZONE_BOUND_M[alliance])
-            for y in (0.0, FIELD_WIDTH_M)
-        )
-        assert reach <= SHOT_MAX_DISTANCE_M, (
-            f"the {alliance} zone reaches {reach:.2f} m from its HUB, past the shot table's "
-            f"{SHOT_MAX_DISTANCE_M} m -- `can_score_from` now needs a range term"
-        )
     return tuple(regions)
 
 

@@ -255,49 +255,47 @@ def test_the_goal_regions_stand_off_the_structure_they_shoot_at():
         assert min(xs) >= max(hub_xs) or max(xs) <= min(hub_xs)
 
 
-def test_the_goal_regions_span_the_field_rather_than_the_goal_mouth():
-    """The region was 47 inches tall once, sized to the goal mouth. The
-    mouth's width says nothing at all about where a robot stands, because
-    the turret rotates -- and a region a ninth of the legal area is a
-    robot that drives past good scoring positions to reach a nominated
-    one."""
+def test_the_goal_regions_are_not_sized_to_the_goal_mouth():
+    """The region was 47 inches tall once, because that is the width of
+    the goal mouth. The mouth's width says nothing whatever about where a
+    robot stands: the turret rotates, so being off the HUB's axis in y
+    costs nothing, and a region a fraction of the legal area is a robot
+    that drives past good scoring positions to reach a nominated one.
+
+    Not the whole field width either, which was the overcorrection. The
+    range term binds, and the y freedom this wins is the arc it allows at
+    a scoring distance -- about three times the mouth, not seven."""
+    mouth = 2 * arena._in(arena.GOAL_RADIUS_M)
     for region in arena.build_arena().scoring_regions:
         ys = [v[1] for v in region.vertices]
-        assert max(ys) - min(ys) > 0.8 * arena.FIELD_WIDTH, region.name
+        assert max(ys) - min(ys) > 3 * mouth, region.name
 
 
-def test_the_scoring_rule_is_entitled_to_leave_the_range_term_out():
-    """`can_score_from` has one term in it -- the alliance zone -- and the
-    shot table's declared 1.5-6.7 m does not appear. Both halves of that
-    omission are checkable, so neither has to be taken on trust.
+def test_the_scoring_rule_is_a_radius_and_the_declared_range_is_not_it():
+    """Two ranges live in this file and they are not the same number.
 
-    The far bound is a fact about geometry: no corner of an alliance zone
-    is further from its HUB than the table reaches, so it can never bind
-    on a robot that is scoring at all.
+    `SHOT_MIN/MAX_DISTANCE_M` is what `Scoring.java` declares, and
+    `ShotCalculation` computes `isValid` from it and then nothing reads
+    the answer -- so the robot shoots outside it and the interpolating
+    maps clamp. It is transcribed for the record.
 
-    The near bound is crossable and is left out *knowingly*: a robot with
-    its bumpers against the HUB's back face is inside it. Nothing in the
-    robot code enforces the bound -- `ShotCalculation/isValid` is
-    computed, logged and never read -- and solving the maple-sim
-    ballistics puts the simulated shot's hit band at 0.8-7.0 m.
+    `SCORING_RANGE_M` is where a shot has been *measured* to arrive, and
+    it is far narrower. Three forward models said the declared range all
+    scored; live runs said 22-of-24 at 2.04 m and about one in ten at
+    2.5 m. The rule follows the measurement.
     """
-    for alliance in ("blue", "red"):
-        hub = arena.HUB_CENTRE_M[alliance]
-        wall = 0.0 if alliance == "blue" else arena.FIELD_LENGTH_M
-        reach = max(
-            math.dist(hub, (x, y))
-            for x in (wall, arena.ALLIANCE_ZONE_BOUND_M[alliance])
-            for y in (0.0, arena.FIELD_WIDTH_M)
-        )
-        assert reach <= arena.SHOT_MAX_DISTANCE_M, f"{alliance} zone reaches {reach:.2f} m"
+    near, far = arena.SCORING_RANGE_M
+    assert far < arena.SHOT_MAX_DISTANCE_M, (
+        "the measured band has grown past the declared one, which would mean the shot "
+        "table is now the binding constraint -- re-read both before believing it"
+    )
+    assert near < arena.SHOT_MIN_DISTANCE_M, "the near edge is the robot's bumpers, not the table"
 
-        bumpers_on_the_hub = (
-            arena.HUB_SIZE_IN[0] / 2.0 + arena.ROBOT_STANDOFF_IN
-        ) / arena.M_TO_IN
-        assert bumpers_on_the_hub < arena.SHOT_MIN_DISTANCE_M, (
-            "the near bound is no longer reachable, so leaving it out is now free "
-            "rather than a judgement call -- say so where it is explained"
-        )
+    # 2.04 m scored 22 of 24; 2.53 m scored 2 of 42. The rule has to
+    # separate them or it is not carrying the measurement.
+    hub_x, hub_y = arena.hub_centre("blue")
+    assert arena.can_score_from(hub_x - arena._in(2.04), hub_y, "blue")
+    assert not arena.can_score_from(hub_x - arena._in(2.53), hub_y, "blue")
 
 
 def test_the_transcribed_arena_passes_the_field_validator():

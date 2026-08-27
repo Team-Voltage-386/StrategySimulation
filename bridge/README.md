@@ -493,7 +493,7 @@ structure: the goal is 1.57 m up and the turret has a pitch. `build_scoring_regi
 asserts every vertex is inside the zone, so this cannot regress quietly.
 
 Getting them on the right *side* was only half of it; see
-[the region was also the wrong size](#the-region-was-also-the-wrong-size-and-that-was-the-expensive-half)
+[the region was the wrong shape](#the-region-was-the-wrong-shape-and-the-fix-was-half-wrong-too)
 for the half that took another two campaigns to notice.
 
 Two things fall out of it worth keeping:
@@ -612,7 +612,7 @@ conditioned on it.
 
 The first runs to reach a legal shooting position scored **1 in 29** and then
 **0 in 55**, from inside the zone with auto-aim confirmed on. That reads as a
-mis-aimed turret or a badly chosen `SHOOTING_STANDOFF_IN`, and it was neither.
+mis-aimed turret or a badly chosen the standoff, and it was neither.
 
 `TurretIOSim` converts the flywheel's commanded RPM into a launch speed:
 
@@ -670,19 +670,22 @@ And the standoff was never the suspect it looked like. With the factor right,
 the table's whole declared range scores from anywhere a robot can stand, which
 is why the standoff constant does not exist any more — see the next section.
 
-**One caveat worth keeping.** The sim shooter is now *very* forgiving: with only
-±2° of yaw, ±3° of pitch and ±50 RPM of noise, and no air drag, it scores from
-anywhere in 0.8–7.0 m. A real shooter does not. That is fine for fuzzing
-navigation and possession, and it is a bad basis for any conclusion about how
-good the shot itself is — including, when it arrives, oracle 04's differential
-scoring.
+**This section's arithmetic is against the wrong target, and the conclusion
+still holds.** Every number above was solved against `RebuiltHub.checkCollision`,
+a 0.597 m sphere centred on the hub -- which the next section shows is dead code
+that maple-sim never calls. The *ratio* the calibration turns on is unaffected:
+it comes from the shot table's own internal consistency, and 0.58 was 14% high
+against any target. The live result stands too -- 1-in-29 before, 27-of-28
+after. What does **not** survive is the claim that followed it, that the shooter
+is so forgiving it scores from anywhere in 0.8-7.0 m. Measured against the real
+scoring volume it scores from a narrow band, and finding that out cost a
+tenfold scoring regression.
 
-### The region was also the wrong size, and that was the expensive half
+### The region was the wrong shape, and the fix was half wrong too
 
 Putting the scoring regions behind the HUB instead of at its mouth fixed *where*
-they were. It left them the wrong **shape**, and that took two more campaigns to
-see because nothing about it looks like a bug: the robot drives somewhere legal
-and scores.
+they were. It left them the wrong **shape**, and correcting that took a wrong
+turn worth writing down, because the wrong turn is the more useful half.
 
 The original region was an 82 × 47 inch pocket, and both of its dimensions were
 guesses dressed as measurements:
@@ -690,59 +693,103 @@ guesses dressed as measurements:
 * **47 inches tall** because that is the goal mouth's width. The mouth's width
   has nothing to do with where a robot stands — *the turret rotates*. Being off
   the HUB's axis in y costs exactly nothing.
-* **82 inches deep** because of `SHOOTING_STANDOFF_IN = 100`, a guess at
-  flywheel range. Range was never the binding constraint, as the shot
-  calibration above eventually showed.
+* **82 inches deep** from `SHOOTING_STANDOFF_IN = 100`, a guess at flywheel
+  range.
 
-So the region was about a ninth of the floor a robot can actually score from,
-and `deposit_region_for` — a point-in-polygon test on it — inherited the error.
+The first of those is simply wrong and is now gone. The second turned out to be
+right for a reason nobody had established.
 
-The cost is not that the robot scores from the wrong place. It is that `Score`
-stops the moment `deposit_region_for` says the pose is legal, and drives at the
-region until then. A region a ninth of the legal area is a robot that drives
-**past** perfectly good scoring positions to reach a nominated one. On this
-field that drive goes through the 50-inch pinch between the HUB ramp and the
-field wall, which is where the campaign's recurring `robot-pinned` finding lives:
-every long match reported it, at (3.720, 7.518) m, which is inside the blue
-alliance zone and outside the old blue GOAL polygon. That pose is the one the
-regression test uses, so the gap it stands for cannot silently reopen.
+#### The wrong turn
 
-The fix separates two jobs that had been sharing one polygon.
+`deposit_region_for` was a point-in-polygon test on that pocket, and the rule it
+was standing in for — `RobotContainer.isInAllianceArea` — covers nine times the
+ground. That is a real inconsistency, and `Score` stops the moment
+`deposit_region_for` says the pose is legal, so an undersized region is a robot
+driving *past* good scoring positions to reach a nominated one.
 
-**The rule is `arena.can_score_from`, and it has no polygon in it.** One term:
-are you in your own alliance zone. That is what `Turret.setTarget` branches on
-and it is the whole of what decides score-versus-pass.
+So the region became the whole alliance zone. Two 60-second runs on either side
+of that change:
 
-**The polygon is a navigation aid** — where `Score` and `Stage` aim, and what
-`region_occupants` shares between robots. It is now the alliance zone inset by
-half a robot from the walls and the HUB, which makes it deliberately *smaller*
-than the rule. That is safe now and was not before: a robot in the 18-inch band
-beside the HUB is outside the polygon and still, correctly, ready to score.
+| | shooting distance | shots | scored |
+|---|---|---|---|
+| pocket | 2.04 m | 24 | **22** |
+| whole zone | 2.53 m | 42 | **2** |
 
-The range term the rule leaves out is checked rather than argued.
-`build_scoring_regions` asserts that every corner of an alliance zone is inside
-the shot table's declared 6.7 m reach — the worst is 6.12 m — so the day the
-geometry changes, the assertion says so instead of a comment going quietly
-stale. The table's *lower* bound, 1.5 m, can be crossed by a robot with its
-bumpers on the HUB's back face; nothing in the robot code enforces it
-(`ShotCalculation/isValid` is computed, logged, and never read), and solving the
-maple-sim ballistics puts the ≥95% hit band at 0.8–7.0 m. The declared minimum
-is conservative against what the simulated shot actually does.
+**Scoring fell by a factor of ten.** The region's centroid is the pose `Score`
+and `Stage` drive to, so widening the region moved the shot half a metre
+further out — and half a metre was the difference between working and not.
 
-**This is also what unblocks `Pass`.** Its guard is "I could not score from
-here" — so while readiness was point-in-polygon, a `Pass` rule would have fired
-across most of the alliance zone, where the turret is aimed at the HUB and the
-throw is not a pass but a deliberately bad shot. With the rule asked directly,
-the guard means what it says: `Pass` refuses inside the zone and lets go outside
-it, which is exactly where `Turret.setTarget` retargets a corner and lobs the
-fuel back. Both directions are pinned in `test/test_bridge_match_view.py`.
+Three separate forward models had said that could not happen. All three were
+wrong, and they were wrong for the same reason.
 
-Whether the demo strategy *should* pass is a separate question, and a
-measurement rather than a blocker: `cycle_fuel` stays minimal on purpose,
-because what the campaign is testing is the adapter and not the strategy.
+#### What the scoring geometry actually is
 
-**What it did to the wedge: moved it, did not remove it.** Two matches
-re-run on their original seeds, before and after:
+Two independent things happen to a FUEL projectile near the HUB, and the one
+that reads like the scoring rule is not the one that scores.
+
+**`Goal.simulationSubTick` scores it** — via `checkValidity` → `positionChecker`,
+which the `Goal` constructor set to `box(xyBox, position.getZ(),
+position.getZ() + height)`. `RebuiltHub` passes 47 × 47 inches and a height of
+10 inches, so the target is a flat pad: ±0.597 m in x and y, and **z from
+1.5748 to 1.8288** — a 254 mm window sitting *on top of* the hub height.
+`RebuiltHub.checkCollision`, the 3D sphere test that reads exactly like the
+scoring rule and that every model in this repo was built on, is overridden and
+**never called by anything**.
+
+**`GamePieceProjectile.launch()` deletes it.** It walks the arc on a 0.02 s grid
+and latches `calculatedHitTargetTime` at the first step inside the ±0.5 m
+`withTargetTolerance` box. From then on `updateGamePieceProjectiles` removes the
+piece and runs `hitTargetCallBack` — which `TurretIOSim` never sets. The ball
+vanishes whether it scored or not, which is why the loose-fuel count barely
+moved during the bad runs while twenty balls left the hopper.
+
+So a shot has to be inside a 254 mm-tall pad during the 97 mm of travel between
+entering the goal box and entering the delete box. That is thin enough that the
+outcome turns on details a closed-form model does not have — which is why
+`SCORING_RANGE_M` is a **measurement**, and is written down as one.
+
+#### What the region is now
+
+A circular segment: the arc at the far edge of the measured scoring range,
+closed by the chord along the face of the HUB. Two terms, answering two
+questions, and `arena.can_score_from` is the single place both are asked:
+
+* **The alliance zone** decides score-versus-pass. This is the term `Pass`
+  reads, and it is what unblocks it.
+* **The range** decides whether a shot aimed at the HUB arrives. A *radius*, not
+  a slab in x, because the turret rotates.
+
+The polygon stays a navigation aid and is deliberately a different shape from
+the rule — inset half a robot from the HUB face, so the band right beside the
+structure is outside the polygon and still, correctly, a scoring pose.
+
+Against the original pocket that is about three times the mouth's width in y and
+a shorter reach in x. The y freedom is the part that was always wrong; the depth
+is the part that measurement supports.
+
+Live, on the same 60-second test the two rows above came from:
+
+| region | shooting distance | shots | scored |
+|---|---|---|---|
+| original pocket | 2.04 m | 24 | 22 |
+| whole alliance zone | 2.53 m | 42 | 2 |
+| **zone ∩ measured range** | **1.80 m** | **48** | **42** |
+
+Twice the points of the pocket it started from, and the run had no
+`robot-pinned` finding at all — longest stall 0.7 s, drive current 0 A. The y
+freedom is what removes the wedge and the range term is what keeps the shot;
+neither alone was enough.
+
+**The honest limit: nobody has swept the distance.** 2.04 m works and 2.5 m does
+not; the cliff is somewhere between, and the far edge is set short of the
+failure rather than at a measured boundary. A distance sweep is the obvious next
+measurement, and it would also replace the shot-calibration caveat below, which
+was computed against the sphere that turns out never to be consulted.
+
+**What the zone-wide version did to the wedge: moved it, did not remove it.**
+Two matches re-run on their original seeds, before and after. Measured on the
+version that had no range term, so it says something about the wedge and nothing
+about the region that shipped:
 
 | seed | before | after |
 |---|---|---|

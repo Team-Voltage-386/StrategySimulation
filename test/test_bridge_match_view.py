@@ -36,7 +36,7 @@ from common_sim.control.behavior import BehaviorContext
 from common_sim.control.strategy import StrategyController
 from common_sim.control.behavior import Status
 from common_sim.control.tactics import Collect, Pass, Score
-from common_sim.field.field_config import point_in_polygon
+from common_sim.field.field_config import point_in_polygon, polygon_centroid
 from common_sim.control.world_view import scoring_slots_for_type
 from common_sim.match.match import Phase
 
@@ -640,7 +640,7 @@ def test_deposit_readiness_is_position_not_which_way_a_bumper_points():
     right question for a robot that reaches into a structure and the
     wrong one here."""
     region = next(r for r in arena.build_arena().scoring_regions if r.name == "blue GOAL")
-    inside = (sum(v[0] for v in region.vertices) / 4, sum(v[1] for v in region.vertices) / 4)
+    inside = polygon_centroid(region.vertices)
 
     _, robot, view, _ = _view(held=1, robot=Pose2d(inside[0] / arena.M_TO_IN, inside[1] / arena.M_TO_IN, 0.0))
     assert view.deposit_region_for(robot, action=mv.SHOOT).name == "blue GOAL"
@@ -652,7 +652,7 @@ def test_deposit_readiness_is_position_not_which_way_a_bumper_points():
 
 def test_nothing_is_ready_to_score_into_a_dead_hub():
     region = next(r for r in arena.build_arena().scoring_regions if r.name == "blue GOAL")
-    inside = (sum(v[0] for v in region.vertices) / 4, sum(v[1] for v in region.vertices) / 4)
+    inside = polygon_centroid(region.vertices)
     _, robot, view, reader = _view(
         held=1, robot=Pose2d(inside[0] / arena.M_TO_IN, inside[1] / arena.M_TO_IN, 0.0),
         hub_active={"blue": False, "red": True},
@@ -660,25 +660,41 @@ def test_nothing_is_ready_to_score_into_a_dead_hub():
     assert view.deposit_region_for(robot, action=mv.SHOOT) is None
 
 
-def test_a_robot_scores_from_the_zone_not_from_the_polygon():
-    """The fix. The region polygon is a navigation aid and covers less
-    ground than the rule does; while readiness was point-in-polygon on
-    it, `Score` refused to shoot from thousands of square inches of
-    perfectly good scoring floor and drove on to reach the polygon --
-    on this field, through the 50-inch pinch beside the HUB ramp.
-
-    The pose below is the one the campaign's `robot-pinned` finding
-    reported, verbatim, in every long match: (3.720, 7.518) metres. It
-    is inside the blue alliance zone and outside the blue GOAL polygon,
-    which is precisely the gap this closes."""
+def test_readiness_is_the_rule_and_not_the_polygon():
+    """The region polygon is a navigation aid; `arena.can_score_from` is
+    the rule, and they are deliberately different shapes. The polygon is
+    inset by half a robot from the HUB face, so the band right beside the
+    structure is outside it -- and a robot standing there is still, at the
+    right range, ready to shoot."""
     region = next(r for r in arena.build_arena().scoring_regions if r.name == "blue GOAL")
-    pinned = (3.720, 7.518)
+    hub_x, hub_y = arena.hub_centre("blue")
+    # In the 18-inch band the polygon is inset by, and off the HUB's axis
+    # far enough to still be a legal range from the goal.
+    beside = ((hub_x - arena.HUB_SIZE_IN[0] / 2.0 - 6.0) / arena.M_TO_IN,
+              (hub_y + 60.0) / arena.M_TO_IN)
     assert not point_in_polygon(
-        (pinned[0] * arena.M_TO_IN, pinned[1] * arena.M_TO_IN), region.vertices
+        (beside[0] * arena.M_TO_IN, beside[1] * arena.M_TO_IN), region.vertices
     ), "pick a pose outside the polygon or this test proves nothing"
 
-    _, robot, view, _ = _view(held=1, robot=Pose2d(pinned[0], pinned[1], 0.0))
+    _, robot, view, _ = _view(held=1, robot=Pose2d(beside[0], beside[1], 0.0))
     assert view.deposit_region_for(robot, action=mv.SHOOT).name == "blue GOAL"
+
+
+def test_being_in_the_zone_is_not_enough_to_score():
+    """The half of the rule that cost the most to learn. Widening the
+    scoring region to the whole alliance zone is right about score-versus-
+    pass and wrong about scoring: the robot started shooting from half a
+    metre further out and scoring fell from 22-of-24 to 2-of-42.
+
+    This pose is the one the campaign's `robot-pinned` finding reports,
+    verbatim. It is inside the blue alliance zone -- so the turret really
+    is aimed at the HUB -- and 3.6 m away, which is past where the shot
+    has ever been measured to arrive."""
+    pinned = (3.720, 7.518)
+    assert arena.in_alliance_zone(pinned[0] * arena.M_TO_IN, "blue"), "in the zone"
+
+    _, robot, view, _ = _view(held=1, robot=Pose2d(pinned[0], pinned[1], 0.0))
+    assert view.deposit_region_for(robot, action=mv.SHOOT) is None
 
 
 def test_the_goal_mouth_is_still_not_a_scoring_pose():
@@ -691,14 +707,20 @@ def test_the_goal_mouth_is_still_not_a_scoring_pose():
     assert view.deposit_region_for(robot, action=mv.SHOOT) is None
 
 
-def test_readiness_does_not_depend_on_y():
-    """`isInAllianceArea` is a half-plane in x. A robot in the far corner
-    of its own zone is as ready as one beside the HUB, and the old
-    polygon -- 47 inches tall, sized to the goal *mouth* -- said
-    otherwise about almost the whole field width."""
+def test_readiness_does_not_depend_on_bearing_to_the_hub():
+    """The range term is a *radius*, not a slab in x, because the turret
+    rotates: standing off the HUB's axis costs nothing. The region this
+    replaced was 47 inches tall, sized to the goal mouth's width, and
+    threw away almost the whole field width for no reason at all."""
+    import math as _math
+    hub_x, hub_y = arena.hub_centre("blue")
+    radius = sum(arena.SCORING_RANGE_M) / 2 * arena.M_TO_IN
     ready = []
-    for y in (0.5, 2.0, 4.0, 6.0, 7.5):
-        _, robot, view, _ = _view(held=1, robot=Pose2d(2.0, y, 0.0))
+    for degrees in (-70, -35, 0, 35, 70):
+        angle = _math.radians(180 + degrees)
+        x = (hub_x + radius * _math.cos(angle)) / arena.M_TO_IN
+        y = (hub_y + radius * _math.sin(angle)) / arena.M_TO_IN
+        _, robot, view, _ = _view(held=1, robot=Pose2d(x, y, 0.0))
         ready.append(view.deposit_region_for(robot, action=mv.SHOOT) is not None)
     assert all(ready), ready
 
@@ -711,7 +733,10 @@ def test_pass_refuses_from_inside_the_alliance_zone():
     alliance zone -- so a `Pass` rule would have fired from inside the
     area where `Turret.setTarget` aims at the HUB, making the "pass" a
     deliberately bad shot."""
-    _, robot, view, _ = _view(held=3, robot=Pose2d(2.0, 4.0, math.pi))
+    hub_x, hub_y = arena.hub_centre("blue")
+    radius = sum(arena.SCORING_RANGE_M) / 2 * arena.M_TO_IN
+    _, robot, view, _ = _view(held=3, robot=Pose2d(
+        (hub_x - radius) / arena.M_TO_IN, hub_y / arena.M_TO_IN, math.pi))
     ctx = BehaviorContext(robot=robot, dt=0.02, match=view)
     assert Pass().tick(ctx) is Status.FAILURE
     assert robot.deposit_active is False
