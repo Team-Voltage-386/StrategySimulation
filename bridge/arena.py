@@ -359,8 +359,15 @@ SHOT_MAX_DISTANCE_M = 6.7
 # a campaign on the two seeds that had reported `robot-pinned` 4 matches
 # out of 4 came back with none.
 #
-# A distance sweep would replace this with a real band and is the obvious
-# next measurement.
+# **Not swept, and deliberately not going to be.** REBUILT is the game
+# this bridge was built *against*, not the game it is for: the point of
+# the exercise is to have the machinery working before the 2027 reveal,
+# and a precise scoring band for a hypothetical season buys nothing that
+# survives it. What has to be right is that the strategy layer can score
+# at all, so the rest of the tool can be exercised -- and 42 of 48 is
+# that. If a future run needs the shot to be sharper, sweep it then; the
+# two data points above and this comment are what a sweep would start
+# from.
 SCORING_RANGE_M = (1.05, 2.30)
 
 # Half a 30-inch frame plus bumpers. A scoring region is tested against

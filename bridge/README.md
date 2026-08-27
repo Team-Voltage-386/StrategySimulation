@@ -792,11 +792,19 @@ below reaches from the other direction: the pinch is only compulsory if the
 place you have to shoot from is on the far side of it. Widen where you may shoot
 from, in the axis that costs nothing, and most cycles never approach the gap.
 
-**The honest limit: nobody has swept the distance.** 2.04 m works and 2.5 m does
-not; the cliff is somewhere between, and the far edge is set short of the
-failure rather than at a measured boundary. A distance sweep is the obvious next
-measurement, and it would also replace the shot-calibration caveat below, which
-was computed against the sphere that turns out never to be consulted.
+**The honest limit: nobody has swept the distance, and nobody is going to.**
+2.04 m works and 2.5 m does not; the cliff is somewhere between, and the far
+edge is set short of the failure rather than at a measured boundary. That is
+good enough on purpose. REBUILT is the game this bridge was built *against*,
+not the game it is for — a precise scoring band for a hypothetical season buys
+nothing that survives the 2027 reveal. What had to be true is that the strategy
+layer can score at all, so everything downstream of it can be exercised, and
+42 of 48 is that.
+
+The finding underneath it is the part that transfers, and it is not about
+REBUILT: **a simulator's scoring volume is not always the code that looks like
+its scoring rule.** Read what actually gets called, and if the geometry is thin,
+measure rather than model.
 
 **What the zone-wide version did to the wedge: moved it, did not remove it.**
 Two matches re-run on their original seeds, before and after. Measured on the
@@ -995,18 +1003,25 @@ deterministic stepping.
 Step 4 is done: the strategy layer reads the live field and drives the robot.
 What remains widens the variety of situations reached.
 
+**Judge the rest by whether it survives the 2027 reveal.** This bridge is
+machinery for driving *whatever* robot code exists against *whatever* game
+arrives; REBUILT is the thing it was proved against, and REBUILT-specific polish
+is spent effort. That ordering puts the last two items first.
+
+* **AI opponents** — the other five robots driven by sparky-sim. The largest
+  item and the one that most changes what the tool can generate: contested
+  scenarios rather than solo cycles. maple-sim's own opponents are PathPlanner
+  replay or a second gamepad, so there is no decision-making there at all.
+* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage. Note
+  that differential *scoring* now sits on a shot whose range band is
+  deliberately approximate; invariants and coverage do not, and are the two
+  worth building first.
 * **Intent→button mapping**, broadened past the canned tactic. `Stage` and
   `Pass` needed none of it, which was the prediction: a positioning tactic only
-  drives, and a pass presses exactly what a score presses.
-* **A distance sweep.** The most valuable measurement outstanding.
-  `SCORING_RANGE_M` is two live data points and a conservative guess between
-  them, and it is now load-bearing: the region's centroid is the pose the robot
-  shoots from, so that number sets the shot. Sweeping it would also settle
-  whether the far edge is leaving points on the table.
-* **A `Pass` rule, if it earns one.** `Pass` can now fire honestly — the
-  alliance-zone half of the rule is what unblocked it — so what is left is not
-  a blocker but a measurement: does throwing fuel back toward your own end beat
-  carrying it? A paired campaign answers that; `cycle_fuel` stays minimal until
-  one does.
-* **AI opponents** — the other five robots driven by sparky-sim.
-* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.
+  drives, and a pass presses exactly what a score presses. Only `eject` and
+  `stopWithX` are plausibly missing, and adding either before a tactic wants it
+  is speculative.
+* **A `Pass` rule** — no longer blocked, and no longer obviously worth it.
+  `Pass` the tactic is machinery and is done; wiring it into `cycle_fuel` is
+  REBUILT strategy tuning, which is the category this list just deprioritised.
+  Left here because the measurement is cheap if a reason appears.
