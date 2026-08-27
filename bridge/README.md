@@ -492,6 +492,10 @@ now sit **behind** each HUB, inside the zone, and the fuel goes over the
 structure: the goal is 1.57 m up and the turret has a pitch. `build_scoring_regions`
 asserts every vertex is inside the zone, so this cannot regress quietly.
 
+Getting them on the right *side* was only half of it; see
+[the region was also the wrong size](#the-region-was-also-the-wrong-size-and-that-was-the-expensive-half)
+for the half that took another two campaigns to notice.
+
 Two things fall out of it worth keeping:
 
 * The zone boundaries agree with the trench-wall line to within a millimetre,
@@ -515,10 +519,13 @@ returns it as `WastedFuel`.
 `region_blocked` and not `region_full`, deliberately — "full" says the same
 thing and means something permanent.
 
-`deposit_region_for` is also overridden rather than inherited. `Match`'s version
-asks whether a bumper *side* engages the region, which is right for a robot
-reaching into a structure and wrong for one with a turret: this robot shoots
-from wherever it is standing, so position is the whole test.
+`deposit_region_for` is also overridden rather than inherited, twice over.
+`Match`'s version asks whether a bumper *side* engages the region, which is
+right for a robot reaching into a structure and wrong for one with a turret:
+this robot shoots from wherever it is standing, so position is the whole test.
+And the position test is `arena.can_score_from` — the alliance-zone rule
+itself — rather than a point-in-polygon on the region, for the reasons in the
+next section.
 
 ### Three ways an object identity went wrong
 
@@ -660,9 +667,8 @@ private static final double flywheelSurfaceSpeedToShotSpeed =
 Measured over two live runs afterwards: **27 of 28**, then **53 of 59**.
 
 And the standoff was never the suspect it looked like. With the factor right,
-the table's whole declared range scores, so `SHOOTING_STANDOFF_IN = 100` was
-fine all along — it is kept at 100 because the pocket also has to be somewhere
-a robot can stand, not because the shot cannot reach further.
+the table's whole declared range scores from anywhere a robot can stand, which
+is why the standoff constant does not exist any more — see the next section.
 
 **One caveat worth keeping.** The sim shooter is now *very* forgiving: with only
 ±2° of yaw, ±3° of pitch and ±50 RPM of noise, and no air drag, it scores from
@@ -670,6 +676,69 @@ anywhere in 0.8–7.0 m. A real shooter does not. That is fine for fuzzing
 navigation and possession, and it is a bad basis for any conclusion about how
 good the shot itself is — including, when it arrives, oracle 04's differential
 scoring.
+
+### The region was also the wrong size, and that was the expensive half
+
+Putting the scoring regions behind the HUB instead of at its mouth fixed *where*
+they were. It left them the wrong **shape**, and that took two more campaigns to
+see because nothing about it looks like a bug: the robot drives somewhere legal
+and scores.
+
+The original region was an 82 × 47 inch pocket, and both of its dimensions were
+guesses dressed as measurements:
+
+* **47 inches tall** because that is the goal mouth's width. The mouth's width
+  has nothing to do with where a robot stands — *the turret rotates*. Being off
+  the HUB's axis in y costs exactly nothing.
+* **82 inches deep** because of `SHOOTING_STANDOFF_IN = 100`, a guess at
+  flywheel range. Range was never the binding constraint, as the shot
+  calibration above eventually showed.
+
+So the region was about a ninth of the floor a robot can actually score from,
+and `deposit_region_for` — a point-in-polygon test on it — inherited the error.
+
+The cost is not that the robot scores from the wrong place. It is that `Score`
+stops the moment `deposit_region_for` says the pose is legal, and drives at the
+region until then. A region a ninth of the legal area is a robot that drives
+**past** perfectly good scoring positions to reach a nominated one. On this
+field that drive goes through the 50-inch pinch between the HUB ramp and the
+field wall, which is where the campaign's recurring `robot-pinned` finding lives:
+every long match reported it, at (3.720, 7.518) m, which is inside the blue
+alliance zone and outside the old blue GOAL polygon.
+
+The fix separates two jobs that had been sharing one polygon.
+
+**The rule is `arena.can_score_from`, and it has no polygon in it.** One term:
+are you in your own alliance zone. That is what `Turret.setTarget` branches on
+and it is the whole of what decides score-versus-pass.
+
+**The polygon is a navigation aid** — where `Score` and `Stage` aim, and what
+`region_occupants` shares between robots. It is now the alliance zone inset by
+half a robot from the walls and the HUB, which makes it deliberately *smaller*
+than the rule. That is safe now and was not before: a robot in the 18-inch band
+beside the HUB is outside the polygon and still, correctly, ready to score.
+
+The range term the rule leaves out is checked rather than argued.
+`build_scoring_regions` asserts that every corner of an alliance zone is inside
+the shot table's declared 6.7 m reach — the worst is 6.12 m — so the day the
+geometry changes, the assertion says so instead of a comment going quietly
+stale. The table's *lower* bound, 1.5 m, can be crossed by a robot with its
+bumpers on the HUB's back face; nothing in the robot code enforces it
+(`ShotCalculation/isValid` is computed, logged, and never read), and solving the
+maple-sim ballistics puts the ≥95% hit band at 0.8–7.0 m. The declared minimum
+is conservative against what the simulated shot actually does.
+
+**This is also what unblocks `Pass`.** Its guard is "I could not score from
+here" — so while readiness was point-in-polygon, a `Pass` rule would have fired
+across most of the alliance zone, where the turret is aimed at the HUB and the
+throw is not a pass but a deliberately bad shot. With the rule asked directly,
+the guard means what it says: `Pass` refuses inside the zone and lets go outside
+it, which is exactly where `Turret.setTarget` retargets a corner and lobs the
+fuel back. Both directions are pinned in `test/test_bridge_match_view.py`.
+
+Whether the demo strategy *should* pass is a separate question, and a
+measurement rather than a blocker: `cycle_fuel` stays minimal on purpose,
+because what the campaign is testing is the adapter and not the strategy.
 
 ### The cycle this creates, and where it breaks
 
@@ -844,7 +913,10 @@ What remains widens the variety of situations reached.
 * **Intent→button mapping**, broadened past the canned tactic. `Stage` and
   `Pass` needed none of it, which was the prediction: a positioning tactic only
   drives, and a pass presses exactly what a score presses.
-* **Wiring `Pass` into REBUILT.** It is implemented and tested, and the bridge
-  cannot yet fire it honestly — see below.
+* **A `Pass` rule, if it earns one.** `Pass` can now fire honestly — the
+  alliance-zone rule above is what unblocked it — so what is left is not a
+  blocker but a measurement: does throwing fuel back toward your own end beat
+  carrying it, on a field where every cycle threads a 50-inch gap? A paired
+  campaign answers that; `cycle_fuel` stays minimal until one does.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.

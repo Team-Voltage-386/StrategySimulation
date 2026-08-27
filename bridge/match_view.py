@@ -44,7 +44,6 @@ from bridge import operator as op
 from bridge import world_state as ws
 from common_sim.field.game_piece import GamePiece, piece_spec
 from common_sim.geometry import Pose2d
-from common_sim.field.field_config import point_in_polygon
 from common_sim.match.events import EventLog
 from common_sim.match.match import Phase
 from common_sim.robot.characteristics import RobotCharacteristics, SideManipulators
@@ -767,21 +766,41 @@ class MapleMatchView:
         return not self.world.hub_active.get(alliance, True)
 
     def deposit_region_for(self, robot, piece=None, action: str | None = None):
-        """Where a shot taken right now would land, or None.
+        """Where a shot taken right now would score, or None.
 
         Deliberately *not* `Match.deposit_region_for`, which asks whether
         a bumper side is engaging the region polygon. That is the right
         question for a robot that reaches into a structure and the wrong
         one for a robot with a turret: this one shoots from wherever it
-        is standing, at whatever the turret is pointed at, so position is
-        the whole test.
+        is standing, at whatever the turret is pointed at.
 
-        Still gated on the HUB being live, so a robot cannot read itself
-        as ready to score into a HUB that is not accepting.
+        Deliberately not a point-in-polygon test on the region either,
+        which is what this used to be. The rule that decides whether a
+        press scores or *passes* is `RobotContainer.isInAllianceArea`,
+        and the region polygon is a navigation aid covering rather less
+        ground than that rule does (`arena.build_scoring_regions`). While
+        the two disagreed, two things were wrong at once:
+
+        * `Score` refused to shoot from thousands of square inches of
+          perfectly good scoring floor, and drove on to the nominated
+          polygon instead. On this field that drive is through a
+          50-inch pinch, which is where the campaign's `robot-pinned`
+          finding kept coming from.
+        * `Pass` could not be used at all. Its guard is "I could not
+          score from here", so a `Pass` rule would have fired from
+          inside the alliance zone -- where the turret is aimed at the
+          HUB and the throw is not a pass but a deliberately bad shot.
+
+        So the rule is asked directly, of `arena.can_score_from`, and the
+        polygon is left to do the job it is good at. Still gated on the
+        HUB being live, so a robot cannot read itself as ready to score
+        into a HUB that is not accepting.
         """
         if action is None:
             action = robot.deposit_action
         if action is None or not robot.held_pieces:
+            return None
+        if not arena.can_score_from(robot.pose.x, robot.pose.y, robot.alliance):
             return None
         for region in self.field.scoring_regions:
             if region.alliance is not None and region.alliance != robot.alliance:
@@ -790,8 +809,7 @@ class MapleMatchView:
                 continue
             if self.region_blocked(region, action):
                 continue
-            if point_in_polygon((robot.pose.x, robot.pose.y), region.vertices):
-                return region
+            return region
         return None
 
     def protecting_zone(self, robot):

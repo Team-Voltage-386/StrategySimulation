@@ -25,6 +25,7 @@ NetworkTables for this reason.
 """
 from __future__ import annotations
 
+import math
 import struct
 
 import pytest
@@ -252,6 +253,51 @@ def test_the_goal_regions_stand_off_the_structure_they_shoot_at():
         xs = [v[0] for v in region.vertices]
         hub_xs = [v[0] for v in hub.vertices]
         assert min(xs) >= max(hub_xs) or max(xs) <= min(hub_xs)
+
+
+def test_the_goal_regions_span_the_field_rather_than_the_goal_mouth():
+    """The region was 47 inches tall once, sized to the goal mouth. The
+    mouth's width says nothing at all about where a robot stands, because
+    the turret rotates -- and a region a ninth of the legal area is a
+    robot that drives past good scoring positions to reach a nominated
+    one."""
+    for region in arena.build_arena().scoring_regions:
+        ys = [v[1] for v in region.vertices]
+        assert max(ys) - min(ys) > 0.8 * arena.FIELD_WIDTH, region.name
+
+
+def test_the_scoring_rule_is_entitled_to_leave_the_range_term_out():
+    """`can_score_from` has one term in it -- the alliance zone -- and the
+    shot table's declared 1.5-6.7 m does not appear. Both halves of that
+    omission are checkable, so neither has to be taken on trust.
+
+    The far bound is a fact about geometry: no corner of an alliance zone
+    is further from its HUB than the table reaches, so it can never bind
+    on a robot that is scoring at all.
+
+    The near bound is crossable and is left out *knowingly*: a robot with
+    its bumpers against the HUB's back face is inside it. Nothing in the
+    robot code enforces the bound -- `ShotCalculation/isValid` is
+    computed, logged and never read -- and solving the maple-sim
+    ballistics puts the simulated shot's hit band at 0.8-7.0 m.
+    """
+    for alliance in ("blue", "red"):
+        hub = arena.HUB_CENTRE_M[alliance]
+        wall = 0.0 if alliance == "blue" else arena.FIELD_LENGTH_M
+        reach = max(
+            math.dist(hub, (x, y))
+            for x in (wall, arena.ALLIANCE_ZONE_BOUND_M[alliance])
+            for y in (0.0, arena.FIELD_WIDTH_M)
+        )
+        assert reach <= arena.SHOT_MAX_DISTANCE_M, f"{alliance} zone reaches {reach:.2f} m"
+
+        bumpers_on_the_hub = (
+            arena.HUB_SIZE_IN[0] / 2.0 + arena.ROBOT_STANDOFF_IN
+        ) / arena.M_TO_IN
+        assert bumpers_on_the_hub < arena.SHOT_MIN_DISTANCE_M, (
+            "the near bound is no longer reachable, so leaving it out is now free "
+            "rather than a judgement call -- say so where it is explained"
+        )
 
 
 def test_the_transcribed_arena_passes_the_field_validator():

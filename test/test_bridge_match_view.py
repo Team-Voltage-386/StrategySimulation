@@ -34,7 +34,9 @@ from bridge import world_state as ws
 from bridge.robot_state import Pose2d, Pose3d
 from common_sim.control.behavior import BehaviorContext
 from common_sim.control.strategy import StrategyController
-from common_sim.control.tactics import Collect, Score
+from common_sim.control.behavior import Status
+from common_sim.control.tactics import Collect, Pass, Score
+from common_sim.field.field_config import point_in_polygon
 from common_sim.control.world_view import scoring_slots_for_type
 from common_sim.match.match import Phase
 
@@ -656,6 +658,80 @@ def test_nothing_is_ready_to_score_into_a_dead_hub():
         hub_active={"blue": False, "red": True},
     )
     assert view.deposit_region_for(robot, action=mv.SHOOT) is None
+
+
+def test_a_robot_scores_from_the_zone_not_from_the_polygon():
+    """The fix. The region polygon is a navigation aid and covers less
+    ground than the rule does; while readiness was point-in-polygon on
+    it, `Score` refused to shoot from thousands of square inches of
+    perfectly good scoring floor and drove on to reach the polygon --
+    on this field, through the 50-inch pinch beside the HUB ramp.
+
+    The pose below is the one the campaign's `robot-pinned` finding
+    reported, verbatim, in every long match: (3.720, 7.518) metres. It
+    is inside the blue alliance zone and outside the blue GOAL polygon,
+    which is precisely the gap this closes."""
+    region = next(r for r in arena.build_arena().scoring_regions if r.name == "blue GOAL")
+    pinned = (3.720, 7.518)
+    assert not point_in_polygon(
+        (pinned[0] * arena.M_TO_IN, pinned[1] * arena.M_TO_IN), region.vertices
+    ), "pick a pose outside the polygon or this test proves nothing"
+
+    _, robot, view, _ = _view(held=1, robot=Pose2d(pinned[0], pinned[1], 0.0))
+    assert view.deposit_region_for(robot, action=mv.SHOOT).name == "blue GOAL"
+
+
+def test_the_goal_mouth_is_still_not_a_scoring_pose():
+    """The other direction, and the one that cost sixty-five shots. The
+    mouths open toward midfield, which is *outside* the alliance zone, so
+    a robot at the mouth is passing however well it aims."""
+    mouth_x = arena.goal_face_x("blue") / arena.M_TO_IN
+    hub_y = arena.hub_centre("blue")[1] / arena.M_TO_IN
+    _, robot, view, _ = _view(held=1, robot=Pose2d(mouth_x + 0.3, hub_y, 0.0))
+    assert view.deposit_region_for(robot, action=mv.SHOOT) is None
+
+
+def test_readiness_does_not_depend_on_y():
+    """`isInAllianceArea` is a half-plane in x. A robot in the far corner
+    of its own zone is as ready as one beside the HUB, and the old
+    polygon -- 47 inches tall, sized to the goal *mouth* -- said
+    otherwise about almost the whole field width."""
+    ready = []
+    for y in (0.5, 2.0, 4.0, 6.0, 7.5):
+        _, robot, view, _ = _view(held=1, robot=Pose2d(2.0, y, 0.0))
+        ready.append(view.deposit_region_for(robot, action=mv.SHOOT) is not None)
+    assert all(ready), ready
+
+
+def test_pass_refuses_from_inside_the_alliance_zone():
+    """The block this lifts, and the reason `Pass` shipped unwired.
+
+    `Pass`'s guard is "I could not score from here". While readiness was
+    point-in-polygon on the GOAL region, that was true across most of the
+    alliance zone -- so a `Pass` rule would have fired from inside the
+    area where `Turret.setTarget` aims at the HUB, making the "pass" a
+    deliberately bad shot."""
+    _, robot, view, _ = _view(held=3, robot=Pose2d(2.0, 4.0, math.pi))
+    ctx = BehaviorContext(robot=robot, dt=0.02, match=view)
+    assert Pass().tick(ctx) is Status.FAILURE
+    assert robot.deposit_active is False
+
+
+def test_pass_lets_go_from_outside_the_alliance_zone():
+    """Where the same press really is a pass: outside the zone the turret
+    retargets a corner of the robot's own end and lobs the fuel back. So
+    the bridge needs no new intent for `Pass` -- a pass presses exactly
+    what a score presses, and the whole difference is where the robot is
+    standing.
+
+    Pre-aimed, because a `MapleRobot`'s pose comes from NetworkTables and
+    does not move in response to a drive command. The turning half of
+    `Pass` is exercised against real physics in
+    test/common_sim/test_tactics.py; what belongs here is the guard."""
+    _, robot, view, _ = _view(held=3, robot=Pose2d(8.0, 4.0, math.pi))
+    ctx = BehaviorContext(robot=robot, dt=0.02, match=view)
+    assert Pass().tick(ctx) is Status.RUNNING
+    assert robot.deposit_active, "already lined up on its own zone, so it lets go"
 
 
 def test_an_empty_handed_robot_is_never_ready_to_score():
