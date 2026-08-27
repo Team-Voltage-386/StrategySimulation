@@ -704,7 +704,8 @@ region until then. A region a ninth of the legal area is a robot that drives
 field that drive goes through the 50-inch pinch between the HUB ramp and the
 field wall, which is where the campaign's recurring `robot-pinned` finding lives:
 every long match reported it, at (3.720, 7.518) m, which is inside the blue
-alliance zone and outside the old blue GOAL polygon.
+alliance zone and outside the old blue GOAL polygon. That pose is the one the
+regression test uses, so the gap it stands for cannot silently reopen.
 
 The fix separates two jobs that had been sharing one polygon.
 
@@ -739,6 +740,21 @@ fuel back. Both directions are pinned in `test/test_bridge_match_view.py`.
 Whether the demo strategy *should* pass is a separate question, and a
 measurement rather than a blocker: `cycle_fuel` stays minimal on purpose,
 because what the campaign is testing is the adapter and not the strategy.
+
+**What it did to the wedge: moved it, did not remove it.** Two matches
+re-run on their original seeds, before and after:
+
+| seed | before | after |
+|---|---|---|
+| 4375 | t=44.5s at (3.720, 7.518) | t=58.4s at (3.789, 0.532) |
+| 4376 | t=50.7s at (3.761, 7.519) | t=111.7s at (3.821, 0.529) |
+
+Same x to within 10 cm, and y mirrored across the field: the north gap
+became the south one. That is the identical pinch, and it says the
+remaining traversals are on the **collect** leg — going back out to
+midfield for fuel, which no scoring rule touches. The first pin does
+arrive later in both, which is consistent with fewer traversals but is
+two matches and should not be read as more than a hint.
 
 ### The cycle this creates, and where it breaks
 
