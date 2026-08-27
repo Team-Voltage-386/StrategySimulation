@@ -355,7 +355,9 @@ SHOT_MAX_DISTANCE_M = 6.7
 # Confirmed live at the resulting aim point, 1.80 m: **42 of 48**, on the
 # same test that gave 2 of 42 with no range term -- and with no
 # `robot-pinned` finding, because the y freedom the region keeps is what
-# stops the robot driving into the pinch.
+# stops the robot driving into the pinch. At match length the same holds:
+# a campaign on the two seeds that had reported `robot-pinned` 4 matches
+# out of 4 came back with none.
 #
 # A distance sweep would replace this with a real band and is the obvious
 # next measurement.

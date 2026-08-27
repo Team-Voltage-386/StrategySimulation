@@ -780,6 +780,18 @@ Twice the points of the pocket it started from, and the run had no
 freedom is what removes the wedge and the range term is what keeps the shot;
 neither alone was enough.
 
+**And it closed the wedge at match length.** A 150-second campaign on seeds 4375
+and 4376 — the two that had reported `robot-pinned` in every previous campaign,
+4 matches out of 4 — came back with **none**. The preflight still detects a
+deliberate wall pin at 58 A, so the oracle has not stopped working; the robot
+has stopped wedging. Two matches, and the finding it replaces was 4-for-4, which
+is worth more than the sample size alone suggests.
+
+That is the same conclusion the [cycle section](#the-cycle-this-creates-and-where-it-breaks)
+below reaches from the other direction: the pinch is only compulsory if the
+place you have to shoot from is on the far side of it. Widen where you may shoot
+from, in the axis that costs nothing, and most cycles never approach the gap.
+
 **The honest limit: nobody has swept the distance.** 2.04 m works and 2.5 m does
 not; the cliff is somewhere between, and the far edge is set short of the
 failure rather than at a measured boundary. A distance sweep is the obvious next
@@ -816,6 +828,16 @@ wedged in the upper gap at (3.76, 7.52). The run still passed every check, so
 the report now carries a longest-stall line and raises it as a finding: a PASS
 that hides a third of the match spent stuck is the same mistake as a report
 path that only runs on bad news.
+
+**"Every cycle threads a gap twice" turned out to be a claim about the scoring
+region, not about the field.** It was true while the only legal place to shoot
+from was a 47-inch pocket on the HUB's axis, which is behind the wall from
+almost everywhere. Once the region became the arc the turret can actually reach
+— same depth, three times the width — most cycles stop approaching the gap at
+all, and `robot-pinned` went from 4 matches out of 4 to none. The gaps are still
+there and still 50 inches; the robot has stopped needing them. Worth remembering
+the next time a field constant looks like it forces a shape on the match: check
+whether it is the field forcing it or your own model of where the job is.
 
 ### What 75 seconds of it already showed
 
@@ -976,10 +998,15 @@ What remains widens the variety of situations reached.
 * **Intent→button mapping**, broadened past the canned tactic. `Stage` and
   `Pass` needed none of it, which was the prediction: a positioning tactic only
   drives, and a pass presses exactly what a score presses.
+* **A distance sweep.** The most valuable measurement outstanding.
+  `SCORING_RANGE_M` is two live data points and a conservative guess between
+  them, and it is now load-bearing: the region's centroid is the pose the robot
+  shoots from, so that number sets the shot. Sweeping it would also settle
+  whether the far edge is leaving points on the table.
 * **A `Pass` rule, if it earns one.** `Pass` can now fire honestly — the
-  alliance-zone rule above is what unblocked it — so what is left is not a
-  blocker but a measurement: does throwing fuel back toward your own end beat
-  carrying it, on a field where every cycle threads a 50-inch gap? A paired
-  campaign answers that; `cycle_fuel` stays minimal until one does.
+  alliance-zone half of the rule is what unblocked it — so what is left is not
+  a blocker but a measurement: does throwing fuel back toward your own end beat
+  carrying it? A paired campaign answers that; `cycle_fuel` stays minimal until
+  one does.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.
