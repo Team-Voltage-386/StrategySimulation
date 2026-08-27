@@ -437,7 +437,11 @@ def test_the_strategy_is_overridable_without_touching_the_harness(tmp_path):
     one. Overriding this is how a campaign compares two."""
     runner = hz.MatchRunner(repo=tmp_path, workdir=tmp_path, driver=hz.STRATEGY, shoot_at=7)
     strategy = runner.strategy(seed=1)
-    assert [r.name for r in strategy.rules] == ["shoot_fuel", "collect_fuel"]
+    assert [r.name for r in strategy.rules] == ["shoot_fuel", "collect_fuel", "wait_at_the_goal"]
+    staging = next(r for r in strategy.rules if r.name == "wait_at_the_goal")
+    assert staging.priority < min(
+        r.priority for r in strategy.rules if r.name != "wait_at_the_goal"
+    ), "staging is what to do when there is nothing else to do; collecting outranks it"
 
     shoot = next(r for r in strategy.rules if r.name == "shoot_fuel")
     held = next(t for t in shoot.trigger.triggers if hasattr(t, "min_count"))

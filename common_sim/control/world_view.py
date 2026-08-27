@@ -164,7 +164,9 @@ class LegalScoringOption:
     piece: GamePiece | None
 
 
-def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[ScoringRegion, str]]:
+def scoring_slots_for_type(
+    match, robot: Robot, piece_type: str, *, available_only: bool = True,
+) -> list[tuple[ScoringRegion, str]]:
     """Every (region, action) pair a piece of `piece_type` could legally
     be scored in by `robot`: region accepts the type, action is in
     region.actions, the region/action is neither full (via
@@ -176,7 +178,15 @@ def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[S
     Asked by type rather than by piece so a caller can price a piece it
     does not have yet -- "is that station worth driving to" is answered
     by where the thing it dispenses could go. `scoring_options` is this
-    same rule applied to each held piece, so the two cannot drift."""
+    same rule applied to each held piece, so the two cannot drift.
+
+    `available_only=False` keeps the full/blocked slots in, answering
+    "where could this ever go" rather than "where can it go now". That is
+    the question a robot with nowhere to score is actually asking -- both
+    `Stage` (wait where it will open) and `Pass` (throw it that way) need
+    the target that is unavailable, which is by definition the one this
+    filters out. Kept as a flag on this function rather than a second
+    enumeration so the ownership and piece-type rules stay in one place."""
     if not _robot_can_score(robot, piece_type):
         return []
     region_full = getattr(match, "region_full", None)
@@ -188,10 +198,11 @@ def scoring_slots_for_type(match, robot: Robot, piece_type: str) -> list[tuple[S
         if region.piece_types and piece_type not in region.piece_types:
             continue
         for action in region.actions:
-            if region_full is not None and region_full(region, action):
-                continue
-            if region_blocked is not None and region_blocked(region, action):
-                continue
+            if available_only:
+                if region_full is not None and region_full(region, action):
+                    continue
+                if region_blocked is not None and region_blocked(region, action):
+                    continue
             slots.append((region, action))
     return slots
 

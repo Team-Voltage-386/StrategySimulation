@@ -35,6 +35,7 @@ REGISTRY: dict[str, type] = {
         triggers.AtCapacity, triggers.ScoringAvailable, triggers.OpponentNear, triggers.BeingDefended,
         triggers.AllOf, triggers.AnyOf, triggers.Not,
         tactics.Collect, tactics.Score, tactics.Pursue, tactics.Defend, tactics.RunScript, tactics.Idle,
+        tactics.Stage, tactics.Pass,
     )
 }
 

@@ -107,6 +107,75 @@ class MatchResult:
         return {f["kind"] for f in self.findings}
 
 
+def cycle_fuel(shoot_at: int):
+    """Collect fuel until there is enough of it and a HUB will take it,
+    and stand somewhere useful when neither is possible.
+
+    About as simple as a strategy gets, and that is the point -- what is
+    being tested is the adapter, not the strategy. `shoot_at` is a
+    strategy parameter and not a physical one: the intake really does
+    hold 40, and `RobotCharacteristics.piece_capacity` says so, but no
+    driver waits for 40 before scoring.
+
+    The `ScoringAvailable` half of the shoot trigger is where REBUILT's
+    25-second HUB clock enters. It reads through `world_view` to
+    `MapleMatchView.region_blocked`, so a robot with plenty of fuel and
+    no live HUB does not go and stand in the goal for twenty seconds --
+    it keeps collecting, and shoots when the HUB comes back.
+
+    `collect_fuel`'s trigger is "not literally full" rather than the
+    complement of the shoot threshold, so it stays the thing to do
+    whenever the higher-priority rule is not firing, for either reason.
+
+    `wait_at_the_goal` is the lowest-priority rule on purpose, one step
+    above the fallback, and it is what closes the hole the other two
+    leave: a robot that is *both* full and unable to score has no rule
+    at all, and drops to `Idle` wherever it stopped. Measured at
+    eighteen to twenty seconds of a sixty-second run, at midfield, on
+    the wrong side of a wall with two gaps in it. Ranked any higher it
+    would answer a dead HUB by parking a half-full robot, which is
+    worse: fuel on the floor is always worth collecting.
+
+    Imports inside the function on purpose -- `bridge.harness` is
+    imported by the scripted driver and by rules tests that have neither
+    pymunk nor common_sim available, and this is the only part of it
+    that needs them.
+    """
+    from bridge import arena
+    from bridge import match_view as mv
+    from common_sim.control.strategy import Rule, Strategy
+    from common_sim.control.tactics import Collect, Idle, Score, Stage
+    from common_sim.control.triggers import AllOf, PiecesHeld, ScoringAvailable
+
+    return Strategy(
+        name="cycle_fuel",
+        rules=[
+            Rule(
+                name="shoot_fuel",
+                trigger=AllOf(triggers=(
+                    PiecesHeld(piece_type=arena.PIECE_TYPE, min_count=shoot_at),
+                    ScoringAvailable(),
+                )),
+                tactic=Score(action=mv.SHOOT),
+                priority=10,
+            ),
+            Rule(
+                name="collect_fuel",
+                trigger=PiecesHeld(piece_type=arena.PIECE_TYPE, max_count=mv.INTAKE_CAPACITY - 1),
+                tactic=Collect(piece_type=arena.PIECE_TYPE, mode="nearest"),
+                priority=5,
+            ),
+            Rule(
+                name="wait_at_the_goal",
+                trigger=PiecesHeld(piece_type=arena.PIECE_TYPE, min_count=1),
+                tactic=Stage(),
+                priority=1,
+            ),
+        ],
+        fallback=Idle(),
+    )
+
+
 class MatchRunner:
     """Runs one match end to end and returns a MatchResult."""
 
@@ -342,35 +411,7 @@ class MatchRunner:
         of the harness is to run *a* strategy many times, not to own which
         one. Overriding this is how a future campaign compares two.
         """
-        from bridge import arena
-        from bridge import match_view as mv
-        from common_sim.control.strategy import Rule, Strategy
-        from common_sim.control.tactics import Collect, Idle, Score
-        from common_sim.control.triggers import AllOf, PiecesHeld, ScoringAvailable
-
-        return Strategy(
-            name="cycle_fuel",
-            rules=[
-                Rule(
-                    name="shoot_fuel",
-                    trigger=AllOf(triggers=(
-                        PiecesHeld(piece_type=arena.PIECE_TYPE, min_count=self.shoot_at),
-                        ScoringAvailable(),
-                    )),
-                    tactic=Score(action=mv.SHOOT),
-                    priority=10,
-                ),
-                Rule(
-                    name="collect_fuel",
-                    trigger=PiecesHeld(
-                        piece_type=arena.PIECE_TYPE, max_count=mv.INTAKE_CAPACITY - 1
-                    ),
-                    tactic=Collect(piece_type=arena.PIECE_TYPE, mode="nearest"),
-                    priority=5,
-                ),
-            ],
-            fallback=Idle(),
-        )
+        return cycle_fuel(self.shoot_at)
 
     # -- the scripted driver -----------------------------------------------
 

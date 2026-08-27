@@ -43,10 +43,16 @@ from bridge import robot_state as rs
 from bridge import world_state as ws
 from bridge.robot_state import POSE_TRUTH, RobotStateLink
 from bridge.sim_process import find_robot_repo, RobotSim
+# The strategy itself, defined once. It used to be defined here *and* in
+# `bridge.harness`, which is exactly what went wrong: a staging rule added
+# to the harness copy never reached this app, the run showed eighteen
+# unbroken seconds of Idle, and the new tactic looked broken when what was
+# broken was having two definitions of one strategy. The overnight
+# campaign and this app have to play the same game, or neither tells you
+# anything about the other.
+from bridge.harness import cycle_fuel
 from common_sim.control.behavior import BehaviorContext
-from common_sim.control.strategy import Rule, Strategy, StrategyController
-from common_sim.control.tactics import Collect, Idle, Score
-from common_sim.control.triggers import AllOf, PiecesHeld, ScoringAvailable
+from common_sim.control.strategy import StrategyController
 from common_sim.match.match import Phase
 
 # How far the model may disagree with the drive before the inverse is
@@ -87,48 +93,6 @@ def _require(condition: bool, message: str) -> None:
         raise CheckFailed(message)
 
 
-def cycle_fuel(shoot_at: int) -> Strategy:
-    """Collect fuel until there is enough of it and a HUB will take it.
-
-    About as simple as a strategy gets, and that is the point -- what is
-    being tested is the adapter, not the strategy. `shoot_at` is a
-    strategy parameter and not a physical one: the intake really does
-    hold 40, and `RobotCharacteristics.piece_capacity` says so, but no
-    driver waits for 40 before scoring.
-
-    The `ScoringAvailable` half of the shoot trigger is where REBUILT's
-    25-second HUB clock enters. It reads through `world_view` to
-    `MapleMatchView.region_blocked`, so a robot with plenty of fuel and
-    no live HUB does not go and stand in the goal for twenty seconds --
-    it keeps collecting, and shoots when the HUB comes back. Without it
-    the shoot rule fires on ball count alone and the robot idles through
-    half of every cycle, which is what the first working run did.
-
-    Collect's trigger is "not literally full" rather than the complement
-    of the shoot threshold, so it stays the thing to do whenever the
-    higher-priority rule is not firing, for whichever of the two reasons.
-    """
-    return Strategy(
-        name="cycle_fuel",
-        rules=[
-            Rule(
-                name="shoot_fuel",
-                trigger=AllOf(triggers=(
-                    PiecesHeld(piece_type=arena.PIECE_TYPE, min_count=shoot_at),
-                    ScoringAvailable(),
-                )),
-                tactic=Score(action=mv.SHOOT),
-                priority=10,
-            ),
-            Rule(
-                name="collect_fuel",
-                trigger=PiecesHeld(piece_type=arena.PIECE_TYPE, max_count=mv.INTAKE_CAPACITY - 1),
-                tactic=Collect(piece_type=arena.PIECE_TYPE, mode="nearest"),
-                priority=5,
-            ),
-        ],
-        fallback=Idle(),
-    )
 
 
 # -- 1. the drive model -------------------------------------------------

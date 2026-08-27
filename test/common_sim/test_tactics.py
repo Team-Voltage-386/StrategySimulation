@@ -1885,3 +1885,215 @@ def test_score_gives_up_on_a_target_it_keeps_failing_at():
     # A second overrun, not the first: the ratchet must not turn a
     # momentary crowd into a lost target.
     assert took > tactics._STALL_PATIENCE_MIN
+
+
+# ---------------------------------------------------------------------------
+# Stage and Pass -- the two tactics a robot at capacity with a closed
+# scoring region needs. Both were found by driving real robot code under
+# maple-sim, where the repertoire ran out and Idle took twenty seconds of
+# a sixty-second run.
+# ---------------------------------------------------------------------------
+
+
+class ClosedGoalMatch(Match):
+    """A Match whose scoring regions can be shut, the way REBUILT's HUB
+    alternates between alliances on a 25-second clock."""
+
+    closed = True
+
+    def region_blocked(self, region, action) -> bool:
+        return self.closed
+
+
+def closed_goal_match(field=None, **config_overrides) -> ClosedGoalMatch:
+    field = field or make_field()
+    rules = TableScoringRules({("score_widget", "auto"): 3.0, ("score_widget", "teleop"): 1.0})
+    return ClosedGoalMatch(field, rules, MatchConfig(**config_overrides))
+
+
+def _holding(match, robot, count=1):
+    pieces = []
+    for _ in range(count):
+        piece = match.spawn_piece(WIDGET, (robot.pose.x, robot.pose.y))
+        piece.held_by = robot
+        piece.last_holder_alliance = robot.alliance
+        robot.held_pieces.append(piece)
+        pieces.append(piece)
+    return pieces
+
+
+def _fly(match, ticks=180, dt=1.0 / 60.0):
+    """Physics only, no tactic. `run` returns the tick a tactic reports
+    SUCCESS, which for Pass is the tick after it lets go -- so without
+    this the thrown piece is measured before it has gone anywhere."""
+    for _ in range(ticks):
+        match.step(dt)
+
+
+def _distance_to_goal(robot, match) -> float:
+    cx, cy = polygon_centroid(match.field.scoring_regions[0].vertices)
+    return math.hypot(robot.pose.x - cx, robot.pose.y - cy)
+
+
+def test_stage_waits_next_to_the_closed_region_instead_of_where_it_stopped():
+    """The gap Idle leaves. A robot with a full hopper and a shut goal
+    has nothing to do, and Idle does that nothing wherever the last
+    tactic happened to stop -- in REBUILT, on the far side of a wall
+    with two gaps in it."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    _holding(match, robot)
+    started = _distance_to_goal(robot, match)
+
+    status = run(match, tactics.Stage(), robot, ticks=1200)
+
+    assert status == Status.RUNNING, "it holds the pose; the field ends the wait, not the driving"
+    assert _distance_to_goal(robot, match) < started - 20.0, "it closed on the region it is waiting for"
+
+
+def test_stage_ends_the_moment_the_region_opens():
+    """SUCCESS rather than RUNNING-forever, so the wait is a state the
+    strategy leaves rather than a rule it has to be outranked out of."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    _holding(match, robot)
+    tactic = tactics.Stage()
+
+    assert run(match, tactic, robot, ticks=120) == Status.RUNNING
+    match.closed = False
+    assert run(match, tactic, robot, ticks=5) == Status.SUCCESS
+
+
+def test_stage_fails_with_nothing_to_stage_for():
+    """Deliberately narrow: it stages for scoring what the robot already
+    holds. 'Stand where pieces will appear' is a different tactic and
+    nothing has shown it is needed."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    assert run(match, tactics.Stage(), robot, ticks=5) == Status.FAILURE
+
+
+def test_stage_parks_where_score_would_want_to_be():
+    """Staging somewhere Score then wants to leave would spend the wait
+    making the robot late. The two share `scoring_approach_pose`, so this
+    is the check that they still do."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0))
+    _holding(match, robot)
+    run(match, tactics.Stage(), robot, ticks=1200)
+    staged = (robot.pose.x, robot.pose.y)
+
+    ctx = BehaviorContext(robot=robot, dt=1.0 / 60.0, match=match)
+    wanted = tactics.scoring_approach_pose(ctx, match.field.scoring_regions[0], WIDGET)
+    assert math.hypot(staged[0] - wanted.x, staged[1] - wanted.y) < 6.0
+
+
+def test_pass_throws_the_piece_toward_the_region_without_driving():
+    """A pass that navigated to its destination would be a slow Score,
+    and the reason to pass is that going there is not worth it."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(
+        make_characteristics(eject_speed=200.0), Pose2d(20, 100, math.pi),
+    )
+    (piece,) = _holding(match, robot)
+    where = (robot.pose.x, robot.pose.y)
+
+    run(match, tactics.Pass(), robot, ticks=240)
+    _fly(match)
+
+    assert piece not in robot.held_pieces, "it let go"
+    assert not piece.scored, "a pass is not a score"
+    assert piece.body.position.x > where[0], "and it went toward the goal, which is east"
+    assert math.hypot(robot.pose.x - where[0], robot.pose.y - where[1]) < 6.0, "it stayed put"
+
+
+def test_pass_refuses_from_a_pose_it_could_score_from():
+    """Passing from a scoring pose is a strictly worse Score. Failing is
+    what keeps that mistake visible in the strategy instead of quietly
+    scoring and looking like it worked."""
+    match = make_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(make_characteristics(), Pose2d(160, 100, 0))
+    _holding(match, robot)
+    assert run(match, tactics.Pass(), robot, ticks=5) == Status.FAILURE
+
+
+def test_pass_costs_what_the_mechanism_costs():
+    """`update_manipulator` fast-paths a release with nothing to score
+    against, because it models a piece being *discarded*. A deliberate
+    throw is not a discard: unpaced, this empties a hopper in under a
+    second."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(
+        make_characteristics(piece_capacity=6, deposit_time=0.5, eject_speed=200.0),
+        Pose2d(20, 100, 0.0),  # already pointing at the goal, so this measures throwing
+    )
+    _holding(match, robot, count=6)
+
+    run(match, tactics.Pass(), robot, ticks=60)  # one second
+    thrown = 6 - len(robot.held_pieces)
+    assert 0 < thrown <= 3, f"one throw per 0.5s deposit_time, not a dump: {thrown} in 1s"
+
+
+def test_a_held_deposit_throws_exactly_one_piece():
+    """The framework fact Pass's cooldown exists for, in both directions.
+
+    `Manipulator` is edge-triggered: one press is one piece, and the next
+    release is withheld until the command drops and is re-raised. So a
+    tactic that held the deposit down would throw once and then stand
+    there holding the rest of the hopper -- which is what the cooldown
+    re-arms. It is not only a rate limit."""
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(
+        make_characteristics(piece_capacity=6, deposit_time=0.5, eject_speed=200.0),
+        Pose2d(20, 100, 0.0),
+    )
+    _holding(match, robot, count=6)
+
+    for _ in range(60):
+        robot.set_deposit_active(True, action="score_widget")
+        match.step(1.0 / 60.0)
+    assert len(robot.held_pieces) == 5, "held down, one press is one piece"
+
+
+def test_pass_empties_the_hopper_and_reports_done():
+    match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+    robot = match.add_robot(
+        make_characteristics(piece_capacity=4, eject_speed=200.0), Pose2d(20, 100, math.pi),
+    )
+    _holding(match, robot, count=4)
+    assert run(match, tactics.Pass(), robot, ticks=3000) == Status.SUCCESS
+    assert not robot.held_pieces
+
+
+def test_eject_speed_is_a_design_parameter():
+    """At the default a released piece crawls: it only has to clear the
+    robot's own footprint so an adjacent region can take it, which is not
+    a pass. A robot built to throw says so in its characteristics.
+
+    Measured as distance covered in a fixed time rather than as where the
+    piece comes to rest, because in this sim it never does -- see the
+    note in `Pass`."""
+    travelled = {}
+    for speed in (24.0, 240.0):
+        match = closed_goal_match(auto_duration=1000, teleop_duration=1000)
+        robot = match.add_robot(
+            make_characteristics(eject_speed=speed), Pose2d(20, 100, 0.0),
+        )
+        (piece,) = _holding(match, robot)
+        # The mechanism directly, not through Pass: this is a fact about
+        # the robot, and routing it through a tactic that spends an
+        # unknown number of ticks aiming would measure the aiming too.
+        robot.set_deposit_active(True, action="score_widget")
+        match.step(1.0 / 60.0)
+        assert piece not in robot.held_pieces
+        _fly(match, ticks=30)  # half a second of flight, the same for both
+        travelled[speed] = piece.body.position.x - 20.0
+
+    # Not the 10x the speeds alone suggest, and the gap is informative:
+    # a held piece sits at the chassis centre, so at the default speed
+    # most of the travel is the robot's own body squeezing the piece out
+    # rather than the throw. Which is the point -- the default is a
+    # separation nudge, and a robot that means to pass has to say so.
+    assert travelled[24.0] < 40.0, "the default cannot move a piece across a field"
+    assert travelled[240.0] > 100.0, "a robot that can throw, can pass"
+    assert travelled[240.0] > travelled[24.0] * 3, travelled

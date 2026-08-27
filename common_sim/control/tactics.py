@@ -1409,6 +1409,45 @@ class Collect(Tactic):
         return Status.RUNNING
 
 
+def scoring_approach_pose(ctx: BehaviorContext, region, piece_type: str) -> Pose2d:
+    """The pose to sit in to deposit `piece_type` into `region`.
+
+    Module-level rather than a Score method because `Stage` has to
+    arrive at the *same* place: a robot that stages somewhere Score then
+    wants to leave has spent the wait making itself late, which is worse
+    than having waited where it was. Two implementations of "there"
+    would drift apart the first time either was tuned.
+    """
+    robot = ctx.robot
+    # Aim off-centroid when someone else is already working this
+    # region -- only ever happens on a region big enough that
+    # _pick_option was willing to share it, and without it both
+    # robots would drive at the identical centroid.
+    occupants = world_view.region_occupants(ctx.match, region, exclude=robot)
+    aim = world_view.region_approach_point(region, robot, occupants)
+    side = robot.characteristics.score_side_for(piece_type)
+    outward = SIDE_OUTWARD[side]
+    side_local_angle = math.atan2(outward[1], outward[0])
+    # Park with the scoring side's bumper edge on `aim`, not the
+    # chassis *center* on it. A scoring zone is sized to the entry
+    # face of the structure it belongs to -- a REEFSCAPE REEF face's
+    # is 10in deep, starting at the REEF wall -- so a robot aiming
+    # its center there is asking to put 14in of its own chassis
+    # inside solid structure. It never arrives: it grinds along the
+    # REEF, ends up parked askew, and its manipulator never squares
+    # up. Scoring only ever needed the side's reach points inside
+    # the zone (Robot.side_engages_polygon), which a bumper-on-the-
+    # zone pose satisfies with the whole chassis in free space.
+    characteristics = robot.characteristics
+    half_extent = (characteristics.length if side in ("front", "back") else characteristics.width) / 2.0
+    x, y, heading = clear_standoff(
+        ctx.match.field, aim, (robot.pose.x, robot.pose.y), half_extent,
+        width=characteristics.width, length=characteristics.length,
+        side_local_angle=side_local_angle,
+    )
+    return Pose2d(x, y, heading)
+
+
 class Score(Tactic):
     """Plans and executes scoring for whatever the robot holds. `region`
     / `action` pin a specific choice ("always L4 on the far face");
@@ -1480,36 +1519,7 @@ class Score(Tactic):
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         assert self._current is not None
-        robot = ctx.robot
-        region = self._current.region
-        # Aim off-centroid when someone else is already working this
-        # region -- only ever happens on a region big enough that
-        # _pick_option was willing to share it, and without it both
-        # robots would drive at the identical centroid.
-        occupants = world_view.region_occupants(ctx.match, region, exclude=robot)
-        aim = world_view.region_approach_point(region, robot, occupants)
-        side = robot.characteristics.score_side_for(self._current.piece.piece_type)
-        outward = SIDE_OUTWARD[side]
-        side_local_angle = math.atan2(outward[1], outward[0])
-
-        # Park with the scoring side's bumper edge on `aim`, not the
-        # chassis *center* on it. A scoring zone is sized to the entry
-        # face of the structure it belongs to -- a REEFSCAPE REEF face's
-        # is 10in deep, starting at the REEF wall -- so a robot aiming
-        # its center there is asking to put 14in of its own chassis
-        # inside solid structure. It never arrives: it grinds along the
-        # REEF, ends up parked askew, and its manipulator never squares
-        # up. Scoring only ever needed the side's reach points inside
-        # the zone (Robot.side_engages_polygon), which a bumper-on-the-
-        # zone pose satisfies with the whole chassis in free space.
-        characteristics = robot.characteristics
-        half_extent = (characteristics.length if side in ("front", "back") else characteristics.width) / 2.0
-        x, y, heading = clear_standoff(
-            ctx.match.field, aim, (robot.pose.x, robot.pose.y), half_extent,
-            width=characteristics.width, length=characteristics.length,
-            side_local_angle=side_local_angle,
-        )
-        return Pose2d(x, y, heading)
+        return scoring_approach_pose(ctx, self._current.region, self._current.piece.piece_type)
 
     def _pick_option(self, ctx: BehaviorContext) -> bool:
         match, robot = ctx.match, ctx.robot
@@ -2655,4 +2665,254 @@ class Defend(Tactic):
         if self.marked_robot is None or self._repick.ready(ctx.dt):
             self._update_mark(ctx)
         self._nav.tick(ctx)
+        return Status.RUNNING
+
+
+# How hard a Pass turns toward its destination, and how closely lined up
+# it has to be before letting go. The gain matches NavigateTo's
+# `heading_gain` so a robot rotating to throw turns at the same rate it
+# rotates to score; the tolerance is deliberately looser than
+# NavigateTo's `heading_tolerance`, because a pass is a throw at an area
+# and holding out for a scoring-grade heading would spend longer aiming
+# than the throw is worth.
+_PASS_TURN_GAIN = 4.0
+_PASS_AIM_TOLERANCE = math.radians(8.0)
+
+
+def _fallback_targets(ctx: BehaviorContext, region_name: str | None) -> list[tuple[object, str, str]]:
+    """(region, action, piece_type) for everywhere a held piece could go
+    *if the way were open* -- the regions `scoring_slots_for_type`
+    normally filters out as full or blocked.
+
+    Shared by `Stage` and `Pass` because they are two answers to one
+    question. A robot holding pieces with nowhere legal to put them can
+    wait nearer to where the way will open, or throw the pieces that
+    way; both need the same list, and a robot that staged at one region
+    while passing toward another would be working against itself.
+    """
+    robot = ctx.robot
+    out: list[tuple[object, str, str]] = []
+    for piece_type in dict.fromkeys(piece.piece_type for piece in robot.held_pieces):
+        for region, action in world_view.scoring_slots_for_type(
+            ctx.match, robot, piece_type, available_only=False,
+        ):
+            if region_name is not None and region.name != region_name:
+                continue
+            out.append((region, action, piece_type))
+    return out
+
+
+def _nearest_target(ctx: BehaviorContext, targets: list[tuple[object, str, str]]):
+    """The closest of `targets` by centroid.
+
+    Closest, not highest-valued, and the difference is the point: every
+    one of these is unavailable right now, so their values are claims
+    about a field state that has not happened yet. What is knowable is
+    how long it takes to get there, and that is what the robot is
+    spending the wait on.
+    """
+    pos = (ctx.robot.pose.x, ctx.robot.pose.y)
+    return min(targets, key=lambda t: math.dist(pos, world_view.region_centroid(t[0])))
+
+
+class Stage(Tactic):
+    """Wait where the next deposit will start from, rather than where the
+    last one ended.
+
+    The gap this fills was found by driving the real robot code under
+    maple-sim, not by reading the tactic list: a robot at capacity whose
+    scoring region is closed has nothing in its repertoire to do.
+    `Collect` refuses because it is full, `Score` refuses because nothing
+    will take the piece, and the fallback is `Idle` -- which is honest
+    about doing nothing, and does it wherever the last tactic happened to
+    stop. In REBUILT that was twenty seconds of a sixty-second run parked
+    at midfield, on the wrong side of a wall with two gaps in it.
+
+    Deliberately narrow. It stages for **scoring what the robot already
+    holds**, and fails when it holds nothing -- "stand where pieces will
+    appear" is a different and far more speculative tactic, and this one
+    exists because a specific run showed a specific cost. `region` pins
+    the choice; left None the nearest candidate wins.
+
+    Ends SUCCESS the moment a slot opens, so the wait is a state the
+    strategy leaves rather than a rule it has to be outranked out of.
+    """
+
+    PARAM_SCHEMA = (
+        Param("region", kind="region_name", default=None, optional=True),
+    )
+
+    def __init__(self, region: str | None = None, replan_period: float = 0.1):
+        self.region = region
+        self.replan_period = replan_period
+        self._target = None       # ScoringRegion
+        self._piece_type: str | None = None
+        self._nav = NavigateTo(
+            self._provide_target, heading_mode="face_target", replan_period=replan_period,
+        )
+
+    def reset(self) -> None:
+        self._target = None
+        self._piece_type = None
+        self._nav.reset()
+
+    def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
+        assert self._target is not None and self._piece_type is not None
+        return scoring_approach_pose(ctx, self._target, self._piece_type)
+
+    def tick(self, ctx: BehaviorContext) -> Status:
+        robot = ctx.robot
+        # Whatever was being deposited is not being deposited any more.
+        # Staging is the decision that there is nowhere to put this yet.
+        robot.set_deposit_active(False)
+
+        if not robot.held_pieces:
+            return Status.FAILURE
+
+        held_types = dict.fromkeys(piece.piece_type for piece in robot.held_pieces)
+        if any(world_view.scoring_slots_for_type(ctx.match, robot, t) for t in held_types):
+            # Somewhere will take it now. Stop, and let the strategy pick
+            # again -- Score is a better answer to this field than Stage.
+            robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
+            return Status.SUCCESS
+
+        targets = _fallback_targets(ctx, self.region)
+        if not targets:
+            # Nothing on this field will ever take what we are holding, so
+            # there is nothing to wait for and nowhere in particular worth
+            # standing. A different tactic's problem.
+            return Status.FAILURE
+
+        region, _action, piece_type = _nearest_target(ctx, targets)
+        if self._target is None or region.name != self._target.name:
+            self._target = region
+            self._piece_type = piece_type
+            self._nav.reset()
+
+        if self._nav.tick(ctx) is Status.SUCCESS:
+            # Arrived. `NavigateTo` already stopped the robot; holding the
+            # pose rather than reporting SUCCESS is the whole job -- this
+            # tactic finishes when the *field* changes, not the driving.
+            robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
+        return Status.RUNNING
+
+
+class Pass(Tactic):
+    """Throw a held piece toward somewhere it can be scored from later,
+    instead of carrying it until the way opens.
+
+    The other half of the same finding as `Stage`, and the other answer
+    to it: a robot with a full hopper and a closed goal can wait, or it
+    can put the pieces somewhere better and go back to work. Which is
+    right depends on the game, which is why both are tactics and neither
+    is a rule.
+
+    **It does not drive.** A pass that navigated to its destination would
+    be a slow `Score`, and the reason to pass at all is that going there
+    is not worth it or not possible. It turns on the spot until the side
+    that throws points at the destination, and lets go.
+
+    That is also why this needs no new intent: a pass presses exactly what
+    a score presses. In REBUILT the turret makes the decision itself --
+    `RobotContainer.isInAllianceArea` decides whether a shot is aimed at
+    the HUB or lobbed back toward your own corner -- so the whole
+    difference between the two, on the wire, is where the robot stands.
+    The framework already agrees: `Robot.update_manipulator` with nothing
+    to score against releases the piece onto the field.
+
+    Fails rather than throwing when the robot could score from where it
+    stands. Passing from a scoring pose is a strictly worse `Score`, and
+    quietly scoring instead would hide the mistake in the strategy.
+
+    **Where this is coarse.** The sim's space has no linear damping, so a
+    thrown piece keeps its speed until it hits something rather than
+    rolling to a stop. A pass therefore lands against whatever it is
+    aimed at instead of somewhere short of it, and
+    `characteristics.eject_speed` sets how long it spends in transit
+    rather than how far it goes. Adding damping to fix that would move
+    every existing measurement in this project -- the physics fingerprint
+    is what the dt, defense and calibration studies are pinned to -- so
+    the limitation is recorded instead. Under the maple-sim bridge the
+    question does not arise: real projectile physics decides where the
+    piece lands, and this tactic only decides to throw it.
+    """
+
+    PARAM_SCHEMA = (
+        Param("region", kind="region_name", default=None, optional=True),
+        Param("action", kind="action", default=None, optional=True),
+    )
+
+    def __init__(self, region: str | None = None, action: str | None = None):
+        self.region = region
+        self.action = action
+        self._cooldown = 0.0
+        self._held = 0
+
+    def reset(self) -> None:
+        self._cooldown = 0.0
+        self._held = 0
+
+    def _destination(self, ctx: BehaviorContext, piece_type: str):
+        targets = [t for t in _fallback_targets(ctx, self.region) if t[2] == piece_type]
+        if self.action is not None:
+            targets = [t for t in targets if t[1] == self.action]
+        return _nearest_target(ctx, targets) if targets else None
+
+    def tick(self, ctx: BehaviorContext) -> Status:
+        robot = ctx.robot
+        if not robot.held_pieces:
+            robot.set_deposit_active(False)
+            return Status.SUCCESS
+
+        piece = robot.held_pieces[0]
+        chosen = self._destination(ctx, piece.piece_type)
+        if chosen is None:
+            robot.set_deposit_active(False)
+            return Status.FAILURE
+        region, action, _ = chosen
+
+        # `Match.deposit_region_for` resolves against the action the robot
+        # has latched, so publish it before asking -- the same order
+        # `Score._deposit_ready` uses, and for the same reason.
+        robot.set_deposit_active(robot.deposit_active, action=action)
+        if ctx.match.deposit_region_for(robot, piece) is not None:
+            robot.set_deposit_active(False)
+            return Status.FAILURE
+
+        # One throw per `deposit_duration`, and this is load-bearing twice.
+        #
+        # `Manipulator` is edge-triggered -- one press deposits one piece,
+        # and a further release is withheld until the command drops and is
+        # re-raised -- so a tactic that simply held the deposit down would
+        # throw once and then stand there holding the rest of the hopper.
+        # The cooldown is what re-arms it.
+        #
+        # And it is what prices it. `update_manipulator` fast-paths a
+        # release with nothing to score against, because there is no
+        # mechanism motion to model when a piece is being *discarded*, so
+        # the press-release cycle alone would throw one piece per tick. A
+        # deliberate throw is not a discard: it costs what the mechanism
+        # costs.
+        self._cooldown = max(0.0, self._cooldown - ctx.dt)
+        if len(robot.held_pieces) < self._held:
+            self._cooldown = robot.characteristics.deposit_duration(action)
+        self._held = len(robot.held_pieces)
+
+        side = robot.characteristics.score_side_for(piece.piece_type)
+        outward = SIDE_OUTWARD[side]
+        destination = world_view.region_centroid(region)
+        desired = math.atan2(
+            destination[1] - robot.pose.y, destination[0] - robot.pose.x,
+        ) - math.atan2(outward[1], outward[0])
+        error = wrap_angle(desired - robot.pose.heading)
+
+        if abs(error) > _PASS_AIM_TOLERANCE:
+            max_omega = robot.characteristics.max_angular_speed
+            omega = max(-max_omega, min(max_omega, error * _PASS_TURN_GAIN))
+            robot.drive_field_relative(ctx.dt, 0.0, 0.0, omega)
+            robot.set_deposit_active(False, action=action)
+            return Status.RUNNING
+
+        robot.drive_field_relative(ctx.dt, 0.0, 0.0, 0.0)
+        robot.set_deposit_active(self._cooldown <= 0.0, action=action)
         return Status.RUNNING

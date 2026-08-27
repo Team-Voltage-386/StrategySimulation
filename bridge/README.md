@@ -721,6 +721,83 @@ centre, i.e. 11.6 past the bumper. That the strategy layer then handles the
 approach geometry correctly, with no changes, is the payoff for adapting rather
 than reimplementing.
 
+### The two tactics the bridge asked for
+
+`Stage` and `Pass`, both in `common_sim/control/tactics.py` and both
+game-agnostic. They exist because a run found a hole, not because a tactic
+list looked short: a robot that is **both** full and unable to score matches
+no rule at all and drops to `Idle`, which does nothing wherever the last
+tactic happened to stop. Measured at eighteen to twenty seconds of a
+sixty-second run, parked at midfield on the wrong side of a wall with two
+gaps in it.
+
+They are the two answers to that one situation. Wait nearer to where the way
+will open, or throw the pieces that way and go back to work. Which is right
+is a question about the game, which is why both are tactics and neither is a
+rule.
+
+**`Stage` parks where `Score` will want to be**, through the same
+`scoring_approach_pose` Score uses — staging somewhere Score then wants to
+leave would spend the wait making the robot late. It ends `SUCCESS` the
+moment a slot opens, so the wait is a state the strategy leaves rather than
+a rule it has to be outranked out of. Ranked *below* `collect_fuel` on
+purpose: fuel on the floor is always worth collecting, and a staging rule
+that outranked collecting would answer a dead HUB by parking a half-full
+robot.
+
+With it wired in, `Idle` disappears from the run:
+
+```
+23.8  Stage   (7.16, 5.78)   40 held, red HUB active -- full, nowhere to score
+25.8  Stage   (3.26, 6.96)   crossing the gap
+27.8  Stage   (2.60, 4.39)   arrived
+ ...  seven seconds of waiting, in the right place ...
+42.0  Score   (2.61, 4.42)   the HUB flips and it deposits from where it stands
+```
+
+Total distance travelled is unchanged (8.72 m against 8.55 m). The driving
+is not extra; it has moved out of the live HUB window and into the dead one.
+Whether that is worth points is a paired-campaign question, not a
+one-run-each-way question — the numbers swing by more than the effect across
+single runs, and `--driver strategy` is what settles it.
+
+**`Pass` does not drive.** A pass that navigated to its destination would be
+a slow `Score`, and the reason to pass at all is that going there is not
+worth it. It turns on the spot until the throwing side points at the
+destination and lets go. It fails rather than throwing from a pose it could
+score from, because that is a strictly worse `Score` and quietly scoring
+instead would hide the mistake.
+
+Two things fell out of building it. The framework already had the primitive —
+`Robot.update_manipulator` with nothing to score against releases the piece
+onto the field — so no new write was needed, exactly as predicted. And
+`Manipulator` is **edge-triggered**: one press is one piece, and the next
+release is withheld until the command drops and is re-raised. A tactic that
+held the deposit down would throw once and stand there holding the rest of
+the hopper. `Pass`'s cooldown re-arms it *and* prices it at
+`deposit_duration`, since a release with nothing to score against otherwise
+completes on the tick it is commanded.
+
+**`Pass` is not yet wired into REBUILT, deliberately.** Its guard asks
+`match.deposit_region_for`, which here is point-in-polygon on the GOAL
+pocket — but the rule that actually decides whether a REBUILT shot scores or
+passes is `isInAllianceArea`, and the zone is much larger than the pocket.
+So a `Pass` rule would fire from inside the zone, where the turret aims at
+the HUB and the throw is really a bad shot. Fixing that means making the
+bridge's deposit test the alliance-zone rule rather than the pocket, which
+is a change to what `Score` does too, and worth doing on its own.
+
+### One strategy, defined once
+
+Adding the staging rule surfaced a defect worth recording: `cycle_fuel`
+existed in both `bridge/harness.py` and `apps/run_bridge_strategy.py`. The
+rule went into the harness copy, the app kept playing the old two-rule
+strategy, and the run showed eighteen unbroken seconds of `Idle` — so the
+new tactic looked broken when what was broken was having two definitions of
+one strategy. It now lives in `bridge.harness` and the app imports it. The
+overnight campaign and the single-run app have to play the same game, or
+neither tells you anything about the other.
+
 ## Two things found on the way
 
 **Odometry is not an independent channel here.** `SimContainer.simulationPeriodic`
@@ -764,17 +841,10 @@ deterministic stepping.
 Step 4 is done: the strategy layer reads the live field and drives the robot.
 What remains widens the variety of situations reached.
 
-* **A positioning tactic.** The first thing the bridge found: a robot at
-  capacity with a dead HUB has nothing in its repertoire to do. sparky-sim has
-  `Collect`, `Score`, `Pursue`, `Defend` and `Idle`, and none of them mean
-  "stand somewhere useful and wait".
-* **Passing as a tactic.** Now that the difference between scoring and passing
-  is visible, a robot holding fuel outside its zone with a dead HUB has a third
-  option nobody has modelled: throw it toward its own corner deliberately. That
-  is a real REBUILT strategy and sparky-sim has no vocabulary for it.
-* **Intent→button mapping**, broadened past the canned tactic. Note that the
-  two tactics above need none of it: a positioning tactic only drives, and a
-  pass presses the same two controls a score does — the whole difference is
-  where the robot is standing.
+* **Intent→button mapping**, broadened past the canned tactic. `Stage` and
+  `Pass` needed none of it, which was the prediction: a positioning tactic only
+  drives, and a pass presses exactly what a score presses.
+* **Wiring `Pass` into REBUILT.** It is implemented and tested, and the bridge
+  cannot yet fire it honestly — see below.
 * **AI opponents** — the other five robots driven by sparky-sim.
 * **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage.
