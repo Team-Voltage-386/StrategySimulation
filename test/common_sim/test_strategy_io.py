@@ -4,7 +4,7 @@ import pytest
 
 from common_sim.control import strategy_io
 from common_sim.control.strategy import Rule, Strategy
-from common_sim.control.tactics import Collect, Defend, Idle, Score
+from common_sim.control.tactics import Collect, Defend, Idle, Pass, Score, Stage
 from common_sim.control.triggers import AllOf, AtCapacity, MatchTime, Not, PiecesHeld
 
 
@@ -69,6 +69,31 @@ def test_registry_covers_every_trigger_and_tactic_used():
     assert "MatchTime" in strategy_io.REGISTRY
     assert "PiecesHeld" in strategy_io.REGISTRY
     assert "AtCapacity" in strategy_io.REGISTRY
+
+
+def test_stage_and_pass_round_trip():
+    """A tactic that is not in REGISTRY cannot be written down, so it can
+    only ever be built in Python -- no strategy file, no GUI editor, no
+    parameter search. Registration is what makes a tactic usable, and it
+    is easy to add the class and forget."""
+    strategy = Strategy(
+        name="wait-or-throw",
+        rules=[
+            Rule(name="wait", trigger=PiecesHeld(min_count=1),
+                 tactic=Stage(region="goal"), priority=1),
+            Rule(name="throw", trigger=PiecesHeld(min_count=1),
+                 tactic=Pass(region="goal", action="shoot"), priority=2),
+        ],
+        fallback=Idle(),
+    )
+    payload = strategy_io.to_dict(strategy)
+    assert payload["rules"][0]["tactic"] == {"type": "Stage", "region": "goal"}
+    assert payload["rules"][1]["tactic"] == {"type": "Pass", "region": "goal", "action": "shoot"}
+
+    staged, thrown = (r.tactic for r in strategy_io.from_dict(payload).rules)
+    assert isinstance(staged, Stage) and staged.region == "goal"
+    assert isinstance(thrown, Pass)
+    assert (thrown.region, thrown.action) == ("goal", "shoot")
 
 
 def test_defense_surface_round_trips():
