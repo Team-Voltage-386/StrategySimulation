@@ -28,8 +28,12 @@ CORAL_MASS = 0.3
 ALGAE_RADIUS = 8.0
 ALGAE_MASS = 0.6
 
-register_piece_spec(CORAL_TYPE, GamePieceSpec(radius=CORAL_RADIUS, mass=CORAL_MASS, color="white"))
-register_piece_spec(ALGAE_TYPE, GamePieceSpec(radius=ALGAE_RADIUS, mass=ALGAE_MASS, color="green"))
+register_piece_spec(CORAL_TYPE, GamePieceSpec(
+    radius=CORAL_RADIUS, mass=CORAL_MASS, color="white", display_shape="capsule",
+))
+register_piece_spec(ALGAE_TYPE, GamePieceSpec(
+    radius=ALGAE_RADIUS, mass=ALGAE_MASS, color="green", display_shape="sphere",
+))
 
 
 def spawn_coral(match: Match, position: tuple[float, float], source: str = "field") -> GamePiece:

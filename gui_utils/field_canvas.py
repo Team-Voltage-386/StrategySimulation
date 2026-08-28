@@ -14,6 +14,7 @@ from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
 from common_sim.control.human import HumanController
 from common_sim.field.field_config import point_in_polygon, polygon_centroid
+from common_sim.field.game_piece import piece_spec
 from common_sim.match.match import Match
 from common_sim.robot.characteristics import SIDE_OUTWARD
 from gui_utils import theme
@@ -70,6 +71,12 @@ REEF_GRID_OUTWARD_MARGIN = 6.0
 # solid chassis on top of a bumper, not a measurement of anything real.
 ROBOT_BUMPER_HEIGHT = 5.0
 ROBOT_BODY_HEIGHT = 12.0
+
+# Visual-only field perimeter. Only the long side guardrails are drawn: the
+# alliance walls sit directly in the driver's sightline and add more clutter
+# than useful depth information in this perspective.
+SIDE_WALL_HEIGHT = 24.0
+WALL_POST_SPACING = 72.0
 
 # Height of the collect/score progress bar drawn above each robot by
 # _draw_action_progress -- shared with _draw_one_robot_intent so the intent
@@ -204,18 +211,22 @@ class FieldCanvas(QtWidgets.QWidget):
         self._camera = self._build_camera()
         scale = self._field_scale()
 
-        painter.setPen(QtGui.QPen(QtGui.QColor(theme.BORDER), 2))
-        painter.setBrush(Qt.NoBrush)
         boundary = (
             (0, 0), (self.match.field.width, 0),
             (self.match.field.width, self.match.field.height), (0, self.match.field.height),
         )
+        painter.setPen(QtGui.QPen(QtGui.QColor(theme.BORDER), 2))
+        painter.setBrush(QtGui.QColor(19, 42, 39) if self._camera is not None else Qt.NoBrush)
         painter.drawPolygon(self._polygon(boundary, scale))
+        if self._camera is not None:
+            self._draw_driver_carpet_markings(painter, scale)
+            self._draw_driver_side_walls(painter)
 
         self._draw_scoring_regions(painter, scale)
         self._draw_intake_locations(painter, scale)
         self._draw_emitter_regions(painter, scale)
         self._draw_protected_zones(painter, scale)
+        self._draw_field_visuals(painter, scale)
         self._draw_obstacles(painter, scale)
         self._draw_region_piece_counts(painter, scale)
         self._draw_pieces(painter, scale)
@@ -232,6 +243,71 @@ class FieldCanvas(QtWidgets.QWidget):
             wx, wy = self._to_widget(vx, vy, scale)
             poly.append(QtCore.QPointF(wx, wy))
         return poly
+
+    def _project(self, x: float, y: float, z: float, scale: float) -> QtCore.QPointF:
+        if self._camera is not None:
+            px, py, _ = self._camera.project(x, y, z)
+        else:
+            px, py = self._to_widget(x, y, scale)
+        return QtCore.QPointF(px, py)
+
+    def _draw_driver_carpet_markings(self, painter, scale: float) -> None:
+        """Sparse field markings that make distance and field center legible."""
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QtGui.QPen(QtGui.QColor(220, 225, 220, 75), 1, Qt.DashLine))
+        mid_x = self.match.field.width / 2.0
+        painter.drawLine(self._project(mid_x, 0.0, 0.1, scale), self._project(mid_x, self.match.field.height, 0.1, scale))
+
+        # Subtle transverse ticks give the otherwise featureless carpet a
+        # perspective ruler without pretending to be game-rule markings.
+        painter.setPen(QtGui.QPen(QtGui.QColor(180, 195, 190, 35), 1))
+        x = WALL_POST_SPACING
+        while x < self.match.field.width:
+            painter.drawLine(self._project(x, 0.0, 0.1, scale), self._project(x, self.match.field.height, 0.1, scale))
+            x += WALL_POST_SPACING
+
+    def _draw_wall_segment(
+        self, painter, start: tuple[float, float], end: tuple[float, float],
+        height: float, color: QtGui.QColor, *, post_spacing: float,
+    ) -> None:
+        x1, y1 = start
+        x2, y2 = end
+        bottom1 = self._project(x1, y1, 0.0, 1.0)
+        bottom2 = self._project(x2, y2, 0.0, 1.0)
+        top2 = self._project(x2, y2, height, 1.0)
+        top1 = self._project(x1, y1, height, 1.0)
+        panel = QtGui.QColor(color)
+        panel.setAlpha(24)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(panel)
+        painter.drawPolygon(QtGui.QPolygonF([bottom1, bottom2, top2, top1]))
+
+        rail = QtGui.QColor(color)
+        rail.setAlpha(185)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QtGui.QPen(rail, 2.5))
+        painter.drawLine(top1, top2)
+
+        length = math.hypot(x2 - x1, y2 - y1)
+        posts = max(1, int(math.ceil(length / post_spacing)))
+        painter.setPen(QtGui.QPen(QtGui.QColor(rail), 1.2))
+        for i in range(posts + 1):
+            t = i / posts
+            x, y = x1 + (x2 - x1) * t, y1 + (y2 - y1) * t
+            painter.drawLine(self._project(x, y, 0.0, 1.0), self._project(x, y, height, 1.0))
+
+    def _draw_driver_side_walls(self, painter) -> None:
+        """Polycarbonate guardrails along the field's two long sides."""
+        width, height = self.match.field.width, self.match.field.height
+        neutral = QtGui.QColor(175, 205, 215)
+        self._draw_wall_segment(
+            painter, (0.0, 0.0), (width, 0.0), SIDE_WALL_HEIGHT,
+            neutral, post_spacing=WALL_POST_SPACING,
+        )
+        self._draw_wall_segment(
+            painter, (width, height), (0.0, height), SIDE_WALL_HEIGHT,
+            neutral, post_spacing=WALL_POST_SPACING,
+        )
 
     def _prism_faces(
         self, verts_2d, z0: float, z1: float, top_brush, side_brush,
@@ -506,10 +582,81 @@ class FieldCanvas(QtWidgets.QWidget):
         painter.setFont(theme.technical_font(9, bold=True))
         painter.drawText(QtCore.QRectF(cx - r, cy - r, 2 * r, 2 * r), Qt.AlignCenter, label)
 
+    def _visual_color(self, visual) -> QtGui.QColor:
+        if visual.color:
+            return QtGui.QColor(visual.color)
+        return ALLIANCE_COLORS.get(visual.alliance, QtGui.QColor(175, 185, 195))
+
+    def _draw_field_visuals(self, painter, scale: float) -> None:
+        """Draw non-physical hardware declared by the game package."""
+        if self._camera is None:
+            return
+        for visual in getattr(self.match.field, "visuals", ()):
+            color = self._visual_color(visual)
+            if visual.kind == "prism" and len(visual.points) >= 3:
+                top = QtGui.QColor(color)
+                top.setAlpha(55)
+                side = QtGui.QColor(color)
+                side.setAlpha(38)
+                painter.setPen(QtGui.QPen(color, 1.5))
+                for _depth, poly, brush in self._prism_faces(
+                    visual.points, visual.base_height, visual.height, top, side,
+                ):
+                    painter.setBrush(brush)
+                    painter.drawPolygon(poly)
+            elif visual.kind == "frame" and len(visual.points) >= 3:
+                bottom = [self._project(x, y, visual.base_height, scale) for x, y in visual.points]
+                top = [self._project(x, y, visual.height, scale) for x, y in visual.points]
+                fill = QtGui.QColor(color)
+                fill.setAlpha(12)
+                painter.setPen(QtGui.QPen(color, 2))
+                painter.setBrush(fill)
+                painter.drawPolygon(QtGui.QPolygonF(top))
+                painter.setBrush(Qt.NoBrush)
+                painter.drawPolygon(QtGui.QPolygonF(bottom))
+                for low, high in zip(bottom, top):
+                    painter.drawLine(low, high)
+            elif visual.kind == "net" and len(visual.points) >= 2:
+                self._draw_net_visual(painter, visual, color, scale)
+
+    def _draw_net_visual(self, painter, visual, color: QtGui.QColor, scale: float) -> None:
+        """Vertical mesh between the first and last points of a net visual."""
+        (x1, y1), (x2, y2) = visual.points[0], visual.points[-1]
+        low1 = self._project(x1, y1, visual.base_height, scale)
+        low2 = self._project(x2, y2, visual.base_height, scale)
+        high2 = self._project(x2, y2, visual.height, scale)
+        high1 = self._project(x1, y1, visual.height, scale)
+        mesh = QtGui.QColor(color)
+        mesh.setAlpha(80)
+        fill = QtGui.QColor(color)
+        fill.setAlpha(10)
+        painter.setPen(QtGui.QPen(mesh, 1))
+        painter.setBrush(fill)
+        painter.drawPolygon(QtGui.QPolygonF([low1, low2, high2, high1]))
+
+        divisions = 8
+        for i in range(divisions + 1):
+            t = i / divisions
+            x, y = x1 + (x2 - x1) * t, y1 + (y2 - y1) * t
+            painter.drawLine(
+                self._project(x, y, visual.base_height, scale),
+                self._project(x, y, visual.height, scale),
+            )
+        levels = 4
+        for i in range(levels + 1):
+            z = visual.base_height + (visual.height - visual.base_height) * i / levels
+            painter.drawLine(self._project(x1, y1, z, scale), self._project(x2, y2, z, scale))
+
+        painter.setPen(QtGui.QPen(color, 3))
+        painter.drawLine(high1, high2)
+
     def _draw_obstacles(self, painter, scale: float) -> None:
         painter.setPen(QtGui.QPen(QtGui.QColor(theme.TEXT_DIM), 2))
         for obstacle in self.match.field.obstacles:
             if self._camera is not None and obstacle.height > 0:
+                if getattr(obstacle, "render_style", "solid") == "lattice":
+                    self._draw_lattice_obstacle(painter, obstacle, scale)
+                    continue
                 # Semi-transparent rather than solid: a real REEF is open
                 # lattice, not a wall, and the near face's fill is the
                 # only thing standing between the driver and whatever
@@ -529,26 +676,109 @@ class FieldCanvas(QtWidgets.QWidget):
                 painter.setBrush(QtGui.QColor(theme.BG_RAISED))
                 painter.drawPolygon(self._polygon(obstacle.vertices, scale))
 
+    def _draw_lattice_obstacle(self, painter, obstacle, scale: float) -> None:
+        """Open-frame extrusion for truss-like field structures such as a REEF."""
+        color = QtGui.QColor(185, 195, 200)
+        faint = QtGui.QColor(theme.BG_RAISED)
+        faint.setAlpha(25)
+        bottom = [self._project(x, y, 0.0, scale) for x, y in obstacle.vertices]
+        top = [self._project(x, y, obstacle.height, scale) for x, y in obstacle.vertices]
+
+        painter.setPen(QtGui.QPen(color, 1.5))
+        painter.setBrush(faint)
+        painter.drawPolygon(QtGui.QPolygonF(top))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPolygon(QtGui.QPolygonF(bottom))
+        for i, (low1, high1) in enumerate(zip(bottom, top)):
+            j = (i + 1) % len(bottom)
+            painter.drawLine(low1, high1)
+            # Cross-bracing is the cue that this is an open structure, not
+            # a tinted solid wall. Low alpha keeps far-side braces quiet.
+            brace = QtGui.QColor(color)
+            brace.setAlpha(115)
+            painter.setPen(QtGui.QPen(brace, 1))
+            painter.drawLine(low1, top[j])
+            painter.drawLine(bottom[j], high1)
+            painter.setPen(QtGui.QPen(color, 1.5))
+        painter.drawPolygon(QtGui.QPolygonF(top))
+
     def _draw_pieces(self, painter, scale: float) -> None:
-        painter.setPen(Qt.NoPen)
         if self.playback_pieces is not None:
             pieces = self.playback_pieces
             if self._camera is not None:
                 pieces = sorted(pieces, key=lambda p: self._camera.project(p.position_x, p.position_y, 0.0)[2], reverse=True)
             for snapshot in pieces:
-                painter.setBrush(QtGui.QColor(snapshot.color) if snapshot.color else QtGui.QColor(255, 110, 0))
                 wx, wy = self._to_widget(snapshot.position_x, snapshot.position_y, scale)
                 r = max(snapshot.radius * self._scale_at(snapshot.position_x, snapshot.position_y, scale), 2.0)
-                painter.drawEllipse(QtCore.QPointF(wx, wy), r, r)
+                self._draw_piece_marker(
+                    painter, snapshot.piece_type, wx, wy, r,
+                    QtGui.QColor(snapshot.color) if snapshot.color else QtGui.QColor(255, 110, 0),
+                )
             return
         pieces = self.match.active_pieces
         if self._camera is not None:
             pieces = sorted(pieces, key=lambda p: self._camera.project(p.position.x, p.position.y, 0.0)[2], reverse=True)
         for piece in pieces:
-            painter.setBrush(QtGui.QColor(piece.color) if piece.color else QtGui.QColor(255, 110, 0))
             wx, wy = self._to_widget(piece.position.x, piece.position.y, scale)
             r = max(piece.radius * self._scale_at(piece.position.x, piece.position.y, scale), 2.0)
-            painter.drawEllipse(QtCore.QPointF(wx, wy), r, r)
+            self._draw_piece_marker(
+                painter, piece.piece_type, wx, wy, r,
+                QtGui.QColor(piece.color) if piece.color else QtGui.QColor(255, 110, 0),
+            )
+
+    def _draw_piece_marker(
+        self, painter, piece_type: str, cx: float, cy: float, radius: float,
+        color: QtGui.QColor, *, shadow: bool = True,
+    ) -> None:
+        """Distinct, screen-readable silhouettes over circular 2D physics."""
+        shape = piece_spec(piece_type).display_shape
+        r = max(radius, 2.5)
+        if shadow and self._camera is not None:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QtGui.QColor(0, 0, 0, 90))
+            painter.drawEllipse(QtCore.QPointF(cx + 1.5, cy + max(2.0, r * 0.65)), r * 1.05, max(1.5, r * 0.42))
+
+        if shape == "sphere":
+            gradient = QtGui.QRadialGradient(QtCore.QPointF(cx - r * 0.35, cy - r * 0.4), r * 1.35)
+            gradient.setColorAt(0.0, color.lighter(180))
+            gradient.setColorAt(0.45, color)
+            gradient.setColorAt(1.0, color.darker(210))
+            painter.setPen(QtGui.QPen(color.lighter(135), 1))
+            painter.setBrush(QtGui.QBrush(gradient))
+            painter.drawEllipse(QtCore.QPointF(cx, cy), r, r)
+            return
+
+        painter.save()
+        painter.translate(cx, cy)
+        if shape == "capsule":
+            painter.rotate(-18.0)
+            width, height = max(9.0, r * 3.4), max(4.5, r * 1.45)
+            painter.setPen(QtGui.QPen(QtGui.QColor(185, 195, 200), 1.2))
+            painter.setBrush(color)
+            painter.drawRoundedRect(QtCore.QRectF(-width / 2, -height / 2, width, height), height / 2, height / 2)
+            # A dark inner bore makes the white CORAL read as tubing rather
+            # than a generic pill, even when perspective shrinks it.
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QtGui.QColor(55, 65, 70))
+            painter.drawEllipse(QtCore.QPointF(width / 2 - height * 0.42, 0.0), height * 0.22, height * 0.30)
+        elif shape == "box":
+            painter.rotate(8.0)
+            painter.setPen(QtGui.QPen(color.lighter(150), 1))
+            painter.setBrush(color.darker(115))
+            painter.drawRect(QtCore.QRectF(-r, -r, 2 * r, 2 * r))
+            painter.drawLine(QtCore.QPointF(-r, -r), QtCore.QPointF(r, r))
+        elif shape == "shard":
+            painter.setPen(QtGui.QPen(color.lighter(140), 1))
+            painter.setBrush(color)
+            painter.drawPolygon(QtGui.QPolygonF([
+                QtCore.QPointF(-r, r * 0.45), QtCore.QPointF(-r * 0.25, -r),
+                QtCore.QPointF(r, -r * 0.2), QtCore.QPointF(r * 0.35, r),
+            ]))
+        else:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(color)
+            painter.drawEllipse(QtCore.QPointF(0.0, 0.0), r, r)
+        painter.restore()
 
     def _draw_robots(self, painter, scale: float) -> None:
         robots = self.match.robots
@@ -585,6 +815,23 @@ class FieldCanvas(QtWidgets.QWidget):
             self._robot_to_world(robot, -half_l, -half_w),
         ]
 
+    def _project_robot_local(
+        self, robot, local_x: float, local_y: float, z: float, scale: float,
+    ) -> QtCore.QPointF:
+        x, y = self._robot_to_world(robot, local_x, local_y)
+        return self._project(x, y, z if self._camera is not None else 0.0, scale)
+
+    def _draw_robot_shadow(self, painter, corners, scale: float) -> None:
+        if self._camera is None:
+            return
+        points = []
+        for x, y in corners:
+            p = self._project(x, y, 0.0, scale)
+            points.append(QtCore.QPointF(p.x() + 2.0, p.y() + 4.0))
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QtGui.QColor(0, 0, 0, 105))
+        painter.drawPolygon(QtGui.QPolygonF(points))
+
     def _draw_human_glow(self, painter, robot, cx: float, cy: float, half_extent: float) -> None:
         """Soft alliance-colored halo behind a human-piloted robot, so it
         reads at a glance which robot(s) on the field a person is
@@ -611,15 +858,15 @@ class FieldCanvas(QtWidgets.QWidget):
         half_w = robot.characteristics.width / 2.0
         bumper_color = QtGui.QColor(220, 30, 60) if robot.alliance == "red" else QtGui.QColor(theme.ACCENT_CYAN)
 
-        if isinstance(robot.controller, HumanController):
-            self._draw_human_glow(painter, robot, cx, cy, max(half_l, half_w) * local_scale)
-
         # Corners are projected explicitly (rather than the old
         # painter.translate()+rotate()) because that's affine and does not
         # survive a perspective projection -- a driver-station camera needs
         # each corner mapped through _to_widget (or, extruded, through
         # _prism_faces) on its own.
         corners = self._rect_corners(robot)
+        self._draw_robot_shadow(painter, corners, scale)
+        if isinstance(robot.controller, HumanController):
+            self._draw_human_glow(painter, robot, cx, cy, max(half_l, half_w) * local_scale)
         if self._camera is not None:
             # Two stacked tiers rather than one flat-colored box: a
             # shaded alliance-colored bumper band under a neutral shaded
@@ -658,10 +905,7 @@ class FieldCanvas(QtWidgets.QWidget):
             painter.setBrush(Qt.NoBrush)
             painter.drawPolygon(body_poly)
 
-        fx, fy = self._robot_to_world(robot, half_l, 0.0)
-        fwx, fwy = self._to_widget(fx, fy, scale)
-        painter.setPen(QtGui.QPen(QtGui.QColor(theme.TEXT_PRIMARY), 2))
-        painter.drawLine(QtCore.QPointF(cx, cy), QtCore.QPointF(fwx, fwy))
+        self._draw_robot_front_marker(painter, robot, scale)
 
         if robot.held_pieces:
             # Mirrors the lateral fan-out Robot.sync_held_piece_positions
@@ -674,13 +918,32 @@ class FieldCanvas(QtWidgets.QWidget):
                 local_y = (i - (count - 1) / 2.0) * robot.HELD_PIECE_SPACING
                 px, py = self._robot_to_world(robot, half_l * 0.4, local_y)
                 wx, wy = self._to_widget(px, py, scale)
-                held_color = held_piece.color
-                painter.setBrush(QtGui.QColor(held_color) if held_color else QtGui.QColor(255, 110, 0))
-                painter.drawEllipse(QtCore.QPointF(wx, wy), 5, 5)
+                held_color = QtGui.QColor(held_piece.color) if held_piece.color else QtGui.QColor(255, 110, 0)
+                self._draw_piece_marker(
+                    painter, held_piece.piece_type, wx, wy, 5.0, held_color, shadow=False,
+                )
 
         self._draw_side_manipulators(painter, robot, scale)
 
         self._draw_action_progress(painter, robot, cx, cy, half_l * local_scale, half_w * local_scale)
+
+    def _draw_robot_front_marker(self, painter, robot, scale: float) -> None:
+        """Large top-plate chevron plus a contrasting front-bumper stripe."""
+        half_l = robot.characteristics.length / 2.0
+        half_w = robot.characteristics.width / 2.0
+        z = ROBOT_BODY_HEIGHT + 0.15
+        rear_l = self._project_robot_local(robot, half_l * 0.05, half_w * 0.48, z, scale)
+        tip = self._project_robot_local(robot, half_l * 0.80, 0.0, z, scale)
+        rear_r = self._project_robot_local(robot, half_l * 0.05, -half_w * 0.48, z, scale)
+        white = QtGui.QColor(245, 248, 250)
+        painter.setBrush(Qt.NoBrush)
+        painter.setPen(QtGui.QPen(white, 3.5, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+        painter.drawPolyline(QtGui.QPolygonF([rear_l, tip, rear_r]))
+
+        front_r = self._project_robot_local(robot, half_l + 0.1, -half_w * 0.72, ROBOT_BUMPER_HEIGHT, scale)
+        front_l = self._project_robot_local(robot, half_l + 0.1, half_w * 0.72, ROBOT_BUMPER_HEIGHT, scale)
+        painter.setPen(QtGui.QPen(white, 3, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(front_r, front_l)
 
     def _draw_intent_overlay(self, painter, scale: float) -> None:
         """Optional debug overlay for AI-driven robots: highlights the
@@ -797,31 +1060,85 @@ class FieldCanvas(QtWidgets.QWidget):
         return [("front", "in", label), ("front", "out", label)]
 
     def _draw_side_manipulators(self, painter, robot, scale: float) -> None:
-        """Small circular badges on each edge the robot has a manipulator
-        on -- cyan for intake, amber for scoring, labeled with the piece
-        type(s) that side handles. Positioned from a robot-local offset
-        (SIDE_OUTWARD, the same front=+x/left=+y convention _rect_corners
-        uses) projected to world then screen, so this works unmodified
-        under a driver-station camera; badge size itself stays a fixed
-        screen radius regardless of view, same as before this was
-        projected per-point."""
+        """Edge bands and directional arrows for every robot mechanism.
+
+        On a human-controlled robot, cyan arrows point into the chassis
+        for intake and amber arrows point out for scoring. AI robots keep
+        the edge bands and piece initials but omit the arrows to reduce
+        field clutter around robots the driver is not controlling.
+        """
         half_l = robot.characteristics.length / 2.0
         half_w = robot.characteristics.width / 2.0
-        for side, mode, label in self._side_manipulator_tags(robot):
+        tags = self._side_manipulator_tags(robot)
+        show_direction_arrows = isinstance(robot.controller, HumanController)
+        for side in SIDE_OUTWARD:
+            side_tags = [(mode, label) for tag_side, mode, label in tags if tag_side == side]
+            if not side_tags:
+                continue
             nx, ny = SIDE_OUTWARD.get(side, (1.0, 0.0))
-            tx, ty = -ny, nx  # tangent along the edge, to separate IN/OUT badges
-            shift = -6.0 if mode == "in" else 6.0  # inches
-            local_x = nx * half_l + tx * shift
-            local_y = ny * half_w + ty * shift
-            wx, wy = self._to_widget(*self._robot_to_world(robot, local_x, local_y), scale)
-            color = QtGui.QColor(theme.ACCENT_CYAN) if mode == "in" else QtGui.QColor(theme.ACCENT_AMBER)
-            r = 6.5
-            painter.setPen(QtGui.QPen(color, 1.5))
-            painter.setBrush(color.darker(220))
-            painter.drawEllipse(QtCore.QPointF(wx, wy), r, r)
-            painter.setPen(color)
-            painter.setFont(theme.technical_font(6, bold=True))
-            painter.drawText(QtCore.QRectF(wx - r, wy - r, 2 * r, 2 * r), Qt.AlignCenter, label)
+            tx, ty = -ny, nx
+            normal_extent = half_l if nx else half_w
+            tangent_extent = half_w if nx else half_l
+            count = len(side_tags)
+            for index, (mode, label) in enumerate(side_tags):
+                lane_center = ((index + 0.5) / count - 0.5) * 1.35 * tangent_extent
+                lane_half = tangent_extent * 0.55 / count
+                edge = normal_extent + 0.6
+                z = ROBOT_BODY_HEIGHT + 0.3
+                p1 = self._project_robot_local(
+                    robot, nx * edge + tx * (lane_center - lane_half),
+                    ny * edge + ty * (lane_center - lane_half), z, scale,
+                )
+                p2 = self._project_robot_local(
+                    robot, nx * edge + tx * (lane_center + lane_half),
+                    ny * edge + ty * (lane_center + lane_half), z, scale,
+                )
+                color = QtGui.QColor(theme.ACCENT_CYAN) if mode == "in" else QtGui.QColor(theme.ACCENT_AMBER)
+                painter.setPen(QtGui.QPen(color, 5, Qt.SolidLine, Qt.RoundCap))
+                painter.drawLine(p1, p2)
+
+                if show_direction_arrows:
+                    outer_extent, inner_extent = normal_extent + 6.0, normal_extent - 3.0
+                    start_extent, tip_extent = (outer_extent, inner_extent) if mode == "in" else (inner_extent, outer_extent)
+                    start = self._project_robot_local(
+                        robot, nx * start_extent + tx * lane_center,
+                        ny * start_extent + ty * lane_center, z, scale,
+                    )
+                    tip = self._project_robot_local(
+                        robot, nx * tip_extent + tx * lane_center,
+                        ny * tip_extent + ty * lane_center, z, scale,
+                    )
+                    self._draw_screen_arrow(painter, start, tip, color)
+
+                mid_x, mid_y = (p1.x() + p2.x()) / 2.0, (p1.y() + p2.y()) / 2.0
+                text = label
+                box_w = max(14.0, 7.0 * len(text))
+                box = QtCore.QRectF(mid_x - box_w / 2.0, mid_y - 16.0, box_w, 12.0)
+                background = QtGui.QColor(10, 18, 22, 205)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(background)
+                painter.drawRoundedRect(box, 2.0, 2.0)
+                painter.setPen(color)
+                painter.setFont(theme.technical_font(7, bold=True))
+                painter.drawText(box, Qt.AlignCenter, text)
+
+    @staticmethod
+    def _draw_screen_arrow(painter, start: QtCore.QPointF, tip: QtCore.QPointF, color: QtGui.QColor) -> None:
+        dx, dy = tip.x() - start.x(), tip.y() - start.y()
+        length = math.hypot(dx, dy)
+        if length < 1e-3:
+            return
+        ux, uy = dx / length, dy / length
+        px, py = -uy, ux
+        head = min(6.0, max(3.5, length * 0.45))
+        painter.setPen(QtGui.QPen(color, 2, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(start, tip)
+        painter.setBrush(color)
+        painter.drawPolygon(QtGui.QPolygonF([
+            tip,
+            QtCore.QPointF(tip.x() - ux * head + px * head * 0.55, tip.y() - uy * head + py * head * 0.55),
+            QtCore.QPointF(tip.x() - ux * head - px * head * 0.55, tip.y() - uy * head - py * head * 0.55),
+        ]))
 
     def _draw_action_progress(self, painter, robot, cx: float, cy: float, half_l: float, half_w: float) -> None:
         bar_w = max(2 * half_l, 2 * half_w)

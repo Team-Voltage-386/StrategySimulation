@@ -24,6 +24,29 @@ class Obstacle:
     name: str
     vertices: tuple[tuple[float, float], ...]
     height: float = 0.0
+    # "solid" preserves the legacy prism. "lattice" keeps the same solid
+    # collision footprint but draws an open-frame structure in driver view.
+    render_style: str = "solid"
+
+
+@dataclass(frozen=True)
+class FieldVisual:
+    """Visual-only field geometry with no collision or scoring behavior.
+
+    ``kind`` is one of ``frame`` (an open polygonal frame), ``prism`` (a
+    translucent solid), or ``net`` (a vertical mesh following ``points``).
+    ``base_height`` and ``height`` are respectively the bottom and top
+    elevations above the carpet, rather than a physical height plus offset.
+    This lets a game describe recognisable hardware without turning every
+    decorative rail or net into a physics obstacle.
+    """
+    name: str
+    kind: str
+    points: tuple[tuple[float, float], ...]
+    height: float
+    base_height: float = 0.0
+    color: str | None = None
+    alliance: str | None = None
 
 
 @dataclass(frozen=True)
@@ -350,6 +373,7 @@ class FieldConfig:
     intake_locations: tuple[IntakeLocation, ...] = field(default_factory=tuple)
     emitter_regions: tuple[EmitterRegion, ...] = field(default_factory=tuple)
     protected_zones: tuple[ProtectedZone, ...] = field(default_factory=tuple)
+    visuals: tuple[FieldVisual, ...] = field(default_factory=tuple)
     # Empty (the default) means no scored action triggers a follow-on
     # award and Match never rolls or schedules one -- see SecondaryAward.
     secondary_awards: tuple[SecondaryAward, ...] = field(default_factory=tuple)

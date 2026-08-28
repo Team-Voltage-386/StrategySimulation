@@ -39,9 +39,15 @@ CRATE_COLOR = "#c8a05a"
 CELL_COLOR = "#4fc3f7"
 SCRAP_COLOR = "#9e9e9e"
 
-register_piece_spec(CRATE_TYPE, GamePieceSpec(radius=CRATE_RADIUS, mass=CRATE_MASS, color=CRATE_COLOR))
-register_piece_spec(CELL_TYPE, GamePieceSpec(radius=CELL_RADIUS, mass=CELL_MASS, color=CELL_COLOR))
-register_piece_spec(SCRAP_TYPE, GamePieceSpec(radius=SCRAP_RADIUS, mass=SCRAP_MASS, color=SCRAP_COLOR))
+register_piece_spec(CRATE_TYPE, GamePieceSpec(
+    radius=CRATE_RADIUS, mass=CRATE_MASS, color=CRATE_COLOR, display_shape="box",
+))
+register_piece_spec(CELL_TYPE, GamePieceSpec(
+    radius=CELL_RADIUS, mass=CELL_MASS, color=CELL_COLOR, display_shape="sphere",
+))
+register_piece_spec(SCRAP_TYPE, GamePieceSpec(
+    radius=SCRAP_RADIUS, mass=SCRAP_MASS, color=SCRAP_COLOR, display_shape="shard",
+))
 
 
 def spawn_crate(match: Match, position: tuple[float, float], source: str = "field") -> GamePiece:

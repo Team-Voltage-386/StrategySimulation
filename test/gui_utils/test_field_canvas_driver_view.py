@@ -147,3 +147,25 @@ def test_human_glow_paints_alliance_color_that_fades_to_transparent(app):
     assert center.alpha() > 0
     assert edge.alpha() < center.alpha()
     assert outside.alpha() == 0
+
+
+def test_only_human_controlled_robot_gets_manipulator_direction_arrows(app):
+    from pyqtgraph.Qt import QtCore, QtGui
+
+    match = build_demo_match()
+    robot = match.add_robot(build_demo_characteristics(), Pose2d(200, 100, 0), alliance="blue")
+    canvas = FieldCanvas(match)
+    canvas.resize(1000, 500)
+    image = QtGui.QImage(1000, 500, QtGui.QImage.Format_ARGB32)
+    image.fill(QtCore.Qt.transparent)
+    painter = QtGui.QPainter(image)
+    arrows = []
+    canvas._draw_screen_arrow = lambda *args: arrows.append(args)
+
+    canvas._draw_side_manipulators(painter, robot, canvas._field_scale())
+    assert not arrows
+
+    robot.controller = HumanController(command_provider=lambda: (None, None))
+    canvas._draw_side_manipulators(painter, robot, canvas._field_scale())
+    painter.end()
+    assert arrows

@@ -13,6 +13,7 @@ from common_sim.match.scoring import TableScoringRules
 from common_sim.robot.characteristics import RobotCharacteristics
 
 WIDGET = "widget"
+GADGET = "gadget"
 
 
 def make_field(intake_locations=()) -> FieldConfig:
@@ -146,6 +147,33 @@ def test_synthesized_intent_targets_scoring_region_while_holding_a_piece():
 
     assert robot.intent.tactic_name == "Human"
     assert robot.intent.target_region == "goal"
+    assert robot.intent.target_piece is piece
+
+
+def test_synthesized_intent_only_targets_a_region_for_a_held_piece_type():
+    gadget_goal = ScoringRegion(
+        name="gadget_goal", vertices=((30, 40), (70, 40), (70, 160), (30, 160)),
+        actions=frozenset({"score_gadget"}), piece_types=frozenset({GADGET}),
+    )
+    widget_goal = ScoringRegion(
+        name="widget_goal", vertices=((220, 40), (280, 40), (280, 160), (220, 160)),
+        actions=frozenset({"score_widget"}), piece_types=frozenset({WIDGET}),
+    )
+    field = FieldConfig(width=300, height=200, scoring_regions=(gadget_goal, widget_goal))
+    match = Match(
+        field, TableScoringRules({("score_widget", "auto"): 3.0}),
+        MatchConfig(auto_duration=1000, teleop_duration=1000),
+    )
+    robot = match.add_robot(make_characteristics(), Pose2d(20, 100, 0), alliance="blue")
+    piece = match.spawn_piece(WIDGET, (20, 100))
+    piece.held_by = robot
+    piece.last_holder_alliance = robot.alliance
+    robot.held_pieces.append(piece)
+    robot.controller = HumanController(command_provider=lambda: (DriveCommand(), OperatorCommand()))
+
+    match.step(1.0 / 60.0)
+
+    assert robot.intent.target_region == "widget_goal"
     assert robot.intent.target_piece is piece
 
 

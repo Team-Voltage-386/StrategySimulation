@@ -62,7 +62,8 @@ common_sim/
     tank_drive.py         (optional second drivetrain model, same interface as swerve)
   field/
     field_config.py      FieldConfig dataclass: dims, obstacles, ScoringRegion / PieceSpawnRegion /
-                          IntakeLocation / EmitterRegion / ProtectedZone lists
+                          IntakeLocation / EmitterRegion / ProtectedZone lists, plus visual-only
+                          FieldVisual hardware for the perspective driver view
     game_piece.py         GamePiece base: pymunk body/shape + type tag
     validation.py          Static checks on a built FieldConfig -- unreachable scoring regions,
                             unregistered piece types, actions worth nothing, mis-linked emitters,
@@ -131,8 +132,9 @@ common_sim/
 
 gui_utils/               (existing — extended, not replaced)
   theme.py, overlay_panel.py, telemetry_store.py, ...   reused as-is
-  field_canvas.py         QPainter canvas rendering FieldConfig + live Robot/GamePiece state, plus an
-                            optional per-robot AI-intent overlay (target region/piece, active tactic label)
+  field_canvas.py         QPainter canvas rendering FieldConfig + live Robot/GamePiece state, including
+                            driver-view walls, visual hardware, piece silhouettes, and robot-side mechanism
+                            cues, plus an optional per-robot AI-intent overlay
   strategy_editor.py       Schema-driven STRATEGY tab: rule list + trigger/tactic property inspector,
                               built entirely from PARAM_SCHEMA -- adding a Trigger/Tactic to common_sim
                               needs zero edits here. One in-memory Strategy per robot; Load/Save/Apply.
