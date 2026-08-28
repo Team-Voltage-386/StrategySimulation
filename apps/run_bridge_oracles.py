@@ -1,24 +1,34 @@
 """Step 2 of the maple-sim bridge: teach the campaign to fail.
 
-Runs a scripted scenario against the real robot code with both oracles armed,
-then reports. The run is in two phases, and *both* have to come out right:
+Runs a scripted scenario against the real robot code with all three oracles
+armed, then reports. The run is in three phases, and *all* have to come out
+right:
 
   EXERCISE  drive, turn, shoot, intake -- ordinary robot operation.
-            Expected result: zero findings.
+            Expected result: zero findings, from oracle 02 and oracle 03 both.
 
   PROVOKE   pin the robot against the field wall while still commanding it
-            forward. Expected result: oracle 02 reports `frozen-robot`.
+            forward. Expected result: oracle 02 reports `frozen-robot`, and
+            oracle 03 stays quiet -- a pinned robot is not a teleported one.
 
-The second phase is the point. An oracle that has never fired is not known to
-work, and "0 findings" from a detector that cannot detect looks exactly like
+  INJECT    push a synthetic violation of each of oracle 03's six invariants
+            through detectors built with the thresholds and the drive limits
+            this run is actually using. Expected result: all six fire.
+
+The last two phases are the point. An oracle that has never fired is not known
+to work, and "0 findings" from a detector that cannot detect looks exactly like
 "0 findings" from a clean run. Running a known-bad condition through it every
 time is the only thing that keeps the overnight report meaningful -- otherwise
 the first silent regression in the detector turns every subsequent night into
 a rubber stamp.
 
-A wall pin is an honest provocation, incidentally, not a rigged one: being
-commanded forward while wedged is precisely the frozen-robot signature the
-detector is for, and it is a situation a real match produces constantly.
+PROVOKE and INJECT are not equally strong, and it is worth being plain about
+which is which. A wall pin is an honest provocation: a real robot genuinely
+wedged, commanded forward, which is precisely the frozen-robot signature and a
+situation a real match produces constantly. INJECT is not that -- it is
+synthetic snapshots pushed through the detectors by hand, because making real
+robot code publish a NaN or drive its motors while disabled would mean breaking
+it on purpose. That is oracle 01's trade and it comes out the same way.
 
     python apps/run_bridge_oracles.py
     python apps/run_bridge_oracles.py --no-provoke   # exercise only
@@ -33,6 +43,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bridge import drive_model as dm
+from bridge import match_view as mv
 from bridge import operator as op
 from bridge import oracles
 from bridge.robot_state import DS_ENABLED, POSE_TRUTH, RobotStateLink
@@ -148,8 +160,13 @@ def main(argv: list[str] | None = None) -> int:
     exercise_findings: list[oracles.Finding] = []
     provoke_findings: list[oracles.Finding] = []
     fault_findings: list[oracles.Finding] = []
+    invariant_findings: list[oracles.Finding] = []
+    injected: dict[str, list[oracles.Finding]] = {}
+    inactive: list[str] = []  # oracle-03 invariants the live phases could not check
     problems: list[str] = []
     fault_oracle = oracles.FaultOracle()
+    thresholds = oracles.InvariantThresholds(piece_capacity=mv.INTAKE_CAPACITY)
+    limits = None
 
     # Which phases actually executed. Tracked separately from their findings
     # because "no findings" and "never ran" are the same empty list, and the
@@ -157,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     # "exercise phase clean". A report that says ok about work it did not do is
     # worse than no report -- it is the exact failure the provoke phase exists
     # to prevent, one level up.
-    ran = {"exercise": False, "provoke": False}
+    ran = {"exercise": False, "provoke": False, "inject": False}
 
     try:
         if args.attach:
@@ -179,26 +196,60 @@ def main(argv: list[str] | None = None) -> int:
                 problems.append("robot never reported itself enabled")
 
             monitor = oracles.LivenessMonitor(state, link)
-            with monitor:
+            invariants = oracles.InvariantMonitor(state, limits=limits, thresholds=thresholds)
+            with monitor, invariants:
                 _step("phase EXERCISE (expect no findings)")
-                start = len(monitor.findings)
+                start, start_inv = len(monitor.findings), len(invariants.findings)
                 phase_exercise(link, state)
                 exercise_findings = monitor.findings[start:]
+                invariant_findings += invariants.findings[start_inv:]
                 ran["exercise"] = True
 
                 if not args.no_provoke:
                     monitor.reset_episode()
+                    invariants.reset_episode()
                     _step("phase PROVOKE (expect frozen-robot)")
-                    start = len(monitor.findings)
+                    start, start_inv = len(monitor.findings), len(invariants.findings)
                     phase_provoke(link, state, args.provoke_seconds)
                     provoke_findings = monitor.findings[start:]
+                    # Kept with the exercise findings rather than reported
+                    # apart, because oracle 03's claim about this phase is the
+                    # same as its claim about the other one: nothing here is a
+                    # violation. A robot pinned against a wall is doing
+                    # something legal, and an invariant that cannot tell that
+                    # from an ejection would fail every match that touches
+                    # anything.
+                    invariant_findings += invariants.findings[start_inv:]
                     ran["provoke"] = True
+
+            inactive = invariants.stood_down
 
             _log()
             if monitor.samples:
-                _log(f"   sampled {len(monitor.samples)} times over {monitor.samples[-1].t:.1f}s")
+                _log(f"   oracle 02 sampled {len(monitor.samples)} times over "
+                     f"{monitor.samples[-1].t:.1f}s")
             else:
                 problems.append("liveness monitor never took a sample")
+            if invariants.samples_taken:
+                _log(f"   oracle 03 sampled {invariants.samples_taken} times")
+            else:
+                problems.append("invariant monitor never took a sample")
+
+            # Measured last, on purpose. INJECT wants real drive limits so it
+            # proves the command-range invariant against the number this robot
+            # actually produces, but calibration *drives* -- four probes with
+            # a reversal that does not perfectly undo them -- and PROVOKE
+            # depends on the robot still being near the wall it was placed by.
+            # A check that rearranges the field has changed the experiment it
+            # was meant to validate, so this one runs when there is nothing
+            # left to disturb.
+            _step("measuring the drive limits (for INJECT)")
+            try:
+                limits, _ = dm.calibrate(link, state)
+                _log(f"   {limits.max_speed_mps:.2f} m/s, {limits.max_omega_rad_s:.2f} rad/s")
+            except Exception as exc:
+                _log(f"   could not calibrate ({type(exc).__name__}: {exc})")
+                _log("   the command-range invariant will not be injected this run")
 
             link.neutral()
             link.disable()
@@ -231,6 +282,38 @@ def main(argv: list[str] | None = None) -> int:
     report(exercise_findings, "ORACLE 02 -- liveness, EXERCISE phase")
     if not args.no_provoke:
         report(provoke_findings, "ORACLE 02 -- liveness, PROVOKE phase")
+
+    report(invariant_findings, "ORACLE 03 -- invariants, live phases")
+    if not ran["exercise"]:
+        # An empty `inactive` from a run that never built a monitor reads
+        # exactly like full coverage. Say what the live phases would have
+        # missed instead of implying they missed nothing.
+        inactive = oracles.InvariantMonitor(
+            state=None, limits=None, thresholds=thresholds
+        ).inactive
+    for reason in inactive:
+        _log(f"   NOT CHECKED  {reason}")
+    if not inactive and ran["exercise"]:
+        _log("   all six invariants were active")
+
+    # Deliberately after the sim is stopped. INJECT touches no robot and no
+    # NetworkTables, so running it here means it still happens on a run that
+    # aborted mid-match -- which is exactly when knowing the detectors work is
+    # worth most, because the alternative reading is that they saw nothing.
+    _step("phase INJECT (expect all six invariants to fire)")
+    try:
+        injected = oracles.prove_invariants(thresholds, limits)
+        ran["inject"] = True
+    except Exception as exc:
+        problems.append(f"inject phase failed: {type(exc).__name__}: {exc}")
+        _log(f"   ABORTED: {type(exc).__name__}: {exc}")
+    for kind in oracles.InvariantMonitor.KINDS:
+        if kind not in injected:
+            _log(f"   skip  {kind:24} not injected")
+        elif any(f.kind == kind for f in injected[kind]):
+            _log(f"   ok    {kind:24} fired")
+        else:
+            _log(f"   FAIL  {kind:24} silent")
 
     _step("SELF-CHECK")
     if not ran["exercise"]:
@@ -266,6 +349,38 @@ def main(argv: list[str] | None = None) -> int:
         )
         _log("   FAIL  provoke phase went undetected")
 
+    if invariant_findings:
+        problems.append(
+            f"oracle 03 reported {len(invariant_findings)} finding(s) during ordinary "
+            f"operation: {oracles.summarize(invariant_findings)}. Every one of these is "
+            f"a thing that must never be true, so either the sim really did it or an "
+            f"invariant is wrong"
+        )
+        _log("   FAIL  oracle 03 was not quiet on the live phases")
+    elif ran["exercise"]:
+        _log("   ok    oracle 03 quiet on live robot behaviour -- no false positives")
+
+    if not ran["inject"]:
+        problems.append("inject phase never ran, so oracle 03 is unverified")
+        _log("   FAIL  inject phase never ran")
+    else:
+        silent = oracles.unproven_invariants(injected)
+        skipped = [k for k in oracles.InvariantMonitor.KINDS if k not in injected]
+        if silent:
+            problems.append(
+                f"oracle 03 invariant(s) did not fire on a deliberate violation: "
+                f"{', '.join(silent)}"
+            )
+            _log(f"   FAIL  {len(silent)} invariant(s) went undetected")
+        else:
+            _log(f"   ok    {len(injected)}/{len(oracles.InvariantMonitor.KINDS)} "
+                 f"invariants proven to fire")
+        if skipped:
+            # Not a failure, because the reason is recorded and legitimate --
+            # but it does have to be said out loud, or a run that checked five
+            # of six reads identically to one that checked all six.
+            _log(f"   note  not injected: {', '.join(skipped)} (see NOT CHECKED above)")
+
     errors = [f for f in fault_findings if f.severity == oracles.ERROR]
     if errors:
         problems.append(f"oracle 01 found {len(errors)} error-level fault(s) in the console")
@@ -275,8 +390,8 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             _log(f"   FAIL  {problem}")
         return 1
-    _log("   PASS  both oracles are armed, quiet on clean operation, and proven to fire")
-    _log(f"   {oracles.summarize(fault_findings + exercise_findings + provoke_findings)}")
+    _log("   PASS  all three oracles are armed, quiet on clean operation, and proven to fire")
+    _log(f"   {oracles.summarize(fault_findings + exercise_findings + provoke_findings + invariant_findings)}")
     return 0
 
 

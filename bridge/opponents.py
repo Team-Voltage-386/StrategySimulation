@@ -61,7 +61,7 @@ TABLE = "/Bridge/Robots"
 ROSTER = f"{TABLE}/Roster"
 TICK = f"{TABLE}/Tick"
 
-POSES = f"{rs.OUTPUTS}/FieldSimulation/BridgeRobots"
+POSES = rs.BRIDGE_ROBOT_POSES
 SPEEDS = f"{rs.OUTPUTS}/FieldSimulation/BridgeRobotsSpeeds"
 HELD = f"{rs.OUTPUTS}/FieldSimulation/BridgeRobotsHeld"
 COUNT = f"{rs.OUTPUTS}/Bridge/Robots/Count"

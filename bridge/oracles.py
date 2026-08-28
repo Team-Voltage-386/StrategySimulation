@@ -1,25 +1,36 @@
-"""Oracles 01 and 02: how a fuzz run learns to fail.
+"""Oracles 01 to 03: how a fuzz run learns to fail.
 
 A campaign is only as good as its ability to recognise a failure. Without
 these, 190 unattended matches produce 190 matches that ran.
 
-    01  FaultOracle     -- hard faults. Stack traces, DriverStation.reportError,
-                           scheduler faults, loop overruns. All of it is already
-                           on the console; the work is deciding what counts.
-    02  LivenessMonitor -- the frozen-robot family. Commanded but not moving,
-                           requested but never reaching setpoint, a robot loop
-                           that stopped advancing at all.
+    01  FaultOracle      -- hard faults. Stack traces, DriverStation.reportError,
+                            scheduler faults, loop overruns. All of it is already
+                            on the console; the work is deciding what counts.
+    02  LivenessMonitor  -- the frozen-robot family. Commanded but not moving,
+                            requested but never reaching setpoint, a robot loop
+                            that stopped advancing at all.
+    03  InvariantMonitor -- things that must never be true, of any robot on the
+                            field. NaN, off the field, teleported, driven while
+                            disabled, commanded past the drivetrain, holding an
+                            impossible number of pieces.
 
-The design constraint on both is false positives, not misses. The strategy sim
-will command things no human would, and some reported failures will be "nobody
-would ever do that". Untriaged, that noise kills the habit of reading the
-morning report inside a week -- at which point a working detector and a broken
-one are worth the same. So:
+02 and 03 are the two halves of the usual split: 02 is liveness, something that
+should happen and has not; 03 is safety, something that should never happen and
+has. Keeping them apart is not tidiness -- they debounce differently, they care
+about opposite sides of the enable, and their evidence is a different shape.
+
+The design constraint on all three is false positives, not misses. The strategy
+sim will command things no human would, and some reported failures will be
+"nobody would ever do that". Untriaged, that noise kills the habit of reading
+the morning report inside a week -- at which point a working detector and a
+broken one are worth the same. So:
 
 * every muffled pattern carries a written reason, not just a regex, so the next
   person can re-litigate it instead of guessing why it is there;
-* every detector is debounced by *duration*, because a single sample of "not
-  moving" is a scheduling hiccup and two seconds of it is a bug;
+* every detector over a continuous quantity is debounced by *duration*, because
+  a single sample of "not moving" is a scheduling hiccup and two seconds of it
+  is a bug. The exceptions are oracle 03's, and they are exceptions on purpose:
+  a NaN or a teleport is never jitter, and waiting to be sure means missing it;
 * every detector fires once per episode and re-arms only after the condition
   clears, so one wedged mechanism is one finding rather than four hundred.
 
@@ -58,6 +69,12 @@ WARNING = "warning"
 #: should test against this rather than against one kind, since which one comes
 #: back depends on the drive current at the moment it fired.
 STUCK_KINDS = ("frozen-robot", "robot-pinned")
+
+#: The possession reader's "nothing published here", kept far away from any
+#: number a robot could really publish. It cannot be -1: a robot that genuinely
+#: reports -1 pieces held is exactly the violation oracle 03 exists to catch,
+#: and a sentinel that swallows it would hide the bug it was standing in for.
+NO_COUNT = -(2 ** 31)
 
 
 @dataclass(frozen=True)
@@ -705,3 +722,657 @@ class LivenessMonitor:
 def _wrap(radians: float) -> float:
     """Shortest signed angle, so 359 deg -> 1 deg reads as 2 deg and not 358."""
     return (radians + math.pi) % (2.0 * math.pi) - math.pi
+
+
+# ---------------------------------------------------------------------------
+# oracle 03 -- invariants
+# ---------------------------------------------------------------------------
+#
+# Oracle 02 asks whether something that should happen did. This one asks
+# whether something that should never happen has. That is the classic
+# liveness/safety split, and it is worth keeping as two oracles rather than ten
+# more detectors in one, because almost every design decision differs:
+#
+#   * 02 debounces by duration -- a single sample of "not moving" is jitter.
+#     Several invariants here must fire on a *single* sample, because a NaN or
+#     a teleport is never jitter and is frequently gone by the next read.
+#   * 02 is only meaningful while enabled. Half of these are most interesting
+#     while disabled.
+#   * 02's evidence is a stretch of time. An invariant's evidence is one
+#     instant, and the useful detail is the value that broke it.
+#
+# All of it is game-agnostic on purpose. Nothing below knows what a FUEL is,
+# where the HUB stands, or which alliance is which -- these are properties of
+# *any* robot on *any* field, which is the whole point of building them against
+# the game this bridge is only ever proved against.
+
+
+@dataclass
+class Snapshot:
+    """One instant of everything oracle 03 has an opinion about."""
+
+    t: float
+    enabled: bool
+    truth: "rs.Pose2d | None"
+    commanded: "rs.ChassisSpeeds | None"
+    #: Ground-truth poses of the other five robots, empty on a solo run.
+    extras: list
+    held: int
+    drive_current: float | None
+    battery_volts: float
+    flywheel_setpoint_rpm: float
+
+    def robots(self) -> list[tuple[str, "rs.Pose2d"]]:
+        """Every robot on the field, named. Ours first, then the extras.
+
+        The invariants below do not care which one is under test: a robot
+        ejected through the field wall invalidates the match whoever it was.
+        """
+        out = [("ours", self.truth)] if self.truth is not None else []
+        out += [(f"extra{i}", p) for i, p in enumerate(self.extras) if p is not None]
+        return out
+
+
+class _OneShot:
+    """Fires the first time a condition is true, and re-arms when it clears.
+
+    The undebounced sibling of `_Latch`, for the violations where waiting two
+    seconds to be sure would mean never seeing it: a NaN that propagates for
+    one cycle and is overwritten, a body the physics engine ejected and then
+    settled. Same re-arming discipline, so a stuck violation is still one
+    finding and not twenty per second.
+    """
+
+    def __init__(self) -> None:
+        self._fired = False
+
+    def update(self, condition: bool) -> bool:
+        if not condition:
+            self._fired = False
+            return False
+        if self._fired:
+            return False
+        self._fired = True
+        return True
+
+
+@dataclass
+class InvariantThresholds:
+    """Every number oracle 03 decides on, in one place.
+
+    The field size defaults to the FRC field, which has been these dimensions
+    for every game this bridge could plausibly be pointed at. It is a
+    threshold rather than an import from `bridge.arena` so that this module
+    keeps its one useful property: it is pure arithmetic over samples, and
+    imports without pyntcore, a JVM, or a robot project.
+    """
+
+    field_length_m: float = 16.541
+    field_width_m: float = 8.052
+
+    #: How far outside the field a robot's *centre* may be before this counts
+    #: as ejected rather than as a bumper resting on the wall. A robot pressed
+    #: flat against the border still has its centre half a footprint inside,
+    #: so anything past the line at all is already suspicious; the margin is
+    #: for the sim's own contact tolerance, not for legitimate driving.
+    off_field_margin_m: float = 0.30
+    off_field_seconds: float = 0.5
+
+    #: Above this, a change in truth pose between two samples did not happen by
+    #: driving. Set well clear of any FRC drivetrain (the fastest are under
+    #: 6 m/s) so that legitimate motion cannot reach it no matter how the
+    #: sampling jitters -- a teleport is a physics ejection or a direct pose
+    #: write, and both are orders of magnitude past this, not marginally past.
+    teleport_speed_mps: float = 12.0
+    #: Sample gaps outside this range are not evidence of anything. A long gap
+    #: is the sampler being descheduled, and dividing a real displacement by a
+    #: wrong dt is how a teleport detector invents teleports.
+    teleport_dt_range: tuple[float, float] = (0.01, 0.5)
+
+    #: Motors drawing current with the DriverStation reporting disabled. The
+    #: same floor oracle 02 uses to separate pinned from frozen, and for the
+    #: same reason: an undriven drivetrain draws nothing at all, so any real
+    #: current means something is commanding it.
+    disabled_current_amps: float = 5.0
+    #: Long enough to clear the disable itself -- the modules are still
+    #: spinning for a moment afterwards, and regeneration is not a fault.
+    disabled_current_seconds: float = 1.0
+
+    #: How far past the *measured* drive limits a commanded speed may go before
+    #: it is a bug rather than a rounding difference. Generous, because the
+    #: limits come from a calibration probe and not from a constant.
+    command_overrange_factor: float = 1.25
+    command_overrange_seconds: float = 0.5
+
+    #: Pieces held. `None` means the capacity is unknown and only the negative
+    #: half of the invariant is checked -- see `InvariantMonitor.inactive`.
+    piece_capacity: int | None = None
+
+    #: A battery reading outside this is not a brownout, it is a broken
+    #: reading. Oracle 02 already owns brownouts; this catches the sensor.
+    battery_range_v: tuple[float, float] = (0.0, 14.0)
+
+
+class InvariantMonitor:
+    """Oracle 03: things that must never be true, on every robot on the field.
+
+    Same shape as `LivenessMonitor` -- `poll()` on the caller's thread or
+    `start()` on its own, findings accumulate and are safe to read at any
+    point, and nothing here ever intervenes.
+    """
+
+    #: Every invariant this oracle knows, so a caller can report on the ones
+    #: that are switched off instead of quietly getting fewer checks than it
+    #: thinks. "No findings" from a detector that was never active and "no
+    #: findings" from a clean run are the same empty list.
+    KINDS = (
+        "not-a-number",
+        "off-the-field",
+        "teleport",
+        "driven-while-disabled",
+        "command-out-of-range",
+        "possession-impossible",
+    )
+
+    def __init__(
+        self,
+        state: "rs.RobotStateLink",
+        limits=None,
+        thresholds: InvariantThresholds | None = None,
+        sample_hz: float = 20.0,
+    ):
+        # No NetworkTables guard here, unlike oracle 02. Every detector below
+        # is arithmetic over a `Snapshot` and touches nothing else; only
+        # `sample()` needs a live link. Keeping the constructor free of that
+        # requirement is what lets all six invariants be proved in CI, where
+        # there is no pyntcore -- and an unproved detector is the one failure
+        # mode this whole file exists to avoid.
+        self.state = state
+        #: A `drive_model.DriveLimits`, or None. Without it there is no answer
+        #: to "how fast is too fast", so that one invariant stands down rather
+        #: than guessing at a constant.
+        self.limits = limits
+        self.th = thresholds or InvariantThresholds()
+        self.sample_hz = sample_hz
+        self.findings: list[Finding] = []
+        #: How many snapshots were judged. A count and not the snapshots
+        #: themselves, unlike oracle 02: at 20 Hz over a 150 s match this is
+        #: three thousand of them, and a campaign holds two hundred matches.
+        #: Kept at all because a monitor that never sampled and a monitor that
+        #: saw nothing wrong report the same empty list.
+        self.samples_taken = 0
+        #: Every reason an invariant stood down at any point while sampling.
+        #: Accumulated rather than read at the end, because `limits` can arrive
+        #: mid-match -- the harness calibrates during the first one -- and a
+        #: monitor asked afterwards would report full coverage for a match that
+        #: spent part of itself checking five invariants out of six.
+        self._ever_inactive: set[str] = set()
+        #: The most robots this monitor ever judged at once, ours included.
+        #: `off-the-field` and `teleport` are held per robot, so a contested
+        #: campaign where this stayed at 1 checked one robot and reported the
+        #: silence of five as a clean field. The same trap as an oracle that
+        #: has never fired, one level down: an invariant applied to an empty
+        #: list is not an invariant that held.
+        self.robots_seen = 0
+
+        self._t0 = time.monotonic()
+        self._nan = _OneShot()
+        self._battery = _OneShot()
+        self._possession = _OneShot()
+        self._teleports: dict = {}
+        self._off_field: dict = {}
+        self._disabled_drive = _Latch(self.th.disabled_current_seconds)
+        self._overrange = _Latch(self.th.command_overrange_seconds)
+        #: Last (t, pose) per robot, for the teleport test.
+        self._previous: dict = {}
+        self._thread = None
+        self._stop = None
+
+    # -- what is switched off ----------------------------------------------
+
+    @property
+    def inactive(self) -> list[str]:
+        """Invariants that cannot fire *right now*, and why.
+
+        Reported rather than inferred. A detector standing down for a good
+        reason is fine; a detector standing down silently is how a campaign
+        spends eight hours checking less than the report claims.
+        """
+        out = []
+        if self.limits is None:
+            out.append("command-out-of-range: no calibrated drive limits were supplied")
+        if self.th.piece_capacity is None:
+            out.append("possession-impossible: no piece capacity, so only a negative count fires")
+        return out
+
+    @property
+    def stood_down(self) -> list[str]:
+        """Invariants that were inactive at any point while this was sampling.
+
+        The one to report after the fact. `inactive` answers "what is switched
+        off now", which for a monitor that has already finished is a different
+        and more flattering question.
+        """
+        return sorted(self._ever_inactive)
+
+    # -- sampling ----------------------------------------------------------
+
+    def sample(self) -> Snapshot:
+        if rs is None:  # pragma: no cover - depends on the install
+            raise RuntimeError(
+                "sampling needs NetworkTables: pip install -r bridge/requirements.txt"
+            ) from _ROBOT_STATE_ERROR
+        return Snapshot(
+            t=time.monotonic() - self._t0,
+            enabled=self.state.boolean(rs.DS_ENABLED),
+            truth=self.state.truth_pose(),
+            commanded=self.state.chassis_speeds(rs.CHASSIS_SETPOINT),
+            extras=self.state.pose2d_array(rs.BRIDGE_ROBOT_POSES) or [],
+            held=self.state.integer(rs.BALL_COUNT, NO_COUNT),
+            drive_current=self.state.drive_current(),
+            battery_volts=self.state.number(rs.BATTERY_VOLTAGE),
+            flywheel_setpoint_rpm=self.state.number(rs.FLYWHEEL_SETPOINT_RPM),
+        )
+
+    def poll(self) -> list[Finding]:
+        snapshot = self.sample()
+        self.samples_taken += 1
+        self._ever_inactive.update(self.inactive)
+        self.robots_seen = max(self.robots_seen, len(snapshot.robots()))
+        new = self.evaluate(snapshot)
+        self.findings.extend(new)
+        return new
+
+    def start(self) -> None:
+        import threading
+
+        self._stop = threading.Event()
+
+        def loop():
+            period = 1.0 / self.sample_hz
+            while not self._stop.is_set():
+                try:
+                    self.poll()
+                except Exception as exc:  # a dead NT link is not this thread's problem
+                    self.findings.append(
+                        Finding(
+                            oracle="invariants",
+                            kind="monitor-error",
+                            severity=WARNING,
+                            message=f"sampling failed: {exc!r}",
+                            where=f"t={time.monotonic() - self._t0:.1f}s",
+                        )
+                    )
+                    break
+                self._stop.wait(period)
+
+        self._thread = threading.Thread(target=loop, name="invariants", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        if self._stop is not None:
+            self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2.0)
+            self._thread = None
+
+    def __enter__(self) -> "InvariantMonitor":
+        self.start()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.stop()
+
+    def reset_episode(self) -> None:
+        """Clear per-episode state at a phase boundary, keeping findings.
+
+        The teleport history goes too: a phase boundary is exactly where the
+        field legitimately gets rearranged, and carrying a stale pose across it
+        turns a fresh start into a reported teleport.
+        """
+        now = time.monotonic()
+        for latch in (self._disabled_drive, self._overrange, *self._off_field.values()):
+            latch.update(False, now)
+        for shot in (self._nan, self._battery, self._possession, *self._teleports.values()):
+            shot.update(False)
+        self._previous.clear()
+
+    # -- detectors ---------------------------------------------------------
+
+    def evaluate(self, s: Snapshot) -> list[Finding]:
+        """Judge one snapshot. Pure, apart from the monitor's own latches.
+
+        Public because it is the whole oracle: a caller holding a synthetic
+        snapshot can prove every detector fires without a JVM, and the tests
+        do exactly that.
+        """
+        now = time.monotonic()
+        out: list[Finding] = []
+
+        def fire(kind: str, severity: str, message: str, detail: str = "") -> None:
+            out.append(
+                Finding(
+                    oracle="invariants",
+                    kind=kind,
+                    severity=severity,
+                    message=message,
+                    where=f"t={s.t:.1f}s",
+                    detail=detail,
+                )
+            )
+
+        self._check_numbers(s, fire)
+        self._check_field(s, now, fire)
+        self._check_teleport(s, fire)
+        self._check_disabled(s, now, fire)
+        self._check_command(s, now, fire)
+        self._check_possession(s, fire)
+        return out
+
+    # 1. Nothing published is NaN or infinite.
+    #
+    # The classic FRC source is a swerve module optimising its angle from a
+    # zero-length velocity vector, and the classic symptom is a robot that
+    # works until the stick returns to centre. NaN also survives every
+    # comparison quietly: `speed > limit` is false for NaN, so a value that
+    # broke arithmetic slips silently past every other check in this file.
+    # Which is why it is checked first, and why it fires on a single sample.
+    def _check_numbers(self, s: Snapshot, fire) -> None:
+        bad = []
+        for name, pose in s.robots():
+            for label, value in (("x", pose.x), ("y", pose.y), ("theta", pose.theta)):
+                if not math.isfinite(value):
+                    bad.append(f"{name}.{label}={value}")
+        if s.commanded is not None:
+            for label, value in (
+                ("vx", s.commanded.vx),
+                ("vy", s.commanded.vy),
+                ("omega", s.commanded.omega),
+            ):
+                if not math.isfinite(value):
+                    bad.append(f"commanded.{label}={value}")
+        for label, value in (
+            ("flywheel-setpoint", s.flywheel_setpoint_rpm),
+            ("battery", s.battery_volts),
+        ):
+            if not math.isfinite(value):
+                bad.append(f"{label}={value}")
+
+        if self._nan.update(bool(bad)):
+            fire(
+                "not-a-number",
+                ERROR,
+                f"non-finite value published: {', '.join(bad)}",
+                "NaN compares false against everything, so it defeats every threshold "
+                "downstream of it as well as breaking whatever consumed it. In FRC code "
+                "the usual source is a division or an atan2 on a zero-length vector.",
+            )
+
+        low, high = self.th.battery_range_v
+        impossible = math.isfinite(s.battery_volts) and not low <= s.battery_volts <= high
+        if self._battery.update(impossible):
+            fire(
+                "not-a-number",
+                ERROR,
+                f"battery reads {s.battery_volts:.2f} V, outside [{low:.1f}, {high:.1f}]",
+                "Not a brownout -- oracle 02 owns those. This is the reading itself being "
+                "impossible, which makes every current- and voltage-based judgement in "
+                "this run untrustworthy.",
+            )
+
+    # 2. Every robot's centre stays on the field.
+    #
+    # Held per robot, because the interesting version of this is one of the
+    # extras being squeezed out through a wall by a contact the physics engine
+    # resolved badly -- which a solo run could not produce at all.
+    def _check_field(self, s: Snapshot, now: float, fire) -> None:
+        margin = self.th.off_field_margin_m
+        for name, pose in s.robots():
+            outside = (
+                pose.x < -margin
+                or pose.y < -margin
+                or pose.x > self.th.field_length_m + margin
+                or pose.y > self.th.field_width_m + margin
+            )
+            latch = self._off_field.setdefault(name, _Latch(self.th.off_field_seconds))
+            if latch.update(outside, now):
+                fire(
+                    "off-the-field",
+                    ERROR,
+                    f"{name} is at {pose}, outside the "
+                    f"{self.th.field_length_m:.2f} x {self.th.field_width_m:.2f} m field "
+                    f"for {self.th.off_field_seconds:.1f}s",
+                    "A robot cannot drive through the border, so the physics put it there. "
+                    "Everything else this match reports about positions is suspect.",
+                )
+
+    # 3. No robot moves further between two samples than it could have driven.
+    def _check_teleport(self, s: Snapshot, fire) -> None:
+        low, high = self.th.teleport_dt_range
+        for name, pose in s.robots():
+            previous = self._previous.get(name)
+            self._previous[name] = (s.t, pose)
+            shot = self._teleports.setdefault(name, _OneShot())
+            if previous is None:
+                continue
+            dt = s.t - previous[0]
+            if not low <= dt <= high:
+                shot.update(False)
+                continue
+            moved = previous[1].distance_to(pose)
+            speed = moved / dt
+            if shot.update(speed > self.th.teleport_speed_mps):
+                fire(
+                    "teleport",
+                    ERROR,
+                    f"{name} moved {moved:.2f} m in {dt * 1000:.0f} ms "
+                    f"({speed:.0f} m/s) -- from {previous[1]} to {pose}",
+                    "Faster than any drivetrain, so it was not driven there. Either the "
+                    "physics engine resolved an overlap by ejecting a body, or something "
+                    "wrote a pose directly.",
+                )
+
+    # 4. Nothing drives the motors while the DriverStation says disabled.
+    #
+    # A rule as well as a code invariant, and one of the few faults here a fuzz
+    # campaign can genuinely produce: a subsystem that writes its outputs from
+    # `periodic` rather than from a command does not stop when the match does,
+    # and on a real field that is how a robot moves during a stoppage.
+    def _check_disabled(self, s: Snapshot, now: float, fire) -> None:
+        current = s.drive_current
+        drawing = current is not None and current >= self.th.disabled_current_amps
+        if self._disabled_drive.update(not s.enabled and drawing, now):
+            fire(
+                "driven-while-disabled",
+                ERROR,
+                f"drive drawing {current:.1f} A for "
+                f"{self.th.disabled_current_seconds:.1f}s with the robot disabled",
+                "An undriven drivetrain draws nothing, so something is still commanding "
+                "the motors after the DriverStation disabled the robot.",
+            )
+
+    # 5. The commanded chassis speed stays inside what the drive can do.
+    def _check_command(self, s: Snapshot, now: float, fire) -> None:
+        if self.limits is None or s.commanded is None:
+            self._overrange.update(False, now)
+            return
+        factor = self.th.command_overrange_factor
+        speed_cap = self.limits.max_speed_mps * factor
+        omega_cap = self.limits.max_omega_rad_s * factor
+        linear = s.commanded.linear
+        omega = abs(s.commanded.omega)
+        if self._overrange.update(linear > speed_cap or omega > omega_cap, now):
+            fire(
+                "command-out-of-range",
+                WARNING,
+                f"commanded {linear:.2f} m/s / {omega:.2f} rad/s against a measured "
+                f"maximum of {self.limits.max_speed_mps:.2f} / "
+                f"{self.limits.max_omega_rad_s:.2f} (x{factor:g} allowed)",
+                "The drive is being asked for more than it has. Usually input scaling, or "
+                "two command sources summing; occasionally the calibration is stale, which "
+                "is why this is a warning and not an error.",
+            )
+
+    # 6. The robot's own count of what it is carrying is possible.
+    #
+    # About the robot's bookkeeping, not the sim's: this reads the counter the
+    # robot code publishes and believes, and the strategy layer's
+    # collect-versus-score decision turns on it. A count that has gone negative
+    # or past the hopper means the sensor handling has drifted from reality,
+    # and every decision made from it afterwards is made from a wrong number.
+    def _check_possession(self, s: Snapshot, fire) -> None:
+        held = s.held
+        if held == NO_COUNT:  # the reader's "nothing published", not a real count
+            self._possession.update(False)
+            return
+        capacity = self.th.piece_capacity
+        impossible = held < 0 or (capacity is not None and held > capacity)
+        if self._possession.update(impossible):
+            bound = f"[0, {capacity}]" if capacity is not None else "[0, inf)"
+            fire(
+                "possession-impossible",
+                ERROR,
+                f"the robot believes it is holding {held} pieces, outside {bound}",
+                "The robot's own possession counter, which is what its decisions are made "
+                "from. Every collect-or-score choice after this point was made from a "
+                "number that cannot be true.",
+            )
+
+
+# -- proving oracle 03 -------------------------------------------------------
+
+
+def _synthetic(pose, speeds, t: float, **overrides) -> Snapshot:
+    """An ordinary instant, with one thing about it deliberately impossible."""
+    base = dict(
+        t=t,
+        enabled=True,
+        truth=pose(8.0, 4.0, 0.0),
+        commanded=speeds(1.0, 0.0, 0.0),
+        extras=[],
+        held=4,
+        drive_current=9.0,
+        battery_volts=12.4,
+        flywheel_setpoint_rpm=0.0,
+    )
+    base.update(overrides)
+    return Snapshot(**base)
+
+
+def _hold_synthetic(monitor, pose, speeds, seconds: float, step: float = 0.05, **overrides):
+    """Feed one synthetic snapshot for a while and collect what it produced.
+
+    Real sleeping, because the debounced invariants read the monotonic clock
+    and not the snapshot's own `t`. Faking that clock would prove the detectors
+    fire under a fake clock, which is not the claim being made.
+    """
+    out: list[Finding] = []
+    t = 0.0
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        t += step
+        out.extend(monitor.evaluate(_synthetic(pose, speeds, t, **overrides)))
+        time.sleep(step)
+    return out
+
+
+def prove_invariants(
+    thresholds: InvariantThresholds,
+    limits=None,
+    *,
+    pose=None,
+    speeds=None,
+) -> dict[str, list[Finding]]:
+    """Push a deliberate violation of each invariant through oracle 03.
+
+    Returns what each detector produced, keyed by the invariant it was aimed
+    at. A key missing from the result was not attempted and says so; a key
+    present but empty is a detector that stayed silent on a violation, which is
+    the thing worth failing a campaign over.
+
+    This is the weaker sibling of the wall pin, and the difference is worth
+    being plain about. The wall pin is a real robot genuinely wedged. Nothing
+    here is: these are synthetic snapshots pushed through the detectors by
+    hand, because making real robot code publish a NaN or drive its motors
+    while disabled would mean breaking it on purpose. That is oracle 01's
+    trade, and it comes out the same way.
+
+    What it buys over the unit tests, which prove the same six detectors in CI,
+    is narrow and real: it runs the *shipped* thresholds and whatever drive
+    limits the caller just measured, on the machine about to spend the night. A
+    threshold edited to something unreachable passes the unit tests, which
+    supply their own, and fails here.
+
+    `pose` and `speeds` default to the NetworkTables structs, and are
+    injectable so that this function is itself testable where those cannot be
+    imported -- which is the same place the invariants themselves are tested.
+    """
+    if pose is None or speeds is None:
+        if rs is None:  # pragma: no cover - depends on the install
+            raise RuntimeError(
+                "prove_invariants needs either pyntcore or explicit pose/speeds factories"
+            ) from _ROBOT_STATE_ERROR
+        pose = pose or rs.Pose2d
+        speeds = speeds or rs.ChassisSpeeds
+
+    results: dict[str, list[Finding]] = {}
+
+    def attempt(kind: str, run) -> None:
+        # A fresh monitor per invariant, so a latch tripped by one injection
+        # cannot arm or mask the next, and so the order of this list does not
+        # quietly become part of what is being proved.
+        results[kind] = run(
+            InvariantMonitor(state=None, limits=limits, thresholds=thresholds)
+        )
+
+    def snap(t, **over):
+        return _synthetic(pose, speeds, t, **over)
+
+    def hold(monitor, seconds, **over):
+        return _hold_synthetic(monitor, pose, speeds, seconds, **over)
+
+    attempt("not-a-number", lambda m: m.evaluate(snap(0.05, battery_volts=float("nan"))))
+
+    attempt(
+        "off-the-field",
+        lambda m: hold(m, thresholds.off_field_seconds + 0.4, truth=pose(-4.0, 4.0, 0.0)),
+    )
+
+    def teleport(m):
+        m.evaluate(snap(0.05, truth=pose(8.0, 4.0, 0.0)))
+        return m.evaluate(snap(0.10, truth=pose(14.0, 4.0, 0.0)))
+
+    attempt("teleport", teleport)
+
+    attempt(
+        "driven-while-disabled",
+        lambda m: hold(m, thresholds.disabled_current_seconds + 0.4,
+                       enabled=False, drive_current=40.0),
+    )
+
+    # Skipped rather than faked when the drive was never calibrated. A
+    # violation measured against a made-up maximum would prove the arithmetic
+    # and nothing about this robot, and the caller already reports the gap
+    # through `InvariantMonitor.inactive`.
+    if limits is not None:
+        attempt(
+            "command-out-of-range",
+            lambda m: hold(m, thresholds.command_overrange_seconds + 0.4,
+                           commanded=speeds(limits.max_speed_mps * 3.0, 0.0, 0.0)),
+        )
+
+    attempt("possession-impossible", lambda m: m.evaluate(snap(0.05, held=-1)))
+    return results
+
+
+def unproven_invariants(proof: dict[str, list[Finding]]) -> list[str]:
+    """Which invariants were injected and stayed silent. Empty is the good case.
+
+    Deliberately not the same as "which were not attempted": a detector that
+    was skipped for a stated reason is a smaller problem than one that was
+    handed a violation and shrugged.
+    """
+    return [
+        kind for kind, found in proof.items()
+        if not any(f.kind == kind for f in found)
+    ]

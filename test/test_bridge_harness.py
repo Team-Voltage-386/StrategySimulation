@@ -524,3 +524,42 @@ def test_a_contested_campaign_needs_the_strategy_driver():
 
     with pytest.raises(SystemExit):
         app.main(["--driver", hz.SCRIPTED, "--opponents", "3", "--matches", "1"])
+
+
+def test_the_offline_topic_fallbacks_match_the_real_ones():
+    """`harness` hardcodes two NT keys for the no-pyntcore path. They drift.
+
+    The fallbacks exist so the report half of this module imports in CI, where
+    `robot_state` cannot. That is also exactly why nothing else would ever
+    notice them going stale -- the path that uses them is the path with no way
+    to check itself.
+    """
+    rs = pytest.importorskip("bridge.robot_state")
+    assert hz.POSE_TRUTH == rs.POSE_TRUTH
+    assert hz.BRIDGE_ROBOT_POSES == rs.BRIDGE_ROBOT_POSES
+
+
+def _one_match_campaign(tmp_path, **result_fields):
+    runner = FakeRunner([PASS])
+    campaign = Campaign(runner, tmp_path, matches=1, first_seed=1)
+    campaign.run()
+    for key, value in result_fields.items():
+        setattr(campaign.results[0], key, value)
+    return campaign
+
+
+def test_a_campaign_report_names_the_invariants_it_could_not_check(tmp_path):
+    """"No findings" from a stood-down detector reads like a clean night."""
+    campaign = _one_match_campaign(
+        tmp_path,
+        invariants_inactive=[
+            "command-out-of-range: no calibrated drive limits were supplied"
+        ],
+    )
+    report = hz.render_report(campaign)
+    assert "INVARIANTS NOT CHECKED" in report
+    assert "command-out-of-range" in report
+
+
+def test_a_clean_campaign_does_not_grow_a_not_checked_block(tmp_path):
+    assert "INVARIANTS NOT CHECKED" not in hz.render_report(_one_match_campaign(tmp_path))

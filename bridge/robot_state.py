@@ -125,6 +125,12 @@ FLYWHEEL_SPEED_RAD_S = f"{INPUTS}/Shooter/Flywheel/Inputs/FlywheelSpeed"
 #: rather than letting it slip, so the encoders read zero in both cases.
 DRIVE_CURRENT = tuple(f"{INPUTS}/Drive/Module{i}/DriveCurrentAmps" for i in range(4))
 
+#: Ground-truth poses of the five robots sparky-sim drives through
+#: BridgeRobots.java. Same publisher and same units as POSE_TRUTH -- from the
+#: oracles' point of view these are simply five more robots to hold to the
+#: same invariants, which is most of what a populated field buys.
+BRIDGE_ROBOT_POSES = f"{OUTPUTS}/FieldSimulation/BridgeRobots"
+
 LOOP_CYCLE_MS = f"{OUTPUTS}/LoggedRobot/FullCycleMS"
 BROWNED_OUT = f"{INPUTS}/SystemStats/BrownedOut"
 BATTERY_VOLTAGE = f"{INPUTS}/SystemStats/BatteryVoltage"

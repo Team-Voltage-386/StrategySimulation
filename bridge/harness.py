@@ -39,7 +39,14 @@ from pathlib import Path
 
 from bridge import operator as op
 from bridge import scenario
-from bridge.oracles import ERROR, FaultOracle, Finding, LivenessMonitor
+from bridge.oracles import (
+    ERROR,
+    FaultOracle,
+    Finding,
+    InvariantMonitor,
+    InvariantThresholds,
+    LivenessMonitor,
+)
 from bridge.sim_process import RobotSim
 
 #: How the robot is driven during a match.
@@ -60,7 +67,7 @@ STRATEGY = "strategy"
 DRIVERS = (SCRIPTED, STRATEGY)
 
 try:
-    from bridge.robot_state import POSE_TRUTH, RobotStateLink
+    from bridge.robot_state import BRIDGE_ROBOT_POSES, POSE_TRUTH, RobotStateLink
 except ImportError as exc:  # pragma: no cover - depends on the install
     # `render_report` and `Campaign` are the product of this module and neither
     # needs NetworkTables. The report especially: it is the thing somebody
@@ -68,6 +75,7 @@ except ImportError as exc:  # pragma: no cover - depends on the install
     # by definition never run during a clean night. It has to be testable
     # without standing up a JVM, or it stays untested until it matters.
     POSE_TRUTH = "/AdvantageKit/RealOutputs/FieldSimulation/RobotPosition"
+    BRIDGE_ROBOT_POSES = "/AdvantageKit/RealOutputs/FieldSimulation/BridgeRobots"
     RobotStateLink = None  # type: ignore[assignment]
     _ROBOT_STATE_ERROR = exc
 else:
@@ -101,6 +109,11 @@ class MatchResult:
     findings: list[dict] = field(default_factory=list)
     artifacts: dict[str, str] = field(default_factory=dict)
     note: str = ""
+    #: Oracle 03 invariants that could not fire this match, and why. Kept per
+    #: match rather than per campaign because it is not constant: the drive
+    #: limits are calibrated during the first strategy match, so the earliest
+    #: matches of a run can legitimately be checking less than the later ones.
+    invariants_inactive: list[str] = field(default_factory=list)
 
     @property
     def kinds(self) -> set[str]:
@@ -230,6 +243,12 @@ class MatchRunner:
         #: constant. Lazily filled on the first strategy match, or handed
         #: in by a caller that measured it during preflight.
         self.limits = limits
+        #: Oracle 03 for the match currently running, or None between them.
+        #: Held on the runner only so that the calibration inside
+        #: `_play_strategy` can hand it the limits it just measured --
+        #: without that, the first match of a campaign would silently run
+        #: with its command-range invariant switched off.
+        self._invariants: InvariantMonitor | None = None
 
     def run(self, index: int, seed: int) -> MatchResult:
         if RobotStateLink is None:  # pragma: no cover - depends on the install
@@ -271,9 +290,37 @@ class MatchRunner:
                 result.boot_seconds = time.monotonic() - boot_start
 
                 monitor = LivenessMonitor(state, link)
-                with monitor:
+                # Local, like every other `match_view` import here: it pulls
+                # in pymunk, and the report half of this module has to stay
+                # importable in CI without it.
+                from bridge import match_view as mv
+
+                self._invariants = InvariantMonitor(
+                    state,
+                    limits=self.limits,
+                    thresholds=InvariantThresholds(piece_capacity=mv.INTAKE_CAPACITY),
+                )
+                with monitor, self._invariants:
                     result.actions = self._play(link, state, seed)
                 findings.extend(monitor.findings)
+                findings.extend(self._invariants.findings)
+                # What oracle 03 could not check, recorded per match rather
+                # than assumed. "No findings" from a detector that stood down
+                # and "no findings" from a clean match are the same empty list,
+                # and only one of them is good news.
+                result.invariants_inactive = self._invariants.stood_down
+                # A contested match whose invariant monitor only ever saw one
+                # robot checked one robot. `off-the-field` and `teleport` are
+                # held per robot, so that is five robots' worth of silence
+                # being reported as a clean field -- the same failure as an
+                # oracle that never fires, and it belongs in the same place.
+                expected = 1 + self.opponents + self.partners
+                if self._invariants.robots_seen < expected:
+                    result.invariants_inactive.append(
+                        f"off-the-field/teleport: saw {self._invariants.robots_seen} "
+                        f"robot(s), expected {expected} -- "
+                        f"{BRIDGE_ROBOT_POSES} published nothing usable"
+                    )
                 findings.extend(fault_oracle.scan_alerts(state))
 
                 link.neutral()
@@ -350,6 +397,8 @@ class MatchRunner:
             time.sleep(0.5)
             self.limits, checks = dm.calibrate(link, state)
             self._require_model_agrees(checks)
+            if self._invariants is not None:
+                self._invariants.limits = self.limits
             link.neutral()
             link.disable()
             time.sleep(0.3)
@@ -749,6 +798,21 @@ def render_report(campaign: Campaign, preflight: str = "") -> str:
         out(f"  {kind:26} {len(hits):4}/{len(results)} matches{tag}")
         out(f"  {'':26} seeds: {seeds}{more}")
     out()
+
+    # What was not checked. A report that lists only what fired reads the same
+    # whether every detector was working or half of them were switched off,
+    # and the campaign that quietly checked less is the one worth knowing about.
+    stood_down: dict[str, int] = {}
+    for result in results:
+        for reason in result.invariants_inactive:
+            stood_down[reason] = stood_down.get(reason, 0) + 1
+    if stood_down:
+        out("-" * 72)
+        out("  INVARIANTS NOT CHECKED")
+        out("-" * 72)
+        for reason, count in sorted(stood_down.items(), key=lambda kv: -kv[1]):
+            out(f"  {count:4}/{len(results)} matches  {reason}")
+        out()
 
     if failed or errored:
         out("-" * 72)

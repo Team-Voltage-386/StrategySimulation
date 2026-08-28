@@ -6,11 +6,11 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–4 and 6 of 7 done.** The loop closes, the oracles fire, the
-harness runs unattended and leaves a morning report, the live REBUILT world is
-readable, sparky-sim's strategy layer drives the real robot code from it, and
-the other five robots on the field are driven the same way. What remains is
-oracle breadth.
+**Status: steps 1–4 and 6 of 7 done, and oracle 03 with them.** The loop closes,
+the oracles fire, the harness runs unattended and leaves a morning report, the
+live REBUILT world is readable, sparky-sim's strategy layer drives the real
+robot code from it, and the other five robots on the field are driven the same
+way. What remains is oracle breadth: differential scoring and coverage.
 
 ## Run it
 
@@ -41,8 +41,8 @@ is the contested campaign: six robots, all of them deciding, for as many
 matches as you leave it running. Without those flags it runs the solo field it
 always ran, unchanged.
 
-`pytest test/test_bridge_oracles.py` covers oracle 01's rules with no JVM
-involved, so they run in CI.
+`pytest test/test_bridge_oracles.py test/test_bridge_invariants.py` covers
+oracles 01 and 03's rules with no JVM involved, so they run in CI.
 
 No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
 
@@ -148,22 +148,134 @@ As with the Python-side stall audit, these are **detectors, not watchdogs**.
 Nothing intervenes or nudges the robot back into motion; a detector that fixes
 what it detects destroys its own evidence.
 
+**03 — invariants** (`InvariantMonitor`). Samples NT at 20 Hz, like oracle 02,
+and asks the opposite question. 02 is liveness: something that should happen
+and has not. 03 is safety: something that should never happen and has.
+
+| kind | severity | fires when |
+|---|---|---|
+| `not-a-number` | error | any published pose, speed, setpoint or voltage is NaN or infinite |
+| `off-the-field` | error | a robot's centre is outside the field border |
+| `teleport` | error | a robot moved further between two samples than any drivetrain could |
+| `driven-while-disabled` | error | the motors draw current with the DriverStation disabled |
+| `command-out-of-range` | warning | the chassis is commanded past its own measured maximum |
+| `possession-impossible` | error | the robot believes it holds a negative number of pieces, or more than fit |
+
+Keeping these apart from 02 is not tidiness. Almost every design decision
+differs: 02 debounces by *duration*, because one sample of "not moving" is
+jitter — but a NaN is never jitter and is frequently gone by the next read, so
+half of these fire on a single sample. 02 is only meaningful while enabled;
+`driven-while-disabled` is meaningful only while it is not. 02's evidence is a
+stretch of time, an invariant's is one instant and the value that broke it.
+
+**Every robot on the field, not just ours.** `off-the-field` and `teleport`
+are held per robot against `FieldSimulation/BridgeRobots` as well as our own
+truth pose, which is most of what step 6 bought the oracles: the interesting
+version of both is one of the extras being squeezed out through a wall by a
+contact the physics resolved badly, and a solo run cannot produce it at all.
+
+Which raises the same question one level down — an invariant applied to an
+empty list is not an invariant that held. A contested campaign whose monitor
+only ever saw one robot checked one robot and reported five robots' worth of
+silence as a clean field. So the monitor records the most robots it ever judged
+at once, and the harness compares that against the number of extras it
+deployed; a shortfall goes into the same **INVARIANTS NOT CHECKED** block as
+any other detector that stood down.
+
+**Nothing here knows what a FUEL is.** No HUB, no alliance, no scoring. These
+are properties of any robot on any field, which is the point of writing them
+against the game this bridge was only ever proved against — `bridge.oracles`
+does not even import `bridge.arena`, and the field dimensions are a threshold
+with an FRC-standard default rather than a constant read from the game.
+
+**What it does not check, and why.** `possession-impossible` needs a hopper
+capacity and `command-out-of-range` needs measured drive limits, and neither is
+guessable. Without them those invariants stand down — and say so, through
+`InvariantMonitor.inactive`, which the campaign report prints under **INVARIANTS
+NOT CHECKED** and the app prints as `NOT CHECKED`. A detector standing down for
+a good reason is fine; one standing down silently is how a campaign spends eight
+hours checking less than the report claims. The one deliberate omission is
+odometry-versus-truth divergence, which would read zero forever here for the
+reason in *Two things found on the way*.
+
 ### An oracle that has never fired is not known to work
 
-`run_bridge_oracles.py` runs two phases and requires both to come out right: an
-**exercise** phase of ordinary operation that must be clean, and a **provoke**
-phase that pins the robot against the field wall while still commanding it
-forward, which must produce `frozen-robot`. Without the second, "0 findings"
-from a broken detector is indistinguishable from "0 findings" from a clean run,
-and the first silent regression turns every subsequent night into a rubber stamp.
+`run_bridge_oracles.py` runs three phases and requires all of them to come out
+right: an **exercise** phase of ordinary operation that must be clean, a
+**provoke** phase that pins the robot against the field wall while still
+commanding it forward, which must produce `frozen-robot`, and an **inject**
+phase that pushes a deliberate violation of each of oracle 03's six invariants
+through detectors built with the thresholds this run is actually using, all six
+of which must fire. Without the last two, "0 findings" from a broken detector is
+indistinguishable from "0 findings" from a clean run, and the first silent
+regression turns every subsequent night into a rubber stamp.
 
-Oracle 01 has no runtime equivalent — deliberately crashing robot code to prove
-a grep works is a poor trade — so `test/test_bridge_oracles.py` stands in for it,
-which is why `bridge.oracles` imports without pyntcore.
+**PROVOKE and INJECT are not equally strong**, and it is worth saying which is
+which rather than counting them together. A wall pin is a real robot genuinely
+wedged and genuinely commanded forward — the exact signature the detector is
+for, in a situation a real match produces constantly. INJECT is synthetic
+snapshots pushed through the detectors by hand, because making real robot code
+publish a NaN or drive its motors while disabled would mean breaking it on
+purpose. That is oracle 01's trade, and it comes out the same way: deliberately
+crashing robot code to prove a grep works is a poor trade, so
+`test/test_bridge_oracles.py` and `test/test_bridge_invariants.py` stand in for
+it — which is why `bridge.oracles` imports without pyntcore, and why
+`InvariantMonitor`'s *constructor* has no NetworkTables requirement even though
+its `sample()` does.
 
-The report also tracks whether each phase *ran*. "No findings" and "never ran"
-are the same empty list, and the first version of this cheerfully reported a run
-that died during gradle configuration as "exercise phase clean".
+What INJECT buys over those tests, which prove the same six detectors in CI, is
+narrow and real: it runs the **shipped** thresholds and the drive limits
+measured minutes earlier on this machine. A threshold edited to something
+unreachable passes the unit tests, which supply their own, and fails here.
+
+The report also tracks whether each phase *ran*, and how many samples each
+monitor took. "No findings", "never ran", and "ran but never sampled" are the
+same empty list, and the first version of this cheerfully reported a run that
+died during gradle configuration as "exercise phase clean".
+
+One ordering detail that is a bug waiting to happen: the drive-limit
+measurement runs **after** the live phases, not before. Calibration drives —
+four full-stick probes whose reversal does not perfectly undo them — and
+PROVOKE depends on the robot still being near the wall it was placed by. That
+cost a whole run during step 6 in a different guise, and the rule it left is
+that a check which rearranges the field has changed the experiment it was meant
+to validate. The price is that `command-out-of-range` is inactive during the
+live phases, which the run prints rather than papers over.
+
+### What oracle 03 actually did
+
+First live run, and every run since:
+
+```
+-- ORACLE 03 -- invariants, live phases ----------------------
+   no findings
+-- phase INJECT (expect all six invariants to fire) ----------
+   ok    not-a-number             fired
+   ok    off-the-field            fired
+   ok    teleport                 fired
+   ok    driven-while-disabled    fired
+   ok    command-out-of-range     fired
+   ok    possession-impossible    fired
+```
+
+The interesting line is the quiet one. That same run produced oracle 02's
+`robot-pinned` — a robot wedged against the border at y=0.378 m, drawing 58 A,
+commanded 2.06 m/s and moving 0.000 m — and oracle 03 said nothing about it.
+A robot pressed flat against a wall is the closest thing ordinary operation
+produces to "off the field", and an invariant that could not tell the two apart
+would fail every match that touched anything. Getting that boundary right is
+most of the work in a safety oracle; the detection is the easy half.
+
+Contested, one match, three opponents and two partners: **zero** oracle-03
+findings with all six robots' poses under `off-the-field` and `teleport`, and
+`robot-pinned` from oracle 02 for the defender doing its job. The report grew no
+**INVARIANTS NOT CHECKED** block, which is how the run says the monitor really
+saw six robots rather than one.
+
+No finding from a real robot yet, on either field. That is the expected result
+and not a disappointment: five of these six are things well-written robot code
+simply does not do, and the value of writing them now is that the campaign that
+finds one is a campaign that already knew what to call it.
 
 ## The overnight harness
 
@@ -224,11 +336,37 @@ committing eight hours to a detector that might not detect. The current reading
 is checked explicitly because `robot-pinned` is also what the classifier returns
 when the signal is *missing* — so the kind alone cannot distinguish a working
 classifier from a blind one, and a blind one silently retires the `frozen-robot`
-error path for the whole night. The preflight line records the amperage it saw:
+error path for the whole night. It then injects a violation of each of oracle
+03's invariants, all of which must fire. The preflight line records what it
+saw:
 
 ```
-preflight  : ok -- wall pin detected as robot-pinned at t=3.8s, 58 A while pinned
+preflight  : ok -- wall pin detected as robot-pinned at t=4.3s, 58 A while pinned;
+             oracle 03 fired on 6/6 injected invariants; drive measured at 4.45 m/s
 ```
+
+The drive measurement is the last thing the preflight does, and it is handed to
+the campaign rather than thrown away. It has to be last for the same reason the
+oracle app's does — calibration drives, and the wall pin above depends on the
+robot being where the field put it. Handing it forward buys two things: the
+first match does not spend four seconds re-measuring a constant, and oracle 03's
+command-range invariant is active from that match's first sample instead of from
+wherever it happened to calibrate. Which is visible, because the campaign report
+says so:
+
+```
+------------------------------------------------------------------------
+  INVARIANTS NOT CHECKED
+------------------------------------------------------------------------
+     1/1 matches  command-out-of-range: no calibrated drive limits were supplied
+```
+
+That block is what a campaign looked like before the limits were passed
+forward. `InvariantMonitor` accumulates every reason an invariant stood down
+while it was sampling, rather than reporting what is switched off at the end —
+a monitor asked afterwards reports full coverage for a match that spent its
+first four seconds checking five invariants out of six, which is exactly the
+flattering answer this whole mechanism exists to refuse.
 
 Results are flushed to `campaign.jsonl` as they happen, so the report survives
 the machine going down at 3am.
@@ -1172,20 +1310,30 @@ deterministic stepping.
 
 ## Next
 
-Steps 1–4 and 6 are done: the strategy layer reads the live field, drives the
-robot, and drives the other five as well.
+Steps 1–4 and 6 are done, and oracle 03 with them: the strategy layer reads the
+live field, drives the robot, and drives the other five as well, and the run is
+judged by three oracles rather than two.
 
 **Judge the rest by whether it survives the 2027 reveal.** This bridge is
 machinery for driving *whatever* robot code exists against *whatever* game
 arrives; REBUILT is the thing it was proved against, and REBUILT-specific polish
 is spent effort.
 
-* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage. The
-  largest remaining item, and a populated field makes the first of them more
-  interesting than it was: invariants that hold on an empty field are a much
-  weaker claim than ones that hold with somebody leaning on you. Differential
-  *scoring* stays last, both because it sits on a shot whose range band is
-  deliberately approximate and because the extras deliberately do not score.
+* **Oracle 05 — coverage.** Which robot code the campaign never entered is the
+  single most actionable thing a fuzzing run can tell you, and it is entirely
+  game-agnostic. There is one specific obstacle, found by looking rather than
+  by trying: JaCoCo writes its execution data from a JVM **shutdown hook**, and
+  `sim_process` ends the robot with `taskkill /F /T`, which runs no hooks. The
+  hard kill is load-bearing — see `--no-daemon` below — so this needs the
+  agent in `output=tcpserver` mode and a dump requested over TCP before the
+  kill, not a `jacoco {}` block. Budget a session for the build change, the
+  dump client, and merging exec files across matches.
+* **Oracle 04 — differential scoring**, still last, and the reasons have got
+  slightly stronger rather than weaker. It sits on a shot whose range band is
+  deliberately approximate, the extras deliberately do not score, and the
+  alliance score it would read is therefore a solo-field claim. Worth doing
+  when there is a game whose scoring sparky-sim models exactly; REBUILT is not
+  it.
 * **Intent→button mapping**, broadened past the canned tactic. `Stage`, `Pass`
   and now `Defend` have needed none of it, which was the prediction: a
   positioning tactic only drives. Only `eject` and `stopWithX` are plausibly

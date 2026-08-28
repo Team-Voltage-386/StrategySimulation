@@ -18,9 +18,10 @@ WPILOG is the authoritative record of what happened, and it replays through the
 robot code deterministically in AdvantageScope.
 
 Before the campaign starts, the oracles are preflighted: one deliberate wall
-pin, which must produce `frozen-robot`. Eight hours against a detector that
-cannot detect is eight hours of rubber stamp, and the campaign refuses to start
-rather than find that out at 7am.
+pin, which must produce `frozen-robot`, and a deliberate violation of each of
+oracle 03's invariants, all of which must fire. Eight hours against a detector
+that cannot detect is eight hours of rubber stamp, and the campaign refuses to
+start rather than find that out at 7am.
 """
 from __future__ import annotations
 
@@ -32,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from bridge import drive_model as dm
 from bridge import harness as hz
 from bridge import operator as op
 from bridge import oracles
@@ -44,12 +46,25 @@ def _log(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6.0) -> str:
-    """Prove oracle 02 still fires, before committing to the night.
+def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6.0):
+    """Prove oracles 02 and 03 still fire, before committing to the night.
 
-    Same provocation as `run_bridge_oracles.py`: push the robot into the field
-    wall while still commanding it forward. Returns a short status string, or
-    raises if the detector stayed quiet.
+    Two provocations, of deliberately unequal strength. Oracle 02 gets the real
+    one, the same as `run_bridge_oracles.py`: push the robot into the field wall
+    while still commanding it forward. Oracle 03 gets synthetic snapshots
+    through `prove_invariants`, because making real robot code publish a NaN
+    would mean breaking it on purpose.
+
+    Also measures the drivetrain's maxima on the way out, and hands them back
+    for the campaign to reuse. Two things fall out of that and both matter:
+    oracle 03's command-range invariant is active from the first sample of the
+    first match rather than from wherever that match happens to calibrate, and
+    it can be injected here, which is the difference between preflighting five
+    invariants and preflighting six.
+
+    Returns `(status, limits)`, or raises if any detector stayed quiet. The
+    limits are None if the measurement failed, which is not fatal: it costs the
+    campaign four seconds in its first match and nothing else.
     """
     console = workdir / "preflight-console.log"
     sim = RobotSim(repo, console, gradle_args=("simulateJava", "-Pbridge", "--no-daemon"))
@@ -80,6 +95,19 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
                 amps = state.drive_current()
                 time.sleep(seconds * 0.4)
                 link.set_axis(op.AXIS_LEFT_X, 0.0)
+
+            # After the pin, never before it. Calibration drives, and the
+            # provocation above depends on the robot being where the field put
+            # it -- a check that rearranges the field has changed the
+            # experiment it was meant to validate. Reading the *setpoint*
+            # rather than the motion is also why being wedged does not spoil
+            # the measurement.
+            limits = None
+            try:
+                limits, _ = dm.calibrate(link, state)
+            except Exception:
+                pass  # reported through the status line; the campaign copes
+
             link.neutral()
             link.disable()
             time.sleep(0.5)
@@ -108,7 +136,30 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
             # pin, so the threshold is suspect and every finding it produces
             # should be read with that in mind.
             status += "  [!] expected robot-pinned; the current threshold looks wrong"
-        return status
+
+        # Oracle 03, on the shipped thresholds and the limits just measured.
+        # No robot needed for this part, which is the whole reason it is only
+        # as strong as it is -- see `prove_invariants`.
+        from bridge import match_view as mv
+
+        thresholds = oracles.InvariantThresholds(piece_capacity=mv.INTAKE_CAPACITY)
+        proof = oracles.prove_invariants(thresholds, limits)
+        silent = oracles.unproven_invariants(proof)
+        if silent:
+            raise RuntimeError(
+                f"preflight: oracle 03 invariant(s) stayed silent on a deliberate "
+                f"violation: {', '.join(silent)}. The campaign would run all night "
+                f"reporting nothing from a detector that cannot detect."
+            )
+        status += (
+            f"; oracle 03 fired on {len(proof)}/"
+            f"{len(oracles.InvariantMonitor.KINDS)} injected invariants"
+        )
+        if limits is None:
+            status += "  [!] drive limits unmeasured; command-out-of-range not injected"
+        else:
+            status += f"; drive measured at {limits.max_speed_mps:.2f} m/s"
+        return status, limits
     finally:
         sim.stop()
         for path in (set((repo / hz.BRIDGE_LOG_DIR).glob("*.wpilog")) - logs_before):
@@ -184,11 +235,14 @@ def main(argv: list[str] | None = None) -> int:
         _log(f"  time budget  : {args.max_hours:g} h")
     _log()
 
-    preflight_status = "skipped -- oracle 02 UNVERIFIED for this campaign"
+    preflight_status = "skipped -- oracles 02 and 03 UNVERIFIED for this campaign"
+    measured_limits = None
     if not args.no_preflight:
-        _log("-- preflight: proving oracle 02 still fires " + "-" * 26)
+        _log("-- preflight: proving oracles 02 and 03 still fire " + "-" * 19)
         try:
-            preflight_status = preflight(args.repo, workdir, args.boot_timeout)
+            preflight_status, measured_limits = preflight(
+                args.repo, workdir, args.boot_timeout
+            )
             _log(f"   {preflight_status}")
         except Exception as exc:
             _log(f"   ABORT: {exc}")
@@ -208,6 +262,12 @@ def main(argv: list[str] | None = None) -> int:
         opponents=args.opponents,
         partners=args.partners,
         defenders=args.defenders,
+        # Measured during preflight, on a JVM that is already dead by now. The
+        # drive model is a property of the robot code and not of a match, so
+        # measuring it once is right -- and doing it before the first match
+        # rather than during it is what keeps oracle 03's command-range
+        # invariant active from that match's first sample.
+        limits=measured_limits,
     )
 
     # The count means different things per driver -- discrete button
