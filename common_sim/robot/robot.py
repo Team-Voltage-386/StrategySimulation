@@ -57,8 +57,12 @@ class Robot:
     # Forward push applied to a piece on deposit release, on top of chassis
     # velocity -- separates it from the chassis footprint so it can reach an
     # adjacent scoring region rather than sitting pinned at the robot's
-    # center. A launching manipulator should override via release_piece()
-    # with an explicit higher-speed velocity instead of relying on this.
+    # center.
+    #
+    # The value actually used is `characteristics.eject_speed`, which
+    # defaults to this: how hard a robot throws is a property of the robot,
+    # not of the class, and a robot built to pass throws much harder. Kept
+    # here as the default's documented source.
     DEFAULT_EJECT_SPEED = 24.0  # in/s
 
     # How far *back* inside its own bumper edge a side's manipulator still
@@ -555,7 +559,7 @@ class Robot:
             piece.target_action = action
             eject_side = self.characteristics.score_side_for(piece.piece_type)
             outward = pymunk.Vec2d(*SIDE_OUTWARD[eject_side]).rotated(self.chassis.body.angle)
-            self.release_piece(piece, velocity=pymunk.Vec2d(*self.chassis.body.velocity) + outward * self.DEFAULT_EJECT_SPEED)
+            self.release_piece(piece, velocity=pymunk.Vec2d(*self.chassis.body.velocity) + outward * self.characteristics.eject_speed)
             return piece
         return None
 

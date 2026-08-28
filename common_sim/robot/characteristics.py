@@ -121,6 +121,17 @@ class RobotCharacteristics:
     # about, since an empty dict is indistinguishable from "not configured".
     side_manipulators: dict[str, SideManipulators] = field(default_factory=dict)
 
+    # How fast a released piece leaves the scoring side, in in/s, on top
+    # of the chassis's own velocity. The default is the nudge that only
+    # has to clear the robot's own footprint so an adjacent scoring
+    # region can take the piece.
+    #
+    # It becomes a real design parameter the moment a game rewards
+    # *throwing* a piece somewhere rather than placing it -- `Pass` is
+    # the tactic that does, and at the default it moves a piece about a
+    # foot, which is not a pass. A robot that can throw says so here.
+    eject_speed: float = 24.0
+
     def deposit_duration(self, action: str) -> float:
         return self.deposit_time_by_action.get(action, self.deposit_time)
 

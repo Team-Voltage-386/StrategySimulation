@@ -95,7 +95,9 @@ common_sim/
                                  expected_rate, so a flaky high-value target loses to a reliable cheaper
                                  one at the travel times where that is true), LookaheadPlanner stub
     triggers.py                 Declarative Trigger dataclasses (PiecesAvailable, MatchTime, BeingDefended, AllOf/AnyOf/Not, ...)
-    tactics.py                   Collect/Score/Pursue/Defend/RunScript/Idle -- Behaviors that replan their own target
+    tactics.py                   Collect/Score/Stage/Pass/Pursue/Defend/RunScript/Idle -- Behaviors that replan their own target
+                                   Stage waits at the region it cannot score in yet; Pass throws toward it instead.
+                                   Both answer "full hopper, closed goal", which otherwise falls through to Idle.
                                    Pursue arbitrates fetch-vs-score on utility.py's rate, then runs Collect or
                                    Score to do it -- the tradeoff a Rule's integer `priority` cannot express.
                                    Modulates that rate by context the raw Outcome cannot see: whether the job
