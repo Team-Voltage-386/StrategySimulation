@@ -254,6 +254,83 @@ class ViewConfig:
     total_duration: float = 150.0
 
 
+# -- what every wire-driven robot shares --------------------------------
+#
+# Two pieces of bookkeeping that are the same whether a robot is driven
+# through the HALSim link (`MapleRobot`) or over NetworkTables
+# (`opponents.OpponentRobot`). Free functions rather than a shared base
+# class: the two robots have almost nothing else in common -- one presses
+# buttons, the other writes velocities -- and a base class would exist
+# only to hold these.
+#
+# Duplicating them instead was the tempting option and would have been the
+# wrong one twice over. `write_measured_pose` gets the frame conversion
+# right, and `reconcile_held` encodes a queue discipline that took a whole
+# debugging session to find.
+
+
+def write_measured_pose(robot, pose, measured_robot_relative) -> None:
+    """Copy a pose and a velocity off the wire into a robot's body.
+
+    Written straight into pymunk rather than through any `drive_*` call:
+    the thing on the other side of the wire has already done the
+    integrating, and running a second integrator over its answer produces
+    a pose that lags the robot by however long the loop takes.
+
+    `measured_robot_relative` is robot-relative, because that is what
+    kinematics produce from module states, while `Robot.speed` and
+    everything reading it mean field-relative. Getting that rotation
+    wrong is invisible while a robot drives straight down the field.
+    """
+    if pose is not None:
+        robot.chassis.body.position = (pose.x * M_TO_IN, pose.y * M_TO_IN)
+        robot.chassis.body.angle = pose.theta
+
+    if measured_robot_relative is not None:
+        vx, vy, omega = measured_robot_relative
+        heading = robot.chassis.body.angle
+        robot.chassis.body.velocity = (
+            (vx * math.cos(heading) - vy * math.sin(heading)) * M_TO_IN,
+            (vx * math.sin(heading) + vy * math.cos(heading)) * M_TO_IN,
+        )
+        robot.chassis.body.angular_velocity = omega
+
+
+def reconcile_held(robot, space: pymunk.Space, count: int) -> None:
+    """Make `robot.held_pieces` as long as the far side says it is.
+
+    **A hopper is a queue, and the order is load-bearing.** Pieces
+    collected go on the back; pieces deposited leave from the front. Which
+    physical one leaves is unknowable and would not matter -- they are
+    interchangeable -- except that `behavior.RunManipulator` names
+    `held_pieces[0]` as the piece it is depositing and returns SUCCESS when
+    that object is no longer held. Truncating the list from the tail, which
+    is the obvious thing to do, means the named piece never leaves: `Score`
+    runs until its timeout instead of finishing, every single time, and
+    nothing about that looks like a bug in the adapter.
+
+    Pieces are otherwise stable across ticks, so a tactic can hold a
+    reference to one for as long as the robot holds it.
+    """
+    current = list(robot.held_pieces)
+    for piece in current[:max(0, len(current) - count)]:
+        # Gone -- shot, dumped, or ejected. Flagged so a stale reference
+        # reads as "not held any more" rather than as a live piece.
+        piece.held_by = None
+    current = current[max(0, len(current) - count):]
+
+    spec = piece_spec(arena.PIECE_TYPE)
+    while len(current) < count:
+        piece = GamePiece(
+            space, arena.PIECE_TYPE, (0.0, 0.0),
+            radius=spec.radius, mass=spec.mass, color=spec.color, source="field",
+        )
+        piece.held_by = robot
+        piece.last_holder_alliance = robot.alliance
+        current.append(piece)
+    robot.held_pieces = current
+
+
 # -- the robot ----------------------------------------------------------
 
 
@@ -356,22 +433,7 @@ class MapleRobot(Robot):
         would produce a pose that lags the robot by however long the
         strategy loop takes.
         """
-        if world.robot is not None:
-            self.chassis.body.position = (world.robot.x * M_TO_IN, world.robot.y * M_TO_IN)
-            self.chassis.body.angle = world.robot.theta
-
-        if measured_robot_relative is not None:
-            # `SwerveChassisSpeeds/Measured` is robot-relative (it comes
-            # from the kinematics' view of the module states), while
-            # `Robot.speed` and everything reading it mean field-relative.
-            vx, vy, omega = measured_robot_relative
-            heading = self.chassis.body.angle
-            self.chassis.body.velocity = (
-                (vx * math.cos(heading) - vy * math.sin(heading)) * M_TO_IN,
-                (vx * math.sin(heading) + vy * math.cos(heading)) * M_TO_IN,
-            )
-            self.chassis.body.angular_velocity = omega
-
+        write_measured_pose(self, world.robot, measured_robot_relative)
         self._now = now
         self._sync_held(world.held)
         self._reconcile_intake(world.intake_arm_deg)
@@ -382,39 +444,9 @@ class MapleRobot(Robot):
         self._apply_deposit()
 
     def _sync_held(self, count: int) -> None:
-        """Make `held_pieces` as long as the ball count says it is.
-
-        **A hopper is a queue, and the order is load-bearing.** Fuel
-        collected goes on the back; fuel shot leaves from the front.
-        Which physical ball leaves is unknowable and would not matter --
-        they are interchangeable -- except that
-        `behavior.RunManipulator` names `held_pieces[0]` as the piece it
-        is depositing and returns SUCCESS when that object is no longer
-        held. Truncating the list from the tail, which is the obvious
-        thing to do, means the named piece never leaves: `Score` runs
-        until its timeout instead of finishing, every single time, and
-        nothing about that looks like a bug in the adapter.
-
-        Pieces are otherwise stable across ticks, so a tactic can hold a
-        reference to one for as long as the robot holds it.
-        """
-        current = list(self.held_pieces)
-        for piece in current[:max(0, len(current) - count)]:
-            # Gone -- shot, or ejected. Flagged so a stale reference
-            # reads as "not held any more" rather than as a live piece.
-            piece.held_by = None
-        current = current[max(0, len(current) - count):]
-
-        spec = piece_spec(arena.PIECE_TYPE)
-        while len(current) < count:
-            piece = GamePiece(
-                self._space, arena.PIECE_TYPE, (0.0, 0.0),
-                radius=spec.radius, mass=spec.mass, color=spec.color, source="field",
-            )
-            piece.held_by = self
-            piece.last_holder_alliance = self.alliance
-            current.append(piece)
-        self.held_pieces = current
+        """See `reconcile_held` -- shared with the opponents, which have the
+        same hopper-as-a-queue problem for the same reason."""
+        reconcile_held(self, self._space, count)
 
     # -- writes: these leave over the HALSim link ------------------------
 
@@ -697,6 +729,11 @@ class MapleMatchView:
         self._tracker = PieceTracker(self._space)
         self.active_pieces: list[GamePiece] = []
 
+        #: The other robots on the field, filled in by
+        #: `opponents.OpponentCast.attach` when a match has any. Empty is
+        #: the honest answer for a solo run and not a stub -- see `robots`.
+        self.extra_robots: list = []
+
     # -- the tick -------------------------------------------------------
 
     def sync(self, elapsed: float, phase: Phase) -> ws.WorldState:
@@ -722,16 +759,25 @@ class MapleMatchView:
     # -- the duck-typed contract ----------------------------------------
 
     @property
-    def robots(self) -> list[MapleRobot]:
-        """Just ours, for now.
+    def robots(self) -> list:
+        """Ours first, then whichever extras a match was set up with.
 
-        maple-sim can hold more drivetrains, and step 6 puts sparky-sim
-        opponents in them. Until then every `world_view` query about
-        opponents, partners or defenders correctly returns nothing, and
-        the tactics that read them do nothing -- which is the right
-        answer for a field with one robot on it, not a stub.
+        Ours first because several things downstream read `robots[0]` as
+        a convenient hand-hold, and the robot under test is the one that
+        should be. Everything that actually matters -- who is an
+        opponent, who is a partner, who is defending -- comes off each
+        robot's `alliance` and its published intent, not off this order.
+
+        Empty extras is the honest answer for a solo run rather than a
+        stub: every `world_view` query about opponents, partners or
+        defenders returns nothing, and the tactics that read them do
+        nothing, which is right for a field with one robot on it. The
+        extras arrive through `opponents.OpponentCast.attach`, which is
+        also where they get their own controllers -- this view reads a
+        running simulation and decides nothing, and it should not start
+        now that there are five more robots to not decide about.
         """
-        return [self.robot]
+        return [self.robot, *self.extra_robots]
 
     def region_full(self, region, action: str) -> bool:
         """Never. The HUB takes fuel until the match ends; `TotalFuelInHub`

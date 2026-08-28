@@ -179,6 +179,15 @@ class Pose2d:
             raise ValueError(f"expected {_POSE2D.size} bytes for a Pose2d struct, got {len(raw)}")
         return cls(*_POSE2D.unpack(raw))
 
+    @classmethod
+    def decode_array(cls, raw: bytes) -> list["Pose2d"]:
+        """Decode a `struct:Pose2d[]` payload -- see `Pose3d.decode_array`."""
+        if len(raw) % _POSE2D.size:
+            raise ValueError(
+                f"{len(raw)} bytes is not a whole number of {_POSE2D.size}-byte Pose2d structs"
+            )
+        return [cls.decode(raw[i:i + _POSE2D.size]) for i in range(0, len(raw), _POSE2D.size)]
+
     def distance_to(self, other: "Pose2d") -> float:
         return ((self.x - other.x) ** 2 + (self.y - other.y) ** 2) ** 0.5
 
@@ -262,11 +271,15 @@ class RobotStateLink:
         self._inst.startClient4(client_name)
         self._inst.setServer(server, ntcore.NetworkTableInstance.kDefaultPort4)
         self._subs: dict[tuple[str, str], ntcore.Subscriber] = {}
+        self._pubs: dict[tuple[str, str], object] = {}
 
     def close(self) -> None:
         for sub in self._subs.values():
             sub.close()
         self._subs.clear()
+        for pub in self._pubs.values():
+            pub.close()
+        self._pubs.clear()
         self._inst.stopClient()
         ntcore.NetworkTableInstance.destroy(self._inst)
 
@@ -319,6 +332,19 @@ class RobotStateLink:
     def odometry_pose(self) -> Pose2d | None:
         """Where the robot *thinks* it is. See POSE_ODOMETRY -- currently pinned to truth."""
         return self.pose(POSE_ODOMETRY)
+
+    def pose2d_array(self, name: str) -> list[Pose2d] | None:
+        """Decode a `struct:Pose2d[]` topic, or None if it has never published.
+
+        None means "nobody is publishing this", `[]` means "published, and
+        there are none". The extra robots make that distinction load-bearing:
+        an empty list is a match with no opponents in it, while None is a
+        robot build that predates them.
+        """
+        value = self._raw_sub(name, "struct:Pose2d[]").getAtomic()
+        if value.time == 0:
+            return None
+        return Pose2d.decode_array(bytes(value.value))
 
     def pose3d(self, name: str) -> Pose3d | None:
         value = self._raw_sub(name, "struct:Pose3d").getAtomic()
@@ -382,6 +408,15 @@ class RobotStateLink:
     def integer(self, name: str, default: int = 0) -> int:
         return self._int_sub(name).get(default)
 
+    def double_array(self, name: str) -> list[float]:
+        """A `double[]` topic. Distinct from `float_array`, which subscribes
+        as float32 and would quietly halve the precision of anything read
+        through it."""
+        return list(self._double_array_sub(name).get([]))
+
+    def integer_array(self, name: str) -> list[int]:
+        return [int(v) for v in self._int_array_sub(name).get([])]
+
     def float_array(self, name: str) -> list[float]:
         return list(self._float_array_sub(name).get([]))
 
@@ -419,6 +454,51 @@ class RobotStateLink:
 
     def topic_names(self, prefix: str = "", settle: float = 1.0) -> list[str]:
         return sorted(self.topic_info(prefix, settle))
+
+    # -- writes ------------------------------------------------------------
+    #
+    # This module's name and its docstring both say "robot -> Python", and
+    # for four steps that was the whole of it: everything the robot had to
+    # say was already on the wire, and everything Python had to say went
+    # through the HALSim link as a joystick.
+    #
+    # Step 6 broke that symmetry, because the other robots on the field have
+    # no joystick. There is exactly one DriverStation in a WPILib simulation
+    # and the robot code under test owns it; an opponent is a body in
+    # maple-sim with nothing driving it, so the only channel left is the one
+    # already open. Hence a publisher here rather than a second NT client in
+    # `opponents.py` -- one connection, one place that knows the server
+    # address, and one thing to close.
+    #
+    # `keepDuplicates` on every publisher, deliberately. A robot asked to
+    # hold still sends the same three zeros every tick, and a wire that
+    # coalesces those looks identical to a wire that has gone quiet -- which
+    # is the exact signal the far side's staleness watchdog reads.
+
+    def publish_double_array(self, name: str, value) -> None:
+        self._pub("double[]", name, lambda: self._inst.getDoubleArrayTopic(name).publish(
+            ntcore.PubSubOptions(keepDuplicates=True))).set(list(value))
+
+    def publish_boolean(self, name: str, value: bool) -> None:
+        self._pub("bool", name, lambda: self._inst.getBooleanTopic(name).publish(
+            ntcore.PubSubOptions(keepDuplicates=True))).set(bool(value))
+
+    def publish_integer(self, name: str, value: int) -> None:
+        self._pub("int", name, lambda: self._inst.getIntegerTopic(name).publish(
+            ntcore.PubSubOptions(keepDuplicates=True))).set(int(value))
+
+    def flush(self) -> None:
+        """Push what has been set, rather than waiting for the next network
+        period.
+
+        NT4 batches at 100 Hz by default. A strategy tick that publishes five
+        robots' velocities and then sleeps is a tick whose commands arrive
+        somewhere in the next 10 ms -- fine on average and jittery in a way
+        that shows up as opponents that move in small lurches. Flushing at
+        the end of a tick costs one syscall and makes the timing the loop's
+        own rather than the transport's.
+        """
+        self._inst.flush()
 
     # -- internals ---------------------------------------------------------
 
@@ -462,5 +542,22 @@ class RobotStateLink:
     def _float_array_sub(self, name: str) -> ntcore.FloatArraySubscriber:
         return self._sub("float[]", name, lambda: self._inst.getFloatArrayTopic(name).subscribe([]))
 
+    def _double_array_sub(self, name: str) -> ntcore.DoubleArraySubscriber:
+        return self._sub("double[]", name, lambda: self._inst.getDoubleArrayTopic(name).subscribe([]))
+
+    def _int_array_sub(self, name: str) -> ntcore.IntegerArraySubscriber:
+        return self._sub("int[]", name, lambda: self._inst.getIntegerArrayTopic(name).subscribe([]))
+
     def _string_array_sub(self, name: str) -> ntcore.StringArraySubscriber:
         return self._sub("string[]", name, lambda: self._inst.getStringArrayTopic(name).subscribe([]))
+
+    def _pub(self, kind: str, name: str, make):
+        """Cache one publisher per (kind, name).
+
+        No priming wait, unlike `_sub`: a publisher is ready the moment it
+        exists, and there is nothing to read back.
+        """
+        key = (kind, name)
+        if key not in self._pubs:
+            self._pubs[key] = make()
+        return self._pubs[key]

@@ -191,6 +191,9 @@ class MatchRunner:
         shoot_at: int = 20,
         tick_hz: float = 20.0,
         limits=None,
+        opponents: int = 0,
+        partners: int = 0,
+        defenders: int = 1,
     ):
         self.repo = Path(repo)
         self.workdir = Path(workdir)
@@ -203,6 +206,24 @@ class MatchRunner:
         self.driver = driver
         self.shoot_at = shoot_at
         self.tick_hz = tick_hz
+        #: How many of the other five robots to put on the field, and how
+        #: many of the opponents play defence rather than cycling.
+        #:
+        #: Zero by default, so an existing campaign runs exactly the
+        #: matches it ran before this option existed. A populated field is
+        #: a different experiment, not a better version of the same one --
+        #: it reaches states a solo run cannot and it also spends a lot of
+        #: every match with somebody wedged against somebody else, so a
+        #: night of it and a night without are worth comparing rather than
+        #: silently swapping.
+        #:
+        #: Scripted matches ignore this. The extras need a strategy layer
+        #: to decide anything, and the scripted driver deliberately has
+        #: none -- five more robots mashing random buttons is noise, not
+        #: opposition.
+        self.opponents = opponents
+        self.partners = partners
+        self.defenders = defenders
         #: Measured once and reused across matches. The drive model is a
         #: property of the robot code, not of a match, and re-measuring it
         #: every time would spend four seconds a match confirming a
@@ -339,22 +360,42 @@ class MatchRunner:
         controller = StrategyController(self.strategy(seed), robot)
         robot.controller = controller
 
+        cast = self._deploy_cast(state, view)
+
+        # Warm every subscription before the match clock starts. A first
+        # tick creates a dozen of them, each of which blocks until it
+        # carries a value, and left inside the loop that spent the first
+        # thirteen seconds of a match in NT handshakes -- with `elapsed`
+        # running and the robots doing nothing. It reads as a match that
+        # started late rather than as a match that was slow.
+        view.sync(0.0, Phase.AUTO)
+        if cast is not None:
+            cast.link.poses()
+            cast.link.speeds()
+            cast.link.held()
+
         link.autonomous_enable(station="blue1")
         link.set_match_time(self.match_seconds)
         started = time.monotonic()
         ticks = self._tick_until(
             view, robot, controller, BehaviorContext, Phase.AUTO,
-            started, started + self.auto_seconds,
+            started, started + self.auto_seconds, cast,
         )
 
         link.teleop_enable()
         ticks += self._tick_until(
             view, robot, controller, BehaviorContext, Phase.TELEOP,
-            started, started + self.match_seconds,
+            started, started + self.match_seconds, cast,
         )
 
         # Same buzzer semantics as the scripted path: disable interrupts
         # whatever was running rather than being handed a tidy release.
+        # The extras get an explicit stop rather than the same treatment,
+        # because nothing disables them: their watchdog would stop them
+        # half a second later, and that half second is long enough to
+        # matter to whatever reads the final poses.
+        if cast is not None:
+            cast.stand_down()
         link.disable()
         time.sleep(0.5)
         return ticks
@@ -392,14 +433,50 @@ class MatchRunner:
                 "the navigator did not plan for."
             )
 
+    def _deploy_cast(self, state, view):
+        """Put the other robots on the field, or return None for a solo match.
+
+        Imported here for the same reason the strategy stack is: the
+        scripted driver and the rules tests import this module without
+        pymunk, and the extras are a `Robot` subclass.
+
+        A roster the simulation refuses is a hard error and not a match
+        that quietly runs solo. The whole reason to populate a field is
+        that the states worth reaching need somebody else on it, and a
+        night of "contested" matches that were all solo is the same
+        failure as an oracle that never fires.
+        """
+        if not (self.opponents or self.partners):
+            return None
+        from bridge import opponents as opp
+
+        roster = opp.default_roster(
+            opponents=self.opponents, partners=self.partners, defenders=self.defenders
+        )
+        cast = opp.OpponentCast(opp.OpponentLink(state), roster, self.limits)
+        cast.deploy(timeout=30.0)
+        # Attached before the first tick, and the ordering is
+        # load-bearing: `Defend` picks its mark from the robots the view
+        # knows about, so a controller built against an empty field starts
+        # by deciding there is nobody to defend against.
+        from common_sim.control.strategy import StrategyController
+
+        cast.attach(view, StrategyController)
+        return cast
+
     def _tick_until(self, view, robot, controller, BehaviorContext, phase,
-                    started: float, deadline: float) -> int:
+                    started: float, deadline: float, cast=None) -> int:
         dt = 1.0 / self.tick_hz
         ticks = 0
         while time.monotonic() < deadline:
             elapsed = time.monotonic() - started
             view.sync(elapsed, phase)
-            controller.tick(BehaviorContext(robot=robot, dt=dt, elapsed=elapsed, match=view))
+            context = BehaviorContext(robot=robot, dt=dt, elapsed=elapsed, match=view)
+            controller.tick(context)
+            if cast is not None:
+                # Every extra robot decides against the same instant of the
+                # same world our robot just did -- see `OpponentCast.tick`.
+                cast.tick(context)
             ticks += 1
             time.sleep(dt)
         return ticks

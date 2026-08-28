@@ -494,3 +494,33 @@ def test_direction_gets_its_own_budget(tmp_path):
     runner._require_model_agrees([_Check(direction=runner.DIRECTION_TOLERANCE_DEG - 0.1)])
     with pytest.raises(RuntimeError):
         runner._require_model_agrees([_Check(direction=runner.DIRECTION_TOLERANCE_DEG + 0.1)])
+
+
+# -- the populated field ------------------------------------------------
+
+
+def test_a_campaign_is_solo_unless_asked_otherwise(tmp_path):
+    """The default must be the field this ran on before the extras existed.
+
+    A populated field is a different experiment, not a better version of
+    the same one -- it reaches states a solo run cannot, and it spends
+    real time with somebody wedged against somebody else. Two nights are
+    worth comparing; one night silently swapped for the other is not.
+    """
+    runner = MatchRunner(tmp_path / "robot", tmp_path / "runs")
+    assert (runner.opponents, runner.partners) == (0, 0)
+    assert runner._deploy_cast(state=None, view=None) is None
+
+
+def test_a_contested_campaign_needs_the_strategy_driver():
+    """Refused at the command line rather than ignored at run time.
+
+    The extras have no decisions without a strategy layer, so a scripted
+    campaign asked for opponents would run solo matches and file them
+    under a report that says "3 opponents" -- and nothing in the output
+    would say otherwise.
+    """
+    from apps import run_bridge_overnight as app
+
+    with pytest.raises(SystemExit):
+        app.main(["--driver", hz.SCRIPTED, "--opponents", "3", "--matches", "1"])

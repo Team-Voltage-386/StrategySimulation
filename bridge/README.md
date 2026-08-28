@@ -6,10 +6,11 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–4 of 7 done.** The loop closes, the oracles fire, the harness
-runs unattended and leaves a morning report, the live REBUILT world is
-readable, and sparky-sim's strategy layer drives the real robot code from it.
-What remains widens the variety of situations it reaches.
+**Status: steps 1–4 and 6 of 7 done.** The loop closes, the oracles fire, the
+harness runs unattended and leaves a morning report, the live REBUILT world is
+readable, sparky-sim's strategy layer drives the real robot code from it, and
+the other five robots on the field are driven the same way. What remains is
+oracle breadth.
 
 ## Run it
 
@@ -20,6 +21,7 @@ python apps/run_bridge_oracles.py    # step 2: can it tell a failure from a run?
 python apps/run_bridge_overnight.py --matches 40    # step 3: the product
 python apps/run_bridge_world.py      # step 4a: can it see the field?
 python apps/run_bridge_strategy.py   # step 4b: can it play?
+python apps/run_bridge_opponents.py  # step 6: can it play against somebody?
 ```
 
 Each takes ~90 s: gradle compiles, the JVM boots, the checks run, the sim is killed.
@@ -30,6 +32,14 @@ python apps/run_bridge_smoke.py --echo           # stream the robot console
 python apps/run_bridge_smoke.py --attach         # against a sim you started yourself
 python apps/run_bridge_oracles.py --no-provoke   # exercise only (leaves oracle 02 unverified)
 ```
+
+```
+python apps/run_bridge_overnight.py --driver strategy --opponents 3 --partners 2
+```
+
+is the contested campaign: six robots, all of them deciding, for as many
+matches as you leave it running. Without those flags it runs the solo field it
+always ran, unchanged.
 
 `pytest test/test_bridge_oracles.py` covers oracle 01's rules with no JVM
 involved, so they run in CI.
@@ -81,6 +91,7 @@ out, and the two branches have to move together.
 | `arena.py` | — | REBUILT's static geometry, transcribed from maple-sim |
 | `drive_model.py` | Python → robot | velocities ↔ joystick axes, and its calibration |
 | `match_view.py` | both | the live world in the shape tactics already read |
+| `opponents.py` | both | the other five robots: roster, wire, and their brains |
 
 Input is injected **at the joystick layer**, not at the command layer. The
 binding layer and its interlocks are a substantial part of what is being
@@ -960,6 +971,167 @@ one strategy. It now lives in `bridge.harness` and the app imports it. The
 overnight campaign and the single-run app have to play the same game, or
 neither tells you anything about the other.
 
+## The other five robots
+
+Everything up to here drove one robot on an empty field. That is enough to
+prove a bridge and it is not enough to be worth running overnight: a solo cycle
+only ever exercises the paths where nothing is in the way, and the failures
+worth finding in robot code are the ones where something is.
+
+maple-sim will hold as many drivetrains as it is given and has no opinion about
+what any of them does — its own answer for opponents is a PathPlanner replay or
+a second gamepad, neither of which decides anything. sparky-sim has years of
+decision-making and no way to touch a real robot. So `BridgeRobots.java` owns
+the bodies and `bridge/opponents.py` says where they go.
+
+**The extras are not props.** Each is a real `Robot` running a real
+`StrategyController` against the same `MapleMatchView` our robot reads. They
+collect the same fuel, navigate around the same obstacles, and react to what
+our robot is doing — which is the point, because contesting a piece means
+changing your mind about one somebody else just took, and a recorded path
+cannot do that.
+
+### The wire, and the one thing on it that is not a command
+
+Inbound to the JVM is plain NetworkTables under `/Bridge/Robots`: a `Roster`
+of (x, y, θ) triples read exactly once, then per-robot `Speeds`, `Intake` and
+`Release`. Outbound comes back as AdvantageKit outputs, so AdvantageScope and
+the replay get the extra robots for free.
+
+The one entry that is not a command is `Tick`, a counter incremented every time
+Python drives. `BridgeRobots` counts cycles since it last changed and zeroes
+every robot after half a second of silence. Without it, the last command sent
+becomes a permanent instruction: a crashed harness leaves five robots driving
+into a wall for the rest of the session, and the next thing anybody sees is a
+field that has to be cleaned up before it can be used.
+
+A counter and not a timestamp, because the two processes do not share a clock —
+and the version of this that compares NT timestamps to the local one is the
+kind of thing that works until the day it does not.
+
+### Deposit means dump
+
+`BridgeRobots` gives an extra robot a drivetrain and an intake and no shooter,
+so pressing deposit puts its fuel back on the floor behind it. That is the one
+place the extras are honestly less than the real robot, and it is worth saying
+plainly rather than hiding behind the word "score".
+
+Building an opponent shooter would mean transcribing this game's ballistics
+into the opponents' half of the arena — REBUILT work, on the game this bridge
+was only ever proved against. What the extras are *for* is bodies that move
+with intent and pieces that get taken; a dump contests both, and it also keeps
+fuel circulating instead of ending the match with three full hoppers parked in
+a corner. The visible consequence is that maple-sim's score for the other
+alliance stays at zero, and a differential scoring oracle must not read it.
+
+### maple-sim has one battery for the whole arena
+
+This is the finding, and it is the sort that only appears once there is more
+than one robot.
+
+`SimulatedBattery` is **static**. Every `SwerveModuleSimulation` constructor
+registers its drive motor's supply current on it, every `MapleMotorSim`
+registers a steer motor, and `simulationSubTick` sums the lot, drops the
+voltage accordingly, and hands the result to `RoboRioSim.setVInVoltage` — which
+is the rail voltage the robot code under test reads as its own.
+
+So five extra drivetrains draw from the battery of the robot being tested. Six
+robots driving hard is several hundred amps, the voltage clamps at the brownout
+threshold, and the first contested campaign produced this in every match:
+
+```
+  ds-error   console:80   [MapleSim] BrownOut Detected, protecting battery voltage...
+  ds-error   console:81   [MapleSim] BrownOut Detected, protecting battery voltage...
+  ...                     (hundreds of lines, both matches, 2 FAIL)
+```
+
+Not cosmetic. `SimulatedBattery.clamp` then limits every motor's applied
+voltage, so the robot under test is genuinely slowed down by the presence of
+opponents. The same 60-second scenario, before and after:
+
+| | red1 | red2 | red3 | blue2 | blue3 | worst stall | fuel left |
+|---|---|---|---|---|---|---|---|
+| shared battery | 23.3 m | 27.7 m | 17.8 m | 31.8 m | 26.9 m | 20.8 s | 62 |
+| own batteries | 34.4 m | 61.5 m | 57.1 m | 67.7 m | 41.1 m | 5.5 s | 15 |
+
+Every robot travels roughly twice as far and stalls a quarter as long. **The
+stalls were mostly the battery, not the field.** Before the fix it read as a
+robot repeatedly wedging in REBUILT's 50-inch gaps — an entirely plausible
+story, given how much of this project's history is exactly that — and it was
+wrong.
+
+There is no unregister on that static list, so the fix registers a *negative*
+appliance per extra robot: a supplier returning minus its own draw, which the
+sum cancels exactly. Both terms read the same instantaneous voltage, so the
+cancellation is exact rather than approximate. Physically this is the correct
+model and not a workaround for one: every robot in a real match carries its own
+battery, and an opponent accelerating has no effect at all on our rail voltage.
+The shared battery is the artefact; this removes it.
+
+What it does not do is let an extra robot sag under its own load — they all run
+at whatever our rail is doing. That is the right trade: the point of the extras
+is bodies that move with intent, and modelling their brownouts would mean
+simulating five more electrical systems to make five opponents slightly slower.
+
+`run_bridge_opponents.py` now fails the run if the rail drops below 7 V, so the
+fix is checked rather than trusted. Same discipline as the oracles.
+
+### The probe that parked a robot in a wall
+
+`WIRE`, the third check, drives one extra robot by hand before the match — a
+constant velocity, no tactic involved, because a robot that fails to move under
+a strategy could be failing anywhere between the trigger and the module
+controllers, while one that fails to move under a constant 1.5 m/s is failing
+on the wire.
+
+The first version drove along **x**, which on this field is straight into the
+face of that robot's own HUB. Every check downstream passed. The robot then
+began the match wedged, and spent all of it pinned — which reads as a defender
+that would not defend, and not at all as a probe that parked it in a wall. The
+match before the fix: 3.2 m travelled in 45 seconds, ten of them stuck.
+
+Two changes, and both are the general lesson rather than the specific one. The
+probe drives along **y**, where the starting lanes are clear from wall to wall.
+And it drives the robot **back to its mark** afterwards, closed-loop off the
+pose — reversing for the same duration overshot by 0.6 m, because the
+acceleration ramp is not symmetric with the coast. A check that leaves the
+field rearranged has changed the experiment it was meant to validate.
+
+### Thirteen seconds of handshakes
+
+`RobotStateLink` primes a new subscription by blocking until it carries a
+value, up to two seconds each, and a first tick creates a dozen of them between
+the world state and the cast readback. Left inside the loop, that cost thirteen
+seconds of a sixty-second match — a fifth of the run spent in NT handshakes,
+with `elapsed` running and every robot doing nothing.
+
+It presented as a match that started late rather than as a match that was slow,
+which is why it survived step 4: a solo run creates fewer subscriptions and the
+delay was small enough to look like boot jitter. Both the app and the harness
+now warm every subscription before the clock starts.
+
+### What it changed
+
+Two matches, same seeds, same length, with and without the other five:
+
+| | robot-pinned | alert-warning |
+|---|---|---|
+| solo | 1/2 | 2/2 |
+| 3 opponents, 2 partners | **2/2** | 0/2 |
+
+`robot-pinned` on a contested field is the defender doing its job, which is why
+it is a warning and not a failure. The point is not the number — two matches
+decide nothing — but that the finding now has a cause that a solo field cannot
+produce.
+
+Defaults stay solo. A populated field is a different experiment, not a better
+version of the same one: it reaches states a solo run cannot, and it spends
+real time with somebody wedged against somebody else. Two nights are worth
+comparing; one night silently swapped for the other is not. `--opponents` and
+`--partners` with the scripted driver are refused rather than ignored, because
+the extras have no decisions without a strategy layer and a solo campaign filed
+under a report saying "3 opponents" would say nothing about it.
+
 ## Two things found on the way
 
 **Odometry is not an independent channel here.** `SimContainer.simulationPeriodic`
@@ -1000,28 +1172,31 @@ deterministic stepping.
 
 ## Next
 
-Step 4 is done: the strategy layer reads the live field and drives the robot.
-What remains widens the variety of situations reached.
+Steps 1–4 and 6 are done: the strategy layer reads the live field, drives the
+robot, and drives the other five as well.
 
 **Judge the rest by whether it survives the 2027 reveal.** This bridge is
 machinery for driving *whatever* robot code exists against *whatever* game
 arrives; REBUILT is the thing it was proved against, and REBUILT-specific polish
-is spent effort. That ordering puts the last two items first.
+is spent effort.
 
-* **AI opponents** — the other five robots driven by sparky-sim. The largest
-  item and the one that most changes what the tool can generate: contested
-  scenarios rather than solo cycles. maple-sim's own opponents are PathPlanner
-  replay or a second gamepad, so there is no decision-making there at all.
-* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage. Note
-  that differential *scoring* now sits on a shot whose range band is
-  deliberately approximate; invariants and coverage do not, and are the two
-  worth building first.
-* **Intent→button mapping**, broadened past the canned tactic. `Stage` and
-  `Pass` needed none of it, which was the prediction: a positioning tactic only
-  drives, and a pass presses exactly what a score presses. Only `eject` and
-  `stopWithX` are plausibly missing, and adding either before a tactic wants it
-  is speculative.
+* **Oracles 03–05** — invariants, differential scoring, JaCoCo coverage. The
+  largest remaining item, and a populated field makes the first of them more
+  interesting than it was: invariants that hold on an empty field are a much
+  weaker claim than ones that hold with somebody leaning on you. Differential
+  *scoring* stays last, both because it sits on a shot whose range band is
+  deliberately approximate and because the extras deliberately do not score.
+* **Intent→button mapping**, broadened past the canned tactic. `Stage`, `Pass`
+  and now `Defend` have needed none of it, which was the prediction: a
+  positioning tactic only drives. Only `eject` and `stopWithX` are plausibly
+  missing, and adding either before a tactic wants it is speculative.
 * **A `Pass` rule** — no longer blocked, and no longer obviously worth it.
   `Pass` the tactic is machinery and is done; wiring it into `cycle_fuel` is
-  REBUILT strategy tuning, which is the category this list just deprioritised.
+  REBUILT strategy tuning, which is the category this list deprioritises.
   Left here because the measurement is cheap if a reason appears.
+
+Two things the extras could grow, both deliberately not built yet because
+nothing has asked for them: a per-robot drivetrain in the roster (opponents are
+currently given exactly ours, so a contested result is not a statement about
+which robot is faster), and a shooter, which is REBUILT ballistics and belongs
+to whatever game arrives instead.

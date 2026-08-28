@@ -134,6 +134,13 @@ def main(argv: list[str] | None = None) -> int:
                              "strategy: step 4's live strategy layer.")
     parser.add_argument("--shoot-at", type=int, default=20,
                         help="strategy driver: fuel held before going to score")
+    parser.add_argument("--opponents", type=int, default=0,
+                        help="strategy driver: opposing robots, also driven by sparky-sim "
+                             "(0-3; default 0, which is the solo field this ran on before)")
+    parser.add_argument("--partners", type=int, default=0,
+                        help="strategy driver: robots on our own alliance (0-2)")
+    parser.add_argument("--defenders", type=int, default=1,
+                        help="how many opponents play defence rather than cycling")
     parser.add_argument("--gui", action="store_true",
                         help="keep the Sim GUI up; for watching one seed, useless overnight")
     parser.add_argument("--no-preflight", action="store_true",
@@ -144,6 +151,16 @@ def main(argv: list[str] | None = None) -> int:
     # Resolved once, here, so the run prints the project it actually
     # picked and a missing one fails before a JVM is started.
     args.repo = find_robot_repo(args.repo)
+
+    if (args.opponents or args.partners) and args.driver != hz.STRATEGY:
+        # Refused rather than ignored. The extras need a strategy layer to
+        # decide anything, so a scripted campaign asked for a contested
+        # field would run a solo one and report it as contested -- and
+        # nothing in the output would say otherwise.
+        parser.error(
+            f"--opponents/--partners need --driver {hz.STRATEGY}: the extra robots are driven "
+            f"by the strategy layer, and the {hz.SCRIPTED} driver deliberately has none"
+        )
 
     first_seed = args.first_seed if args.first_seed is not None else random.randrange(1, 10_000)
     workdir = args.out or Path("build/bridge/runs") / time.strftime("%Y%m%d-%H%M%S")
@@ -156,6 +173,11 @@ def main(argv: list[str] | None = None) -> int:
     _log(f"  matches      : {args.matches} x {args.match_seconds:.0f}s "
          f"({args.auto_seconds:.0f}s auto, then teleop)")
     _log(f"  driver       : {args.driver}")
+    if args.opponents or args.partners:
+        _log(f"  field        : {args.opponents} opponents ({args.defenders} defending), "
+             f"{args.partners} partners, all driven by sparky-sim")
+    elif args.driver == hz.STRATEGY:
+        _log("  field        : solo -- pass --opponents/--partners for a contested one")
     _log(f"  seeds        : {first_seed}..{first_seed + args.matches - 1}")
     _log(f"  output       : {workdir}")
     if args.max_hours:
@@ -183,6 +205,9 @@ def main(argv: list[str] | None = None) -> int:
         gui=args.gui,
         driver=args.driver,
         shoot_at=args.shoot_at,
+        opponents=args.opponents,
+        partners=args.partners,
+        defenders=args.defenders,
     )
 
     # The count means different things per driver -- discrete button
