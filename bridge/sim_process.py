@@ -13,6 +13,12 @@ time they aren't:
   no visible cause. Without it the robot JVM is a descendant of the process we
   started, so a tree-kill actually ends it. The cost is a slower start, which
   is irrelevant next to a 150-second match.
+* `pre_kill`. Anything that must be asked of the robot *while it is still
+  alive* goes here, because by the time `stop()` returns there is no JVM left
+  to ask. Oracle 05's coverage dump is the only user so far, and it exists
+  because JaCoCo writes from a shutdown hook that a tree-kill never runs.
+  Failures are swallowed: whatever the hook wanted is worth less than the kill
+  that follows it.
 * Console output is tee'd to a file as it arrives. That file is oracle 01 --
   stack traces, `DriverStation.reportError`, scheduler faults and loop overruns
   all land there already. Capturing it now costs a thread and makes the fault
@@ -174,12 +180,16 @@ class RobotSim:
         tail_lines: int = 400,
         echo: bool = False,
         java_home: Path | str | None = None,
+        pre_kill=None,
     ):
         self.repo = find_robot_repo(repo)
         self.log_path = Path(log_path) if log_path is not None else None
         self.gradle_args = gradle_args
         self.echo = echo
         self.java_home = find_java_home(java_home)
+        #: Called with this RobotSim just before the JVM is killed, while it
+        #: can still answer. See the module docstring.
+        self.pre_kill = pre_kill
         self._tail: deque[str] = deque(maxlen=tail_lines)
         self._proc: subprocess.Popen | None = None
         self._pump: threading.Thread | None = None
@@ -221,6 +231,7 @@ class RobotSim:
         if self._proc is None:
             return
         if self._proc.poll() is None:
+            self._run_pre_kill()
             self._kill_tree(self._proc.pid)
             try:
                 self._proc.wait(timeout=timeout)
@@ -281,6 +292,23 @@ class RobotSim:
                 self._log_file.flush()
             if self.echo:
                 print(f"  [robot] {line}", flush=True)
+
+    def _run_pre_kill(self) -> None:
+        """Last word with a living JVM, and it must not cost us the kill.
+
+        Every exception is swallowed on purpose, including the ones that
+        normally deserve to propagate. A hook that raises here would skip
+        `_kill_tree` and leave a robot JVM holding port 3300, which does not
+        fail this match -- it fails every match after it, with a boot timeout
+        that says nothing about the hook. Losing whatever the hook wanted is
+        the cheaper failure by a wide margin.
+        """
+        if self.pre_kill is None:
+            return
+        try:
+            self.pre_kill(self)
+        except Exception as exc:  # noqa: BLE001 - see the docstring
+            self._tail.append(f"[bridge] pre-kill hook failed: {type(exc).__name__}: {exc}")
 
     @staticmethod
     def _kill_tree(pid: int) -> None:

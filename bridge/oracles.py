@@ -1,4 +1,4 @@
-"""Oracles 01 to 03: how a fuzz run learns to fail.
+"""Oracles 01, 02, 03 and 05: how a fuzz run learns to fail.
 
 A campaign is only as good as its ability to recognise a failure. Without
 these, 190 unattended matches produce 190 matches that ran.
@@ -13,11 +13,20 @@ these, 190 unattended matches produce 190 matches that ran.
                             field. NaN, off the field, teleported, driven while
                             disabled, commanded past the drivetrain, holding an
                             impossible number of pieces.
+    05  CoverageOracle   -- which of the robot's own code the campaign never
+                            entered, and whether it has stopped reaching
+                            anything new.
+
+(04, differential scoring, is deliberately not here. See bridge/README.md.)
 
 02 and 03 are the two halves of the usual split: 02 is liveness, something that
 should happen and has not; 03 is safety, something that should never happen and
 has. Keeping them apart is not tidiness -- they debounce differently, they care
 about opposite sides of the enable, and their evidence is a different shape.
+
+05 is not that shape at all. 01 to 03 judge a match; 05 judges the campaign,
+and neither thing it can say belongs to any single seed. It is also the only
+one that can report that a night was wasted while every match passed.
 
 The design constraint on all three is false positives, not misses. The strategy
 sim will command things no human would, and some reported failures will be
@@ -44,6 +53,8 @@ import math
 import re
 import time
 from dataclasses import dataclass
+
+from bridge import jacoco
 
 try:
     from bridge import robot_state as rs
@@ -81,7 +92,7 @@ NO_COUNT = -(2 ** 31)
 class Finding:
     """One thing worth a human's attention, from either oracle."""
 
-    oracle: str  # "faults" | "liveness"
+    oracle: str  # "faults" | "liveness" | "invariants" | "coverage"
     kind: str  # short slug, stable enough to group by across runs
     severity: str  # ERROR | WARNING
     message: str
@@ -1376,3 +1387,257 @@ def unproven_invariants(proof: dict[str, list[Finding]]) -> list[str]:
         kind for kind, found in proof.items()
         if not any(f.kind == kind for f in found)
     ]
+
+
+# ---------------------------------------------------------------------------
+# oracle 05 -- coverage
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class CoverageThresholds:
+    """When silence from the coverage numbers is worth reporting."""
+
+    #: Consecutive matches that reached nothing new before the campaign is told
+    #: it has stopped learning. Ten is roughly half an hour of wall clock, which
+    #: is long enough that the answer is about the scenario generator rather
+    #: than about one unlucky seed.
+    plateau_matches: int = 10
+
+    #: A dump naming fewer classes than this is treated as a broken measurement
+    #: rather than a startling result. A robot that booted at all has executed
+    #: hundreds of probes across dozens of classes; "two classes ran" means the
+    #: agent attached to something that then died, and reporting the other
+    #: hundred as never-run would be the loudest wrong answer available.
+    minimum_classes: int = 10
+
+
+#: Read this before believing a name on the never-run list, because two
+#: entirely ordinary things land on it.
+#:
+#: JaCoCo places a class's probes so that each executes at the *end* of the
+#: basic block it belongs to -- which for a straight-line method means just
+#: before it returns. A method that has not returned yet has therefore recorded
+#: nothing. `frc.robot.Main` is the standing example: `main` calls
+#: `RobotBase.startRobot`, which blocks for the entire match, so the entry
+#: point of the program appears in every never-run list this will ever produce.
+#: Verified directly rather than reasoned about -- a class whose only method
+#: was parked in `Thread.sleep` at dump time reported zero hits.
+#:
+#: And a class can hold code that genuinely never runs and never should: a
+#: generated constants holder's implicit constructor, a hardware IO
+#: implementation on a robot that is being simulated. Those entries are true
+#: rather than false, and the way to stop reading them every morning is the
+#: excludes filter, which the agent and this oracle share.
+NEVER_RUN_CAVEAT = (
+    "Two ordinary things land on this list. A method that has not returned "
+    "records no probe, so an entry point that blocks for the whole match "
+    "(frc.robot.Main) always appears here. And hardware IO classes cannot run "
+    "on a simulated robot. Narrow the list with --coverage-excludes rather "
+    "than by rereading it every morning."
+)
+
+
+class CoverageOracle:
+    """Oracle 05: which of the robot's own code a campaign actually entered.
+
+    Different in shape from 01-03, and the difference is not incidental. Those
+    three judge a match: they watch one robot for 150 seconds and say whether
+    something went wrong. This one judges the *campaign* -- neither of its
+    findings can be attributed to a seed, because "no match ever entered
+    `ClimbCommand`" is a fact about all of them at once. So it is owned by
+    `Campaign` rather than `MatchRunner`, and it reports into its own section
+    of the morning report rather than into any match's findings.
+
+    It is also the only oracle that can say a night was wasted while every
+    match passed, which is the thing a fuzzing harness is otherwise structurally
+    unable to notice.
+    """
+
+    ORACLE = "coverage"
+
+    KINDS = ("code-never-run", "coverage-plateau", "coverage-build-mismatch")
+
+    def __init__(
+        self,
+        expected: set[str] | None = None,
+        thresholds: CoverageThresholds | None = None,
+    ):
+        #: Every class the agent would have instrumented, whether it ran or not
+        #: -- from the build output, because a dump names only what was hit.
+        #: Empty means the question cannot be asked, not that the answer is
+        #: "nothing was missed".
+        self.expected = set(expected or ())
+        self.thresholds = thresholds or CoverageThresholds()
+        self.totals = jacoco.Coverage()
+        #: New probes per match, in order. The zeros are the interesting part.
+        self.gains: list[int] = []
+        self._reasons: list[str] = []
+
+    # -- collecting --------------------------------------------------------
+
+    def observe(self, dump: "jacoco.Dump") -> int:
+        """Merge one match's coverage in. Returns the probes new to the campaign."""
+        gained = self.totals.add(dump)
+        self.gains.append(gained)
+        return gained
+
+    def stand_down(self, reason: str) -> None:
+        """Record a match that produced no coverage at all, and why.
+
+        Not the same as a match that gained nothing: this one was never
+        measured. Keeping them apart is the whole of the difference between
+        "the campaign has stopped learning" and "the campaign stopped looking".
+        """
+        if reason not in self._reasons:
+            self._reasons.append(reason)
+
+    @property
+    def matches_measured(self) -> int:
+        return len(self.gains)
+
+    @property
+    def stood_down(self) -> list[str]:
+        """Why coverage is missing or unreliable. Empty is the good case."""
+        reasons = list(self._reasons)
+        if not self.expected:
+            reasons.append(
+                "code-never-run: no compiled classes found under "
+                f"{jacoco.CLASSES_DIR} -- build the robot project, or every "
+                "class will look covered"
+            )
+        if self.totals.conflicts:
+            sample = ", ".join(sorted(self.totals.conflicts)[:3])
+            reasons.append(
+                f"coverage totals: {len(self.totals.conflicts)} class(es) changed probe "
+                f"count mid-campaign ({sample}) -- the robot was rebuilt while it ran, "
+                "so these totals mix two builds"
+            )
+        return reasons
+
+    # -- judging -----------------------------------------------------------
+
+    @property
+    def never_run(self) -> set[str]:
+        return self.expected - self.totals.classes if self.expected else set()
+
+    @property
+    def unexpected(self) -> set[str]:
+        return self.totals.classes - self.expected if self.expected else set()
+
+    def findings(self) -> list[Finding]:
+        """What the campaign's coverage is worth saying. Call once, at the end."""
+        found: list[Finding] = []
+        if not self.matches_measured:
+            return found
+
+        classes_seen = len(self.totals.classes)
+        where = f"{self.matches_measured} matches"
+
+        if classes_seen < self.thresholds.minimum_classes:
+            # Below this the numbers describe a failed measurement, and every
+            # judgement built on them would be confidently wrong. Say so and
+            # stop, rather than reporting a hundred never-run classes because
+            # the agent attached to a JVM that died on boot.
+            return [
+                Finding(
+                    oracle=self.ORACLE,
+                    kind="coverage-build-mismatch",
+                    severity=WARNING,
+                    message=(
+                        f"only {classes_seen} class(es) ever executed, across "
+                        f"{self.matches_measured} matches -- the coverage agent attached "
+                        f"but measured almost nothing"
+                    ),
+                    where=where,
+                    detail=(
+                        "Expected hundreds of probes across dozens of classes from a robot "
+                        "that booted. Check the -PbridgeCoverageIncludes filter, and whether "
+                        "the JVM survived long enough to be asked."
+                    ),
+                ),
+            ]
+
+        if self.unexpected:
+            sample = ", ".join(sorted(self.unexpected)[:6])
+            found.append(
+                Finding(
+                    oracle=self.ORACLE,
+                    kind="coverage-build-mismatch",
+                    severity=WARNING,
+                    message=(
+                        f"{len(self.unexpected)} class(es) executed that are not in the "
+                        f"build output -- the never-run list below is unreliable"
+                    ),
+                    where=where,
+                    detail=(
+                        f"{sample}\n"
+                        f"The robot most likely ran against a different build than the one "
+                        f"in {jacoco.CLASSES_DIR}. Rebuild and rerun before trusting either list."
+                    ),
+                )
+            )
+
+        if self.never_run:
+            listing = "\n".join(sorted(self.never_run)[:40])
+            more = len(self.never_run) - 40
+            found.append(
+                Finding(
+                    oracle=self.ORACLE,
+                    kind="code-never-run",
+                    severity=WARNING,
+                    message=(
+                        f"{len(self.never_run)} of {len(self.expected)} classes were never "
+                        f"entered by any match"
+                    ),
+                    where=where,
+                    detail=(
+                        listing
+                        + (f"\n... and {more} more" if more > 0 else "")
+                        + "\n\n"
+                        + NEVER_RUN_CAVEAT
+                    ),
+                )
+            )
+
+        plateau = self.thresholds.plateau_matches
+        if len(self.gains) >= plateau and not any(self.gains[-plateau:]):
+            last_gain = max(
+                (i for i, g in enumerate(self.gains) if g), default=None
+            )
+            since = (
+                f"nothing new since match {last_gain}"
+                if last_gain is not None
+                else "nothing was ever reached"
+            )
+            found.append(
+                Finding(
+                    oracle=self.ORACLE,
+                    kind="coverage-plateau",
+                    severity=WARNING,
+                    message=(
+                        f"the last {plateau} matches reached no code the campaign had not "
+                        f"already reached"
+                    ),
+                    where=where,
+                    detail=(
+                        f"{since}. More matches of this shape will keep passing and keep "
+                        f"finding nothing; the thing to change is the scenario generator, "
+                        f"not the match count."
+                    ),
+                )
+            )
+        return found
+
+    def summary(self) -> str:
+        """One line for the report header."""
+        if not self.matches_measured:
+            return "not measured"
+        covered = len(self.totals.classes)
+        text = (
+            f"{self.totals.probes_hit}/{self.totals.probes_total} probes in "
+            f"{covered} class(es)"
+        )
+        if self.expected:
+            text += f", {covered}/{len(self.expected)} of the classes that exist"
+        return text

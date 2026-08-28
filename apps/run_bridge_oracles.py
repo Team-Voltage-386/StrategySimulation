@@ -15,6 +15,11 @@ right:
             through detectors built with the thresholds and the drive limits
             this run is actually using. Expected result: all six fire.
 
+  MEASURE   with --coverage, ask the live JaCoCo agent what the robot has
+            executed. Expected result: a dump naming a sane number of classes.
+            Opt-in because instrumenting the robot changes its timing, and
+            EXERCISE is a phase that has to come back clean.
+
 The last two phases are the point. An oracle that has never fired is not known
 to work, and "0 findings" from a detector that cannot detect looks exactly like
 "0 findings" from a clean run. Running a known-bad condition through it every
@@ -44,6 +49,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bridge import drive_model as dm
+from bridge import jacoco
 from bridge import match_view as mv
 from bridge import operator as op
 from bridge import oracles
@@ -148,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--attach", action="store_true", help="use a sim that is already running")
     parser.add_argument("--no-provoke", action="store_true", help="skip the known-bad phase")
     parser.add_argument("--provoke-seconds", type=float, default=6.0)
+    parser.add_argument("--coverage", action="store_true",
+                        help="also verify oracle 05: attach the JaCoCo agent and dump it")
+    parser.add_argument("--coverage-port", type=int, default=jacoco.DEFAULT_PORT)
     parser.add_argument("--echo", action="store_true", help="stream the robot console")
     parser.add_argument("--boot-timeout", type=float, default=300.0)
     parser.add_argument("--log", type=Path, default=Path("build/bridge/oracles-console.log"))
@@ -174,7 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     # "exercise phase clean". A report that says ok about work it did not do is
     # worse than no report -- it is the exact failure the provoke phase exists
     # to prevent, one level up.
-    ran = {"exercise": False, "provoke": False, "inject": False}
+    ran = {"exercise": False, "provoke": False, "inject": False, "measure": False}
+    coverage_dump: jacoco.Dump | None = None
+    coverage_why = ""
+    expected_classes: set[str] = set()
 
     try:
         if args.attach:
@@ -182,7 +194,15 @@ def main(argv: list[str] | None = None) -> int:
         else:
             _step("launching robot sim")
             _log(f"   {args.repo}  ->  {args.log}")
-            sim = RobotSim(args.repo, args.log, echo=args.echo)
+            gradle_args = ("simulateJava", "-Pbridge", "--no-daemon")
+            if args.coverage:
+                gradle_args += (
+                    "-PbridgeCoverage",
+                    f"-PbridgeCoveragePort={args.coverage_port}",
+                    f"-PbridgeCoverageIncludes={jacoco.DEFAULT_INCLUDES}",
+                    "-PbridgeCoverageExcludes=",
+                )
+            sim = RobotSim(args.repo, args.log, gradle_args=gradle_args, echo=args.echo)
             sim.start()
 
         with op.OperatorLink() as link, RobotStateLink() as state:
@@ -257,6 +277,24 @@ def main(argv: list[str] | None = None) -> int:
 
             fault_findings = fault_oracle.scan_alerts(state)
 
+            if args.coverage:
+                # While the JVM is unambiguously alive, and before anything
+                # starts tearing down. Done directly rather than through
+                # RobotSim's pre-kill hook so that --attach works too; the
+                # hook itself is exercised by the overnight preflight, which
+                # is the path that has to survive a match that threw.
+                _step("phase MEASURE (expect a dump from the live agent)")
+                data, coverage_why = jacoco.try_dump(port=args.coverage_port)
+                if data is None:
+                    problems.append(f"coverage: {coverage_why}")
+                    _log(f"   no dump: {coverage_why}")
+                else:
+                    coverage_dump = jacoco.parse_exec(data)
+                    expected_classes = jacoco.classes_on_disk(args.repo)
+                    ran["measure"] = True
+                    _log(f"   {coverage_dump.probes_hit} probes in "
+                         f"{len(coverage_dump.class_names)} class(es)")
+
     except Exception as exc:
         problems.append(f"{type(exc).__name__}: {exc}")
         _log()
@@ -314,6 +352,24 @@ def main(argv: list[str] | None = None) -> int:
             _log(f"   ok    {kind:24} fired")
         else:
             _log(f"   FAIL  {kind:24} silent")
+
+    if args.coverage:
+        _step("ORACLE 05 -- coverage, MEASURE phase")
+        if coverage_dump is None:
+            _log(f"   no dump: {coverage_why}")
+        else:
+            covered = coverage_dump.class_names
+            _log(f"   {coverage_dump.probes_hit} probes hit in {len(covered)} class(es)")
+            if expected_classes:
+                _log(f"   {len(covered)}/{len(expected_classes)} of the classes compiled "
+                     f"under {jacoco.DEFAULT_INCLUDES} were entered")
+                strangers = covered - expected_classes
+                if strangers:
+                    _log(f"   [!] {len(strangers)} class(es) ran that are not in the build "
+                         f"output: {', '.join(sorted(strangers)[:4])}")
+            else:
+                _log(f"   NOT CHECKED  nothing compiled under {jacoco.CLASSES_DIR}, so "
+                     f"never-run cannot be measured")
 
     _step("SELF-CHECK")
     if not ran["exercise"]:
@@ -381,6 +437,33 @@ def main(argv: list[str] | None = None) -> int:
             # of six reads identically to one that checked all six.
             _log(f"   note  not injected: {', '.join(skipped)} (see NOT CHECKED above)")
 
+    if not args.coverage:
+        _log("   skip  coverage not requested; oracle 05 is UNVERIFIED this run")
+    elif not ran["measure"]:
+        problems.append("oracle 05 was asked for and produced no dump, so it is unverified")
+        _log("   FAIL  coverage phase produced no dump")
+    else:
+        floor = oracles.CoverageThresholds().minimum_classes
+        seen = len(coverage_dump.class_names)
+        if seen < floor:
+            # The dump arriving is not the same as the dump meaning anything.
+            # A booted robot reaches dozens of classes, and a handful means the
+            # agent attached to something that died -- on which every
+            # subsequent never-run claim would be an artefact.
+            problems.append(
+                f"the coverage agent answered but named only {seen} class(es), under the "
+                f"{floor} a booted robot should reach; the include filter or the JVM is wrong"
+            )
+            _log(f"   FAIL  coverage measured only {seen} class(es)")
+        elif not expected_classes:
+            problems.append(
+                "nothing is compiled under "
+                f"{jacoco.CLASSES_DIR}, so every class would look covered"
+            )
+            _log("   FAIL  no compiled classes to compare a dump against")
+        else:
+            _log(f"   ok    oracle 05 measured {seen} class(es) from a live agent")
+
     errors = [f for f in fault_findings if f.severity == oracles.ERROR]
     if errors:
         problems.append(f"oracle 01 found {len(errors)} error-level fault(s) in the console")
@@ -390,7 +473,8 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             _log(f"   FAIL  {problem}")
         return 1
-    _log("   PASS  all three oracles are armed, quiet on clean operation, and proven to fire")
+    armed = "all four oracles are" if args.coverage else "oracles 01-03 are"
+    _log(f"   PASS  {armed} armed, quiet on clean operation, and proven to fire")
     _log(f"   {oracles.summarize(fault_findings + exercise_findings + provoke_findings + invariant_findings)}")
     return 0
 

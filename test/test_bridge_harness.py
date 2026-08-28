@@ -27,6 +27,7 @@ from bridge.harness import (
     MatchRunner,
     render_report,
 )
+from bridge import oracles
 from bridge.oracles import ERROR, WARNING, Finding
 
 
@@ -572,3 +573,124 @@ def test_a_campaign_report_names_the_invariants_it_could_not_check(tmp_path):
 
 def test_a_clean_campaign_does_not_grow_a_not_checked_block(tmp_path):
     assert "INVARIANTS NOT CHECKED" not in hz.render_report(_one_match_campaign(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# oracle 05, as the campaign sees it
+# ---------------------------------------------------------------------------
+
+
+def _covering_runner(statuses, dumps):
+    """A FakeRunner that also publishes a per-match coverage dump.
+
+    `dumps` is one entry per match; None stands for a match whose agent said
+    nothing, which is the case the report has to keep separate from a match
+    that reached nothing new.
+    """
+    runner = FakeRunner(statuses)
+    runner.last_coverage = None
+    real_run = runner.run
+    queue = list(dumps)
+
+    def run(index, seed):
+        result = real_run(index, seed)
+        runner.last_coverage = queue[index]
+        if queue[index] is None:
+            result.coverage_note = "the agent was not attached"
+        return result
+
+    runner.run = run
+    return runner
+
+
+def _cov(*names, probes=(True,)):
+    from bridge import jacoco
+
+    return jacoco.Dump(
+        classes=tuple(
+            jacoco.ClassCoverage(n.replace(".", "/"), 1, tuple(probes)) for n in names
+        )
+    )
+
+
+def test_a_campaign_records_what_each_match_added(tmp_path):
+    """The zeros are the point: a match that reached nothing new is the signal
+    that more matches of the same shape are not worth running."""
+    runner = _covering_runner(
+        [PASS, PASS], [_cov("a.B"), _cov("a.B")]
+    )
+    campaign = Campaign(
+        runner, tmp_path, matches=2, first_seed=1,
+        coverage=oracles.CoverageOracle(expected={"a.B"}),
+    )
+    campaign.run()
+
+    assert campaign.results[0].coverage_new_probes == 1
+    assert campaign.results[1].coverage_new_probes == 0
+
+
+def test_a_match_whose_agent_said_nothing_is_not_counted_as_measured(tmp_path):
+    runner = _covering_runner([PASS, PASS], [_cov("a.B"), None])
+    campaign = Campaign(
+        runner, tmp_path, matches=2, first_seed=1,
+        coverage=oracles.CoverageOracle(expected={"a.B"}),
+    )
+    campaign.run()
+
+    assert campaign.coverage.matches_measured == 1
+    assert "the agent was not attached" in campaign.coverage.stood_down
+
+
+def test_the_campaign_leaves_a_merged_exec_that_jacoco_could_read(tmp_path):
+    """The night's artifact. Written in JaCoCo's own format so a whole
+    campaign's coverage opens in its report tool, with no renderer here."""
+    from bridge import jacoco
+
+    runner = _covering_runner([PASS, PASS], [_cov("a.B"), _cov("a.C")])
+    campaign = Campaign(
+        runner, tmp_path, matches=2, first_seed=1,
+        coverage=oracles.CoverageOracle(expected={"a.B", "a.C"}),
+    )
+    campaign.run()
+
+    merged = jacoco.parse_exec((tmp_path / "coverage.exec").read_bytes())
+    assert merged.class_names == {"a.B", "a.C"}
+
+
+def test_the_report_grows_a_coverage_section_only_when_coverage_was_asked_for(tmp_path):
+    assert "COVERAGE" not in hz.render_report(_one_match_campaign(tmp_path))
+
+
+def test_the_coverage_section_reports_code_no_match_entered(tmp_path):
+    runner = _covering_runner([PASS], [_cov("a.Ran")])
+    campaign = Campaign(
+        runner, tmp_path, matches=1, first_seed=1,
+        coverage=oracles.CoverageOracle(
+            expected={"a.Ran", "a.Never"},
+            thresholds=oracles.CoverageThresholds(minimum_classes=1),
+        ),
+    )
+    campaign.run()
+
+    report = hz.render_report(campaign)
+
+    assert "COVERAGE" in report
+    assert "code-never-run" in report
+    assert "a.Never" in report
+    assert "measured   : 1 of 1 matches" in report
+
+
+def test_a_campaign_that_could_not_measure_coverage_says_so_in_the_report(tmp_path):
+    """Silence from an unattached agent must not read as a covered night."""
+    runner = _covering_runner([PASS], [None])
+    campaign = Campaign(
+        runner, tmp_path, matches=1, first_seed=1,
+        coverage=oracles.CoverageOracle(expected={"a.B"}),
+    )
+    campaign.run()
+
+    report = hz.render_report(campaign)
+
+    assert "NOT MEASURED" in report
+    assert "the agent was not attached" in report
+    assert "measured   : 0 of 1 matches" in report

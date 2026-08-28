@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bridge import drive_model as dm
 from bridge import harness as hz
+from bridge import jacoco
 from bridge import operator as op
 from bridge import oracles
 from bridge import robot_state as rs
@@ -46,14 +47,29 @@ def _log(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6.0):
-    """Prove oracles 02 and 03 still fire, before committing to the night.
+def preflight(
+    repo: Path,
+    workdir: Path,
+    boot_timeout: float,
+    seconds: float = 6.0,
+    coverage: dict | None = None,
+):
+    """Prove oracles 02, 03 and 05 still fire, before committing to the night.
 
-    Two provocations, of deliberately unequal strength. Oracle 02 gets the real
-    one, the same as `run_bridge_oracles.py`: push the robot into the field wall
-    while still commanding it forward. Oracle 03 gets synthetic snapshots
-    through `prove_invariants`, because making real robot code publish a NaN
-    would mean breaking it on purpose.
+    Three provocations, of deliberately unequal strength. Oracle 02 gets the
+    real one, the same as `run_bridge_oracles.py`: push the robot into the
+    field wall while still commanding it forward. Oracle 03 gets synthetic
+    snapshots through `prove_invariants`, because making real robot code
+    publish a NaN would mean breaking it on purpose.
+
+    Oracle 05 is back to the strong kind, and unusually there was never a
+    weaker option: asking a living JVM what it has executed is exactly what the
+    campaign does every match, so the preflight does it for real -- real agent,
+    real socket, through the same `pre_kill` hook, and it refuses the night if
+    the answer does not come back. That refusal is the point. A campaign asked
+    for coverage that cannot collect it does not quietly become a campaign
+    without coverage; it becomes one whose COVERAGE section reports that the
+    robot executed nothing.
 
     Also measures the drivetrain's maxima on the way out, and hands them back
     for the campaign to reuse. Two things fall out of that and both matter:
@@ -67,7 +83,25 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
     campaign four seconds in its first match and nothing else.
     """
     console = workdir / "preflight-console.log"
-    sim = RobotSim(repo, console, gradle_args=("simulateJava", "-Pbridge", "--no-daemon"))
+    gradle_args = ("simulateJava", "-Pbridge", "--no-daemon")
+    captured: dict = {}
+    if coverage:
+        gradle_args += (
+            "-PbridgeCoverage",
+            f"-PbridgeCoveragePort={coverage['port']}",
+            f"-PbridgeCoverageIncludes={coverage['includes']}",
+            f"-PbridgeCoverageExcludes={coverage['excludes']}",
+        )
+
+    def keep_coverage(_sim) -> None:
+        captured["data"], captured["why"] = jacoco.try_dump(port=coverage["port"])
+
+    sim = RobotSim(
+        repo,
+        console,
+        gradle_args=gradle_args,
+        pre_kill=keep_coverage if coverage else None,
+    )
     logs_before = set((repo / hz.BRIDGE_LOG_DIR).glob("*.wpilog")) if (repo / hz.BRIDGE_LOG_DIR).is_dir() else set()
     try:
         sim.start()
@@ -159,11 +193,55 @@ def preflight(repo: Path, workdir: Path, boot_timeout: float, seconds: float = 6
             status += "  [!] drive limits unmeasured; command-out-of-range not injected"
         else:
             status += f"; drive measured at {limits.max_speed_mps:.2f} m/s"
+
+        if coverage:
+            # Kill the JVM here rather than leaving it to the `finally`, so
+            # the pre-kill hook runs while there is still something to ask and
+            # its answer can be checked before this function returns. The
+            # second stop() in the `finally` is a no-op.
+            sim.stop()
+            status += _coverage_status(captured, repo, coverage, console)
+
         return status, limits
     finally:
         sim.stop()
         for path in (set((repo / hz.BRIDGE_LOG_DIR).glob("*.wpilog")) - logs_before):
             path.unlink(missing_ok=True)
+
+
+def _coverage_status(captured: dict, repo: Path, coverage: dict, console: Path) -> str:
+    """Check that oracle 05 can actually measure anything. Raises if it cannot.
+
+    Three ways this fails, and they want different sentences because they have
+    different fixes: the agent never attached, the agent answered with almost
+    nothing, or the robot was never built so there is nothing to compare a
+    dump against. The third is the quiet one -- with no compiled classes the
+    never-run list is empty and the night looks fully covered.
+    """
+    data = captured.get("data")
+    if data is None:
+        raise RuntimeError(
+            f"preflight: coverage was asked for and no dump came back. "
+            f"{captured.get('why', 'no reason recorded')}. Console: {console}"
+        )
+    dump = jacoco.parse_exec(data)
+    seen = len(dump.class_names)
+    floor = oracles.CoverageThresholds().minimum_classes
+    if seen < floor:
+        raise RuntimeError(
+            f"preflight: the coverage agent answered but named only {seen} class(es), "
+            f"under the {floor} a booted robot should reach. Either "
+            f"-PbridgeCoverageIncludes={coverage['includes']} matches almost nothing, or "
+            f"the JVM died before it was asked. Console: {console}"
+        )
+    expected = jacoco.classes_on_disk(repo, coverage["includes"], coverage["excludes"])
+    if not expected:
+        raise RuntimeError(
+            f"preflight: no compiled classes under {repo / jacoco.CLASSES_DIR} matching "
+            f"{coverage['includes']}, so nothing can be called never-run and the campaign "
+            f"would report perfect coverage of an empty set. Build the robot project first."
+        )
+    return f"; oracle 05 dumped {dump.probes_hit} probes in {seen} of {len(expected)} classes"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -194,6 +272,19 @@ def main(argv: list[str] | None = None) -> int:
                         help="how many opponents play defence rather than cycling")
     parser.add_argument("--gui", action="store_true",
                         help="keep the Sim GUI up; for watching one seed, useless overnight")
+    parser.add_argument("--coverage", action="store_true",
+                        help="oracle 05: attach the JaCoCo agent and report which robot "
+                             "code the campaign never entered. Off by default -- it "
+                             "instruments the robot, and this campaign also reports loop "
+                             "overruns")
+    parser.add_argument("--coverage-port", type=int, default=jacoco.DEFAULT_PORT,
+                        help=f"where the agent listens (default {jacoco.DEFAULT_PORT})")
+    parser.add_argument("--coverage-includes", default=jacoco.DEFAULT_INCLUDES,
+                        help=f"classes to instrument (default {jacoco.DEFAULT_INCLUDES})")
+    parser.add_argument("--coverage-excludes", default="",
+                        help="classes to leave out of both the instrumentation and the "
+                             "never-run list; ':'-separated, '*' wildcards. This is the "
+                             "lever for hardware IO classes that cannot run in simulation")
     parser.add_argument("--no-preflight", action="store_true",
                         help="skip the oracle self-test (leaves the campaign unverified)")
     parser.add_argument("--out", type=Path, default=None,
@@ -219,6 +310,14 @@ def main(argv: list[str] | None = None) -> int:
     # picked and a missing one fails before a JVM is started.
     args.repo = find_robot_repo(args.repo)
 
+    coverage = None
+    if args.coverage:
+        coverage = {
+            "port": args.coverage_port,
+            "includes": args.coverage_includes,
+            "excludes": args.coverage_excludes,
+        }
+
     first_seed = args.first_seed if args.first_seed is not None else random.randrange(1, 10_000)
     workdir = args.out or Path("build/bridge/runs") / time.strftime("%Y%m%d-%H%M%S")
     workdir.mkdir(parents=True, exist_ok=True)
@@ -236,18 +335,21 @@ def main(argv: list[str] | None = None) -> int:
     elif args.driver == hz.STRATEGY:
         _log("  field        : solo -- pass --opponents/--partners for a contested one")
     _log(f"  seeds        : {first_seed}..{first_seed + args.matches - 1}")
+    if coverage:
+        _log(f"  coverage     : oracle 05 on, agent on :{args.coverage_port}, "
+             f"instrumenting {args.coverage_includes}")
     _log(f"  output       : {workdir}")
     if args.max_hours:
         _log(f"  time budget  : {args.max_hours:g} h")
     _log()
 
-    preflight_status = "skipped -- oracles 02 and 03 UNVERIFIED for this campaign"
+    preflight_status = "skipped -- the oracles are UNVERIFIED for this campaign"
     measured_limits = None
     if not args.no_preflight:
-        _log("-- preflight: proving oracles 02 and 03 still fire " + "-" * 19)
+        _log("-- preflight: proving the oracles still fire " + "-" * 26)
         try:
             preflight_status, measured_limits = preflight(
-                args.repo, workdir, args.boot_timeout
+                args.repo, workdir, args.boot_timeout, coverage=coverage
             )
             _log(f"   {preflight_status}")
         except Exception as exc:
@@ -274,6 +376,10 @@ def main(argv: list[str] | None = None) -> int:
         # rather than during it is what keeps oracle 03's command-range
         # invariant active from that match's first sample.
         limits=measured_limits,
+        coverage=bool(coverage),
+        coverage_port=args.coverage_port,
+        coverage_includes=args.coverage_includes,
+        coverage_excludes=args.coverage_excludes,
     )
 
     # The count means different things per driver -- discrete button
@@ -290,6 +396,15 @@ def main(argv: list[str] | None = None) -> int:
 
     campaign = hz.Campaign(
         runner=runner,
+        # Built here because this is what knows how the agent was configured.
+        # `expected` is what exists as opposed to what ran: a dump names only
+        # the classes it hit, so the compiled output is the only place the
+        # other half of the never-run question can come from.
+        coverage=oracles.CoverageOracle(
+            expected=jacoco.classes_on_disk(
+                args.repo, args.coverage_includes, args.coverage_excludes
+            )
+        ) if coverage else None,
         workdir=workdir,
         matches=args.matches,
         first_seed=first_seed,

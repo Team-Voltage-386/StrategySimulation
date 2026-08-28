@@ -37,10 +37,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from bridge import jacoco
 from bridge import operator as op
 from bridge import scenario
 from bridge.oracles import (
     ERROR,
+    CoverageOracle,
     FaultOracle,
     Finding,
     InvariantMonitor,
@@ -114,6 +116,18 @@ class MatchResult:
     #: limits are calibrated during the first strategy match, so the earliest
     #: matches of a run can legitimately be checking less than the later ones.
     invariants_inactive: list[str] = field(default_factory=list)
+    #: Oracle 05, summarised. The per-class detail lives in the campaign's
+    #: merged `coverage.exec` rather than here -- a hundred classes per match
+    #: in the JSONL would be most of the file, and the question coverage
+    #: answers is never about one match anyway.
+    coverage_classes: int = 0
+    coverage_probes: int = 0
+    #: Probes this match reached that no earlier match had. Filled by the
+    #: campaign, because it is the only thing that knows what came before.
+    coverage_new_probes: int = 0
+    #: Why there is no coverage for this match, if there is none. Empty when
+    #: coverage was not asked for at all -- an unasked question is not a gap.
+    coverage_note: str = ""
 
     @property
     def kinds(self) -> set[str]:
@@ -207,6 +221,10 @@ class MatchRunner:
         opponents: int = 0,
         partners: int = 0,
         defenders: int = 1,
+        coverage: bool = False,
+        coverage_port: int = jacoco.DEFAULT_PORT,
+        coverage_includes: str = jacoco.DEFAULT_INCLUDES,
+        coverage_excludes: str = "",
     ):
         self.repo = Path(repo)
         self.workdir = Path(workdir)
@@ -249,6 +267,22 @@ class MatchRunner:
         #: without that, the first match of a campaign would silently run
         #: with its command-range invariant switched off.
         self._invariants: InvariantMonitor | None = None
+        #: Oracle 05. Off by default, because instrumenting the robot changes
+        #: the robot: the same campaign reports loop overruns, and an agent
+        #: that slows the loop enough to cause one would have the fuzzer
+        #: reporting its own instrument. Asking for it is a decision, so it is
+        #: made once, out loud, on the command line.
+        self.coverage = coverage
+        self.coverage_port = coverage_port
+        #: Passed to Gradle rather than read from it, so the filter that
+        #: decides what gets instrumented and the filter that decides what
+        #: counts as "never run" are one setting and cannot drift apart.
+        self.coverage_includes = coverage_includes
+        self.coverage_excludes = coverage_excludes
+        #: The last match's dump, for the campaign to merge. Held here rather
+        #: than on the result because a MatchResult is written to JSONL and
+        #: this is a few thousand probes.
+        self.last_coverage: jacoco.Dump | None = None
 
     def run(self, index: int, seed: int) -> MatchResult:
         if RobotStateLink is None:  # pragma: no cover - depends on the install
@@ -269,8 +303,26 @@ class MatchRunner:
         gradle_args = ("simulateJava", "-Pbridge", "--no-daemon")
         if self.gui:
             gradle_args += ("-PbridgeGui",)
+        if self.coverage:
+            gradle_args += (
+                "-PbridgeCoverage",
+                f"-PbridgeCoveragePort={self.coverage_port}",
+                f"-PbridgeCoverageIncludes={self.coverage_includes}",
+                f"-PbridgeCoverageExcludes={self.coverage_excludes}",
+            )
 
-        sim = RobotSim(self.repo, console_path, gradle_args=gradle_args)
+        self.last_coverage = None
+        sim = RobotSim(
+            self.repo,
+            console_path,
+            gradle_args=gradle_args,
+            # The dump has to happen here and nowhere else. By the time
+            # `sim.stop()` returns, the JVM has been tree-killed and JaCoCo's
+            # shutdown hook -- the way this is normally collected -- has not
+            # run and never will. Hanging it off the teardown rather than off
+            # the happy path also means a match that threw still gets asked.
+            pre_kill=(self._dump_coverage(result, scratch) if self.coverage else None),
+        )
         findings: list[Finding] = []
         fault_oracle = FaultOracle()
         # Snapshot the log directory before the JVM starts, so whatever appears
@@ -346,6 +398,41 @@ class MatchRunner:
 
         self._collect_artifacts(logs_before, scratch, result)
         return result
+
+    def _dump_coverage(self, result: MatchResult, scratch: Path):
+        """Build the pre-kill hook that asks the robot what it just executed.
+
+        Returns a callable rather than doing the work, because `RobotSim` is
+        what knows when the JVM is about to die and this is what knows where to
+        put the answer.
+
+        Nothing in here raises. `try_dump` classifies its own failures into a
+        sentence, and the sentence is worth more than an exception would be:
+        "the agent was not attached" and "the JVM died before we asked" are
+        both ordinary, and both need to end up in the report rather than in a
+        traceback nobody reads.
+        """
+
+        def hook(_sim) -> None:
+            data, why = jacoco.try_dump(port=self.coverage_port)
+            if data is None:
+                result.coverage_note = why
+                return
+            try:
+                dump = jacoco.parse_exec(data)
+            except jacoco.ProtocolError as exc:
+                result.coverage_note = f"coverage dump could not be read: {exc}"
+                return
+            self.last_coverage = dump
+            result.coverage_classes = len(dump.class_names)
+            result.coverage_probes = dump.probes_hit
+            # Kept next to the match it came from, and kept only for failures,
+            # exactly like the WPILOG: the campaign's merged coverage.exec is
+            # the artifact worth having, and a per-match copy is only useful
+            # for the one run somebody is about to open.
+            (scratch / "coverage.exec").write_bytes(data)
+
+        return hook
 
     def _wpilogs(self) -> set[Path]:
         directory = self.repo / BRIDGE_LOG_DIR
@@ -668,6 +755,8 @@ class MatchRunner:
                 result.note += f" (could not keep {path.name}: {exc})"
 
         result.artifacts["console"] = str(scratch / "console.log")
+        if (scratch / "coverage.exec").is_file():
+            result.artifacts["coverage"] = str(scratch / "coverage.exec")
         (scratch / "findings.json").write_text(
             json.dumps(result.findings, indent=2), encoding="utf-8"
         )
@@ -686,6 +775,7 @@ class Campaign:
         max_hours: float | None = None,
         abort_after_consecutive_errors: int = 3,
         on_result=None,
+        coverage: CoverageOracle | None = None,
     ):
         self.runner = runner
         self.workdir = Path(workdir)
@@ -696,6 +786,18 @@ class Campaign:
         self.on_result = on_result
         self.results: list[MatchResult] = []
         self.stopped_early: str | None = None
+        #: Oracle 05, or None when coverage was not asked for. It lives here
+        #: rather than on the runner because neither thing it can say belongs
+        #: to a match: "no seed ever entered this class" is a fact about all of
+        #: them, and attributing it to the last one would be a lie with a seed
+        #: number attached.
+        #:
+        #: Handed in already built, rather than assembled here from the
+        #: runner's settings. The campaign has no business knowing how the
+        #: agent was configured, and a campaign that reached into its runner
+        #: for it would only work with the real one.
+        self.coverage = coverage
+        self.coverage_findings: list[Finding] = []
 
     @property
     def jsonl_path(self) -> Path:
@@ -717,6 +819,17 @@ class Campaign:
                     self.stopped_early = "interrupted"
                     break
 
+                if self.coverage is not None:
+                    dump = self.runner.last_coverage
+                    if dump is None:
+                        self.coverage.stand_down(
+                            result.coverage_note or "no coverage dump was produced"
+                        )
+                    else:
+                        # Before the JSONL line is written, so the recorded
+                        # gain is the one the report will quote.
+                        result.coverage_new_probes = self.coverage.observe(dump)
+
                 self.results.append(result)
                 sink.write(json.dumps(asdict(result)) + "\n")
                 sink.flush()  # the report must survive the machine going down
@@ -733,7 +846,27 @@ class Campaign:
                         f"something is wrong with the setup, not with the robot"
                     )
                     break
+        self._finish_coverage()
         return self.results
+
+    def _finish_coverage(self) -> None:
+        """Judge the campaign's coverage, and leave the merged exec behind.
+
+        The file is the point as much as the findings are: it is an ordinary
+        `.exec`, so a night's coverage opens in JaCoCo's own report tool
+        without this harness having to grow an HTML renderer, and it stays
+        readable if everything above it turns out to be wrong.
+        """
+        if self.coverage is None:
+            return
+        self.coverage_findings = self.coverage.findings()
+        if not self.coverage.matches_measured:
+            return
+        merged = self.workdir / "coverage.exec"
+        try:
+            merged.write_bytes(jacoco.encode_exec(self.coverage.totals.to_dump()))
+        except OSError as exc:
+            self.coverage.stand_down(f"could not write {merged}: {exc}")
 
 
 # ---------------------------------------------------------------------------
@@ -812,6 +945,32 @@ def render_report(campaign: Campaign, preflight: str = "") -> str:
         out("-" * 72)
         for reason, count in sorted(stood_down.items(), key=lambda kv: -kv[1]):
             out(f"  {count:4}/{len(results)} matches  {reason}")
+        out()
+
+    # Oracle 05. Its own section, because nothing here is attributable to a
+    # seed and putting it in FINDINGS BY KIND would invite exactly that.
+    oracle = campaign.coverage
+    if oracle is not None:
+        out("-" * 72)
+        out("  COVERAGE")
+        out("-" * 72)
+        out(f"  measured   : {oracle.matches_measured} of {len(results)} matches")
+        out(f"  reached    : {oracle.summary()}")
+        if oracle.matches_measured:
+            gained = [i for i, g in enumerate(oracle.gains) if g]
+            if gained:
+                out(f"  new code   : {len(gained)} match(es) reached something new, "
+                    f"the last of them #{gained[-1]}")
+            else:
+                out("  new code   : none -- no match reached anything a previous one had not")
+            out(f"  merged exec: {campaign.workdir / 'coverage.exec'}")
+        for reason in oracle.stood_down:
+            out(f"  NOT MEASURED  {reason}")
+        for finding in campaign.coverage_findings:
+            out()
+            out(f"  {finding.kind:22} {finding.message}")
+            for line in finding.detail.splitlines():
+                out(f"      {line}".rstrip())
         out()
 
     if failed or errored:

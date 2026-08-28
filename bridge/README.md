@@ -6,11 +6,12 @@ when the robot is on the mechanical team's cart and the field doesn't exist yet.
 
 Background and rationale: [The maple-sim Bridge](https://claude.ai/code/artifact/648dfe02-ea7d-4b2f-b0ee-44094eb28407).
 
-**Status: steps 1–4 and 6 of 7 done, and oracle 03 with them.** The loop closes,
+**Status: steps 1–4 and 6 of 7 done, with oracles 03 and 05.** The loop closes,
 the oracles fire, the harness runs unattended and leaves a morning report, the
 live REBUILT world is readable, sparky-sim's strategy layer drives the real
-robot code from it, and the other five robots on the field are driven the same
-way. What remains is oracle breadth: differential scoring and coverage.
+robot code from it, the other five robots on the field are driven the same way,
+and a campaign now reports which of the robot's own code it never entered. The
+one oracle left is 04, differential scoring, and it is deliberately last.
 
 ## Run it
 
@@ -41,8 +42,17 @@ is the contested campaign: six robots, all of them deciding, for as many
 matches as you leave it running. Without those flags it runs the solo field it
 always ran, unchanged.
 
-`pytest test/test_bridge_oracles.py test/test_bridge_invariants.py` covers
-oracles 01 and 03's rules with no JVM involved, so they run in CI.
+```
+python apps/run_bridge_overnight.py --matches 200 --coverage
+```
+
+turns on oracle 05: the campaign attaches a JaCoCo agent to each match and
+reports which robot classes it never entered. Off by default, for a reason
+given below.
+
+`pytest test/test_bridge_oracles.py test/test_bridge_invariants.py
+test/test_bridge_coverage.py` covers oracles 01, 03 and 05's rules with no JVM
+involved, so they run in CI.
 
 No JAVA_HOME needed — `sim_process.find_java_home` locates the WPILib JDK.
 
@@ -198,20 +208,93 @@ hours checking less than the report claims. The one deliberate omission is
 odometry-versus-truth divergence, which would read zero forever here for the
 reason in *Two things found on the way*.
 
+**05 — coverage** (`CoverageOracle`). Attaches a JaCoCo agent to each match
+and asks, at the end of the campaign, which of the robot's own classes no match
+ever entered — and whether the campaign has stopped reaching anything new.
+
+| kind | severity | fires when |
+|---|---|---|
+| `code-never-run` | warning | a compiled class no match in the campaign entered |
+| `coverage-plateau` | warning | the last 10 matches reached no probe an earlier match had not |
+| `coverage-build-mismatch` | warning | code ran that is not in the build output, or the dump named almost nothing |
+
+**It judges the campaign, not a match**, which makes it a different shape from
+01–03 and is why it is owned by `Campaign` rather than `MatchRunner` and gets
+its own section of the report. "No seed ever entered `ClimbCommand`" is a fact
+about all 200 matches at once; attributing it to the last one would be a lie
+with a seed number attached. It is also the only oracle here that can tell you
+a night was wasted while every single match passed, which a fuzzing harness is
+otherwise structurally unable to notice.
+
+**Why it is not a `jacoco {}` block, and never can be.** That plugin writes its
+exec data from a JVM **shutdown hook**, and every match ends with
+`taskkill /F /T`, which runs no hooks. The hard kill is not carelessness:
+`--no-daemon` exists so the robot JVM is a descendant a tree-kill actually
+ends, and a polite shutdown that misses leaves port 3300 held and breaks every
+match after it. Making the teardown gentle to please JaCoCo would trade a
+working harness for a coverage number. So the agent runs as a `tcpserver` and
+`bridge/jacoco.py` asks it for a dump over TCP through `RobotSim.pre_kill`,
+while the JVM is still alive. Nothing about the teardown changed.
+
+The handshake reads backwards from what the class names suggest, and getting it
+wrong looks exactly like a dead agent. JaCoCo's `TcpConnection` builds its
+writer first, so the agent's header *is* produced on accept — into a
+`BufferedOutputStream` that nothing flushes until a command has been answered.
+A client that connects and waits to be greeted waits forever against a
+perfectly healthy JVM. The client speaks first.
+
+**Off by default**, and this is the one place in the bridge where an oracle can
+manufacture another oracle's findings. Instrumentation is not free, the same
+campaign reports loop overruns through oracle 01, and an agent that slowed the
+loop enough to cause one would have the fuzzer reporting its own instrument.
+Asking for it is a decision, so it is made out loud on the command line.
+
+**One filter, not two.** The pattern deciding what the agent instruments and
+the pattern deciding what counts as "never run" have to be the same string, or
+the difference between the sets is partly two settings drifting apart. So
+sparky-sim owns it (`jacoco.DEFAULT_INCLUDES`) and passes it to Gradle as
+`-PbridgeCoverageIncludes`, rather than the robot project keeping its own copy.
+
+**What a dump does not contain: classes that never ran.** JaCoCo writes a class
+only if at least one of its probes fired, so "what exists" has to come from
+somewhere else — `build/classes/java/main`. If the robot project was never
+built that set is empty, every class looks covered, and the report would call a
+blind night a perfect one; the oracle stands the check down loudly instead, and
+the overnight preflight refuses to start.
+
+**Two ordinary things land on the never-run list**, and a report that does not
+say so sends somebody to debug code that is running fine.
+
+The first is structural. JaCoCo places a probe at the *end* of a basic block —
+for a straight-line method, just before it returns — so **a method that has not
+returned records nothing**. `frc.robot.Main` therefore appears on every
+never-run list this will ever produce: `main` calls `RobotBase.startRobot`,
+which blocks for the whole match. That was verified rather than reasoned about:
+a class whose only method was parked in `Thread.sleep` at dump time reported
+zero hits, while a sibling class that had returned reported one.
+
+The second is honest. `ModuleIOSparkFlex`, `GyroIOPigeon2`,
+`VisionIOPhotonVision` genuinely never run on a simulated robot and never
+should. Those entries are true, not false, and the lever for them is
+`--coverage-excludes`, which reaches the agent as well as this oracle so that
+the two sets stay defined by one string.
+
 ### An oracle that has never fired is not known to work
 
-`run_bridge_oracles.py` runs three phases and requires all of them to come out
+`run_bridge_oracles.py` runs four phases and requires all of them to come out
 right: an **exercise** phase of ordinary operation that must be clean, a
 **provoke** phase that pins the robot against the field wall while still
-commanding it forward, which must produce `frozen-robot`, and an **inject**
-phase that pushes a deliberate violation of each of oracle 03's six invariants
+commanding it forward, which must produce `frozen-robot`, an **inject** phase
+that pushes a deliberate violation of each of oracle 03's six invariants
 through detectors built with the thresholds this run is actually using, all six
-of which must fire. Without the last two, "0 findings" from a broken detector is
+of which must fire, and — with `--coverage` — a **measure** phase that asks the
+live JaCoCo agent what the robot has executed and requires a real answer.
+Without the last three, "0 findings" from a broken detector is
 indistinguishable from "0 findings" from a clean run, and the first silent
 regression turns every subsequent night into a rubber stamp.
 
-**PROVOKE and INJECT are not equally strong**, and it is worth saying which is
-which rather than counting them together. A wall pin is a real robot genuinely
+**PROVOKE, INJECT and MEASURE are not equally strong**, and it is worth saying
+which is which rather than counting them together. A wall pin is a real robot genuinely
 wedged and genuinely commanded forward — the exact signature the detector is
 for, in a situation a real match produces constantly. INJECT is synthetic
 snapshots pushed through the detectors by hand, because making real robot code
@@ -227,6 +310,16 @@ What INJECT buys over those tests, which prove the same six detectors in CI, is
 narrow and real: it runs the **shipped** thresholds and the drive limits
 measured minutes earlier on this machine. A threshold edited to something
 unreachable passes the unit tests, which supply their own, and fails here.
+
+MEASURE is back at PROVOKE's strength, and unusually there was never a weaker
+option to choose from: asking a living JVM what it has executed is *exactly*
+what the campaign does every match, so there is nothing to synthesise. The
+overnight preflight does the same thing through the same `pre_kill` hook the
+campaign uses, and **refuses the night** if the answer does not come back.
+That refusal is the point. A campaign asked for coverage that cannot collect it
+does not quietly become a campaign without coverage — it becomes one whose
+COVERAGE section reports that the robot executed nothing, which is the loudest
+available way of being wrong.
 
 The report also tracks whether each phase *ran*, and how many samples each
 monitor took. "No findings", "never ran", and "ran but never sampled" are the
@@ -276,6 +369,72 @@ No finding from a real robot yet, on either field. That is the expected result
 and not a disappointment: five of these six are things well-written robot code
 simply does not do, and the value of writing them now is that the campaign that
 finds one is a campaign that already knew what to call it.
+
+### What oracle 05 found on its first night
+
+Three matches, strategy driver, solo field:
+
+```
+------------------------------------------------------------------------
+  COVERAGE
+------------------------------------------------------------------------
+  measured   : 3 of 3 matches
+  reached    : 1235/2108 probes in 62 class(es), 62/108 of the classes that exist
+  new code   : 1 match(es) reached something new, the last of them #0
+  merged exec: build/bridge/runs/cov-test/coverage.exec
+
+  code-never-run         46 of 108 classes were never entered by any match
+```
+
+**The interesting line is `new code`.** Match 0 reached 1235 probes; matches 1
+and 2 reached 1233 each and **zero** that match 0 had not. Three different
+seeds of the strategy driver executed the same code as each other. That is not
+a bug and it is not obvious from anything else the harness reports — all three
+matches passed, took 55 s, and produced identical-looking lines — but it means
+a 200-match strategy campaign would spend most of a night re-executing what its
+first match already covered.
+
+It is exactly the thing this oracle exists to say, and it said it on the first
+run. The 10-match plateau threshold correctly declined to *fire* on three
+matches: three is not evidence about a night. The raw numbers were enough.
+
+The scripted driver was the natural comparison, and it turned out to be the
+same story with a smaller number attached. Same three matches, same 40 s:
+
+| driver | probes reached | classes | new in match 1 | new in match 2 |
+|---|---|---|---|---|
+| strategy | 1235 | 62 | 0 | 0 |
+| scripted | 1127 | 61 | 2 | 0 |
+
+So the strategy driver reaches about 10% more of the robot's code and one class
+more — which is what *Two drivers, and neither subsumes the other* predicted,
+and the first time it has been measured rather than argued. And **both drivers
+saturate within two matches.** A 200-match night of either one re-executes what
+its first two matches already covered.
+
+That is a statement about the scenario generator, not about the robot, and it
+is the most useful thing this bridge has learned about itself. It does not mean
+the extra matches are worthless — physics diverges, and a hang or a NaN is a
+timing accident that the same code path can produce on the hundredth try and
+not the first, which is most of what oracles 01–03 are watching for. It does
+mean that nothing in a long night is exploring *new code*, and that buying more
+coverage needs a different scenario, not a bigger `--matches`.
+
+**On the 46 never-run classes**: roughly two thirds are hardware IO
+implementations (`ModuleIOSparkFlex`, `GyroIOPigeon2`, `VisionIOPhotonVision`)
+that cannot run on a simulated robot, plus `frc.robot.Main` for the
+probe-placement reason above. The remainder — `DriveToPose`, `RotateToAngle`,
+`CenterOnTag`, `DriveDistance2` — are real commands that no campaign has ever
+entered, which is the actionable half and the reason to run this at all.
+
+**The instrumentation cost, measured rather than assumed.** An identical
+`run_bridge_oracles.py` self-test with and without the agent reported **1 loop
+overrun either way**, the same 27 muffled console lines, and the same clean
+EXERCISE phase; per-match boot stayed at ~11 s. So the fear that motivated
+making this opt-in did not materialise on this robot. It stays opt-in anyway:
+that is one machine and one robot, and the failure it guards against — a
+fuzzing campaign reporting its own instrument as a robot fault — is bad enough
+to be worth a flag rather than a footnote.
 
 ## The overnight harness
 
@@ -337,13 +496,22 @@ is checked explicitly because `robot-pinned` is also what the classifier returns
 when the signal is *missing* — so the kind alone cannot distinguish a working
 classifier from a blind one, and a blind one silently retires the `frozen-robot`
 error path for the whole night. It then injects a violation of each of oracle
-03's invariants, all of which must fire. The preflight line records what it
-saw:
+03's invariants, all of which must fire, and — with `--coverage` — dumps the
+live JaCoCo agent, which must come back naming a plausible number of classes.
+The preflight line records what it saw:
 
 ```
-preflight  : ok -- wall pin detected as robot-pinned at t=4.3s, 58 A while pinned;
-             oracle 03 fired on 6/6 injected invariants; drive measured at 4.45 m/s
+preflight  : ok -- wall pin detected as robot-pinned at t=4.1s, 58 A while pinned;
+             oracle 03 fired on 6/6 injected invariants; drive measured at 4.45 m/s;
+             oracle 05 dumped 1011 probes in 61 of 108 classes
 ```
+
+The coverage check has three ways to fail and they get three different
+sentences, because they have three different fixes: the agent never attached,
+the agent answered with almost nothing (which makes every later never-run claim
+an artefact), or the robot project was never built — the quiet one, where the
+expected set is empty, nothing can be called never-run, and a blind night reads
+as a perfect one.
 
 The drive measurement is the last thing the preflight does, and it is handed to
 the campaign rather than thrown away. It has to be last for the same reason the
@@ -1310,26 +1478,27 @@ deterministic stepping.
 
 ## Next
 
-Steps 1–4 and 6 are done, and oracle 03 with them: the strategy layer reads the
-live field, drives the robot, and drives the other five as well, and the run is
-judged by three oracles rather than two.
+Steps 1–4 and 6 are done, with oracles 03 and 05: the strategy layer reads the
+live field, drives the robot, and drives the other five as well; the run is
+judged by four oracles rather than two; and the campaign can now say what code
+it never reached.
 
 **Judge the rest by whether it survives the 2027 reveal.** This bridge is
 machinery for driving *whatever* robot code exists against *whatever* game
 arrives; REBUILT is the thing it was proved against, and REBUILT-specific polish
 is spent effort.
 
-* **Oracle 05 — coverage.** Which robot code the campaign never entered is the
-  single most actionable thing a fuzzing run can tell you, and it is entirely
-  game-agnostic. There is one specific obstacle, found by looking rather than
-  by trying: JaCoCo writes its execution data from a JVM **shutdown hook**, and
-  `sim_process` ends the robot with `taskkill /F /T`, which runs no hooks. The
-  hard kill is load-bearing — see `--no-daemon` below — so this needs the
-  agent in `output=tcpserver` mode and a dump requested over TCP before the
-  kill, not a `jacoco {}` block. Budget a session for the build change, the
-  dump client, and merging exec files across matches.
-* **Oracle 04 — differential scoring**, still last, and the reasons have got
-  slightly stronger rather than weaker. It sits on a shot whose range band is
+* **A scenario generator that reaches new code**, which is the item oracle 05
+  created by existing. Both drivers saturate within two matches: the seed
+  changes what happens, not which code runs. Candidates, cheapest first — seed
+  the *starting pose* rather than only the button script; vary the alliance and
+  station; randomise the extras' aggression rather than fixing `--defenders`;
+  and drive the auto period from a random one of several routines instead of
+  the same one. Each is measurable now in a way it was not last week: run three
+  matches with `--coverage` and read `new code`. That is the whole point of
+  having built the oracle, and it should come before any more oracle breadth.
+* **Oracle 04 — differential scoring**, still last, and now the only oracle
+  outstanding. The reasons have got slightly stronger rather than weaker. It sits on a shot whose range band is
   deliberately approximate, the extras deliberately do not score, and the
   alliance score it would read is therefore a solo-field claim. Worth doing
   when there is a game whose scoring sparky-sim models exactly; REBUILT is not
