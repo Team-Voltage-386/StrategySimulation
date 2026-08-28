@@ -2379,10 +2379,21 @@ class Defend(Tactic):
     "any" is the default because following the mark is the answer that
     needs to know nothing about the game. Measured 2v2 against a
     full-time defender, blue's points (which include fouls won) and red's
-    protection fouls per match, against 234.5 undefended:
+    protection fouls per match, against 253.1 undefended:
 
-        block   scoring 234.8 / 15.5   supply 209.5 / 0.8   any 217.9 / 11.9
-        shadow  scoring 191.5 /  8.1   supply 232.0 / 9.9   any 186.9 /  7.6
+        block   scoring 209.4 / 10.8   supply 194.6 / 0.8   any 204.6 / 9.6
+        shadow  scoring 155.0 /  0.1   supply 192.0 / 2.8   any 160.9 / 0.0
+
+    Shadow used to be the weaker mode here -- these numbers postdate
+    `Defend._target_velocity`, the shadow-mode feedforward fix for the
+    same false-equilibrium chase `NavigateTo.target_velocity_provider`
+    was built for (see its docstring): before that fix, a defender only a
+    little faster than its mark never closed the standoff gap, so shadow
+    denied markedly less than it does now and block was the safer default
+    for "any". Fixed, shadow denies *more* than block across all three
+    `deny` settings while drawing a fraction of the fouls -- because it
+    only ever stands next to the mark, not in a scoring zone it may not
+    touch.
 
     `deny` and `mode` are not independent, which is why this is a
     per-tactic param rather than a defender-wide switch. Block denies
@@ -2429,7 +2440,8 @@ class Defend(Tactic):
         self._mark_elapsed = 0.0
         self._repick = _Throttle(replan_period)
         self._nav = NavigateTo(
-            self._provide_target, heading_mode="face_target", replan_period=replan_period, avoid_robots=False
+            self._provide_target, heading_mode="face_target", replan_period=replan_period, avoid_robots=False,
+            target_velocity_provider=self._target_velocity,
         )
 
     def reset(self) -> None:
@@ -2543,6 +2555,22 @@ class Defend(Tactic):
         if opponent is not self.marked_robot:
             self._mark_elapsed = 0.0
             self.marked_robot = opponent
+
+    def _target_velocity(self, ctx: BehaviorContext) -> tuple[float, float]:
+        """Field-frame velocity of the marked opponent, for `NavigateTo`'s
+        closing-speed feedforward -- see its docstring for why a receding
+        target needs this. In `shadow` mode the block point is pinned to
+        the mark's own position (offset toward the region it's denying),
+        so it recedes at the mark's speed exactly the way a rolling piece
+        does for `Collect`; without this a defender only a little faster
+        than its mark never closes the standoff gap. `block` mode's point
+        is anchored near the region instead, not the mark, so crediting
+        the mark's velocity there would be crediting motion the target
+        isn't actually making -- feedforward is shadow-only."""
+        if self.mode != "shadow" or self.marked_robot is None:
+            return (0.0, 0.0)
+        vx, vy = self.marked_robot.chassis.body.velocity
+        return (vx, vy)
 
     def _provide_target(self, ctx: BehaviorContext) -> Pose2d:
         robot = ctx.robot
