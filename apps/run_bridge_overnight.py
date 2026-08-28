@@ -270,6 +270,14 @@ def main(argv: list[str] | None = None) -> int:
                         help="strategy driver: robots on our own alliance (0-2)")
     parser.add_argument("--defenders", type=int, default=1,
                         help="how many opponents play defence rather than cycling")
+    parser.add_argument("--vary-scenario", action="store_true",
+                        help="oracle 05 found that every match starts blue, station 1, "
+                             "with the auto chooser defaulting to an unregistered option -- "
+                             "so none of the five PathPlanner autos this robot owns ever ran. "
+                             "This seeds a per-match alliance/station and picks one of the "
+                             "chooser's own options instead. Off by default -- a night of "
+                             "varied starts is a different experiment from one without, worth "
+                             "comparing rather than silently swapping")
     parser.add_argument("--gui", action="store_true",
                         help="keep the Sim GUI up; for watching one seed, useless overnight")
     parser.add_argument("--coverage", action="store_true",
@@ -380,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         coverage_port=args.coverage_port,
         coverage_includes=args.coverage_includes,
         coverage_excludes=args.coverage_excludes,
+        vary_scenario=args.vary_scenario,
     )
 
     # The count means different things per driver -- discrete button
@@ -391,8 +400,9 @@ def main(argv: list[str] | None = None) -> int:
     def announce(result: hz.MatchResult) -> None:
         mark = {hz.PASS: "  ok  ", hz.FAIL: " FAIL ", hz.HARNESS_ERROR: "ERROR "}[result.status]
         kinds = ", ".join(sorted(result.kinds)) or "-"
+        scenario = f"  [{result.scenario}]" if result.scenario else ""
         _log(f"   [{mark}] match {result.index:04d} seed {result.seed:<6} "
-             f"{result.wall_seconds:5.0f}s wall  {result.actions:5d} {unit}  {kinds}")
+             f"{result.wall_seconds:5.0f}s wall  {result.actions:5d} {unit}  {kinds}{scenario}")
 
     campaign = hz.Campaign(
         runner=runner,

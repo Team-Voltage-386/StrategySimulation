@@ -30,6 +30,7 @@ everything, because that is the run somebody is about to debug.
 from __future__ import annotations
 
 import json
+import random
 import shutil
 import time
 import traceback
@@ -69,7 +70,13 @@ STRATEGY = "strategy"
 DRIVERS = (SCRIPTED, STRATEGY)
 
 try:
-    from bridge.robot_state import BRIDGE_ROBOT_POSES, POSE_TRUTH, RobotStateLink
+    from bridge.robot_state import (
+        AUTO_CHOOSER_OPTIONS,
+        AUTO_CHOOSER_SELECTED,
+        BRIDGE_ROBOT_POSES,
+        POSE_TRUTH,
+        RobotStateLink,
+    )
 except ImportError as exc:  # pragma: no cover - depends on the install
     # `render_report` and `Campaign` are the product of this module and neither
     # needs NetworkTables. The report especially: it is the thing somebody
@@ -78,6 +85,8 @@ except ImportError as exc:  # pragma: no cover - depends on the install
     # without standing up a JVM, or it stays untested until it matters.
     POSE_TRUTH = "/AdvantageKit/RealOutputs/FieldSimulation/RobotPosition"
     BRIDGE_ROBOT_POSES = "/AdvantageKit/RealOutputs/FieldSimulation/BridgeRobots"
+    AUTO_CHOOSER_OPTIONS = "/SmartDashboard/Auto Choices/options"
+    AUTO_CHOOSER_SELECTED = "/SmartDashboard/Auto Choices/selected"
     RobotStateLink = None  # type: ignore[assignment]
     _ROBOT_STATE_ERROR = exc
 else:
@@ -128,6 +137,10 @@ class MatchResult:
     #: Why there is no coverage for this match, if there is none. Empty when
     #: coverage was not asked for at all -- an unasked question is not a gap.
     coverage_note: str = ""
+    #: Alliance/station and (if the chooser offered one) the auto routine this
+    #: match ran, when `vary_scenario` is on. Empty when it is off -- see
+    #: `MatchRunner.last_scenario`.
+    scenario: str = ""
 
     @property
     def kinds(self) -> set[str]:
@@ -225,6 +238,7 @@ class MatchRunner:
         coverage_port: int = jacoco.DEFAULT_PORT,
         coverage_includes: str = jacoco.DEFAULT_INCLUDES,
         coverage_excludes: str = "",
+        vary_scenario: bool = False,
     ):
         self.repo = Path(repo)
         self.workdir = Path(workdir)
@@ -283,6 +297,20 @@ class MatchRunner:
         #: than on the result because a MatchResult is written to JSONL and
         #: this is a few thousand probes.
         self.last_coverage: jacoco.Dump | None = None
+        #: Oracle 05's own finding: both drivers saturate coverage within two
+        #: matches, because every match starts blue, station 1, and the auto
+        #: chooser defaulted to "Nothing" -- an option that isn't even wired
+        #: to a registered routine, so none of the five PathPlanner autos this
+        #: robot owns ever ran. This is what varies that. Off by default, for
+        #: the same reason `opponents` and `coverage` are: an existing
+        #: campaign runs exactly the matches it ran before this existed, and
+        #: a night of varied starts is a different experiment worth comparing
+        #: against a night without, not a silent replacement for one.
+        self.vary_scenario = vary_scenario
+        #: What `_pick_conditions` chose for the match currently running, for
+        #: `run()` to copy onto the result. Empty string when `vary_scenario`
+        #: is off, same as `coverage_note` -- an unasked question is not a gap.
+        self.last_scenario = ""
 
     def run(self, index: int, seed: int) -> MatchResult:
         if RobotStateLink is None:  # pragma: no cover - depends on the install
@@ -312,6 +340,7 @@ class MatchRunner:
             )
 
         self.last_coverage = None
+        self.last_scenario = ""
         sim = RobotSim(
             self.repo,
             console_path,
@@ -354,6 +383,7 @@ class MatchRunner:
                 )
                 with monitor, self._invariants:
                     result.actions = self._play(link, state, seed)
+                result.scenario = self.last_scenario
                 findings.extend(monitor.findings)
                 findings.extend(self._invariants.findings)
                 # What oracle 03 could not check, recorded per match rather
@@ -490,13 +520,17 @@ class MatchRunner:
             link.disable()
             time.sleep(0.3)
 
-        reader = ws.WorldStateReader(state, alliance="blue")
-        robot = mv.MapleRobot(link, self.limits, alliance="blue")
+        station, auto = self._pick_conditions(seed, state)
+        alliance = station[:-1]
+        self.last_scenario = f"{station}, auto={auto}" if auto else station
+
+        reader = ws.WorldStateReader(state, alliance=alliance)
+        robot = mv.MapleRobot(link, self.limits, alliance=alliance)
         view = mv.MapleMatchView(robot, reader)
         controller = StrategyController(self.strategy(seed), robot)
         robot.controller = controller
 
-        cast = self._deploy_cast(state, view)
+        cast = self._deploy_cast(state, view, alliance)
 
         # Warm every subscription before the match clock starts. A first
         # tick creates a dozen of them, each of which blocks until it
@@ -510,7 +544,7 @@ class MatchRunner:
             cast.link.speeds()
             cast.link.held()
 
-        link.autonomous_enable(station="blue1")
+        link.autonomous_enable(station=station)
         link.set_match_time(self.match_seconds)
         started = time.monotonic()
         ticks = self._tick_until(
@@ -569,7 +603,40 @@ class MatchRunner:
                 "the navigator did not plan for."
             )
 
-    def _deploy_cast(self, state, view):
+    def _pick_conditions(self, seed: int, state: RobotStateLink) -> tuple[str, str]:
+        """Alliance/station and auto routine for one match.
+
+        `("blue1", "")` when `vary_scenario` is off -- every match before
+        this option existed started there, and an empty auto name means
+        "leave the chooser alone" rather than "select nothing".
+
+        The auto name comes from the chooser's own published `options`
+        (AUTO_CHOOSER_OPTIONS) instead of a hand-kept copy of the five
+        names in RobotContainer.initializeAutos: SendableChooser publishes
+        that list precisely so a caller does not have to guess it, and a
+        second list here could only ever drift from the first one. Empty
+        options -- a robot build that has not registered any yet, or one
+        old enough to predate the chooser -- leaves the chooser untouched
+        rather than writing a name it would refuse.
+        """
+        if not self.vary_scenario:
+            return "blue1", ""
+        rng = random.Random(seed)
+        station = f"{rng.choice(('blue', 'red'))}{rng.choice((1, 2, 3))}"
+        options = state.string_array(AUTO_CHOOSER_OPTIONS)
+        auto = rng.choice(options) if options else ""
+        if auto:
+            state.publish_string(AUTO_CHOOSER_SELECTED, auto)
+            state.flush()
+            # The chooser is read by RobotContainer once, when autonomousInit
+            # asks for the command -- driven by AdvantageKit's own periodic
+            # hook on the JVM's own clock, not by anything Python controls.
+            # A beat here is what keeps the publish from racing the mode
+            # switch that follows.
+            time.sleep(0.1)
+        return station, auto
+
+    def _deploy_cast(self, state, view, alliance: str = "blue"):
         """Put the other robots on the field, or return None for a solo match.
 
         Imported here for the same reason the strategy stack is: the
@@ -587,7 +654,7 @@ class MatchRunner:
         from bridge import opponents as opp
 
         roster = opp.default_roster(
-            opponents=self.opponents, partners=self.partners, defenders=self.defenders
+            ours=alliance, opponents=self.opponents, partners=self.partners, defenders=self.defenders
         )
         cast = opp.OpponentCast(opp.OpponentLink(state), roster, self.limits)
         cast.deploy(timeout=30.0)
@@ -632,11 +699,14 @@ class MatchRunner:
         gen = scenario.ScenarioGenerator(seed)
         link.neutral()
 
+        station, auto = self._pick_conditions(seed, state)
+        self.last_scenario = f"{station}, auto={auto}" if auto else station
+
         # Autonomous first, then a transition into teleop *while something is
         # running*. "A phase transition landing mid-sequence" is one of the
         # brief's named categories and it costs nothing to reach: teleopInit
         # cancels the auto command, stops motors, and schedules three more.
-        link.autonomous_enable(station="blue1")
+        link.autonomous_enable(station=station)
         link.set_match_time(self.match_seconds)
         deadline = time.monotonic() + self.auto_seconds
         count = self._play_until(link, state, gen, deadline)
@@ -980,6 +1050,7 @@ def render_report(campaign: Campaign, preflight: str = "") -> str:
         for result in (failed + errored)[:20]:
             label = "FAIL " if result.status == FAIL else "ERROR"
             out(f"  {label} match {result.index:04d}  seed {result.seed}"
+                + (f"  [{result.scenario}]" if result.scenario else "")
                 + (f"  -- {result.note}" if result.note else ""))
             for finding in result.findings:
                 if finding["severity"] == ERROR:
@@ -987,7 +1058,8 @@ def render_report(campaign: Campaign, preflight: str = "") -> str:
             for name, path in result.artifacts.items():
                 out(f"        {name:24} {path}")
             out(f"        reproduce            "
-                f"python apps/run_bridge_overnight.py --matches 1 --first-seed {result.seed}")
+                f"python apps/run_bridge_overnight.py --matches 1 --first-seed {result.seed}"
+                + (" --vary-scenario" if result.scenario else ""))
             out()
     else:
         out("  No failures. Every match ran to completion with no error-level finding.")

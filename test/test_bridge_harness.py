@@ -547,6 +547,122 @@ def test_the_offline_topic_fallbacks_match_the_real_ones():
     rs = pytest.importorskip("bridge.robot_state")
     assert hz.POSE_TRUTH == rs.POSE_TRUTH
     assert hz.BRIDGE_ROBOT_POSES == rs.BRIDGE_ROBOT_POSES
+    assert hz.AUTO_CHOOSER_OPTIONS == rs.AUTO_CHOOSER_OPTIONS
+    assert hz.AUTO_CHOOSER_SELECTED == rs.AUTO_CHOOSER_SELECTED
+
+
+# -- varying the scenario ------------------------------------------------
+
+
+class _FakeChooserState:
+    """Stands in for RobotStateLink, for the one topic `_pick_conditions` touches."""
+
+    def __init__(self, options=()):
+        self.options = list(options)
+        self.published: dict[str, str] = {}
+        self.flushed = False
+
+    def string_array(self, name):
+        assert name == hz.AUTO_CHOOSER_OPTIONS
+        return self.options
+
+    def publish_string(self, name, value):
+        assert name == hz.AUTO_CHOOSER_SELECTED
+        self.published[name] = value
+
+    def flush(self):
+        self.flushed = True
+
+
+def test_scenario_is_fixed_unless_asked_to_vary(tmp_path):
+    """Every match before this option existed started blue, station 1, with
+    the chooser untouched. `vary_scenario` defaults off so that campaign
+    keeps running exactly the matches it ran before."""
+    runner = MatchRunner(tmp_path / "robot", tmp_path / "runs", driver=hz.STRATEGY)
+    assert runner.vary_scenario is False
+    state = _FakeChooserState(options=["jiggle", "LeftTwoCollect"])
+    station, auto = runner._pick_conditions(seed=1, state=state)
+    assert (station, auto) == ("blue1", "")
+    assert state.published == {}, "the chooser must be left alone when this is off"
+
+
+def test_varying_picks_a_real_auto_off_the_live_chooser(tmp_path, monkeypatch):
+    """Off the chooser's own published options, not a hand-kept copy of
+    RobotContainer.initializeAutos's five names -- a second list here could
+    only ever drift from the first one."""
+    monkeypatch.setattr(hz.time, "sleep", lambda _: None)
+    runner = MatchRunner(
+        tmp_path / "robot", tmp_path / "runs", driver=hz.STRATEGY, vary_scenario=True
+    )
+    state = _FakeChooserState(options=["jiggle", "LeftTwoCollect"])
+    station, auto = runner._pick_conditions(seed=1, state=state)
+    assert station[:-1] in ("blue", "red")
+    assert station[-1] in "123"
+    assert auto in state.options
+    assert state.published[hz.AUTO_CHOOSER_SELECTED] == auto
+    assert state.flushed
+
+
+def test_varying_is_seeded_and_reproducible(tmp_path, monkeypatch):
+    monkeypatch.setattr(hz.time, "sleep", lambda _: None)
+    runner = MatchRunner(
+        tmp_path / "robot", tmp_path / "runs", driver=hz.STRATEGY, vary_scenario=True
+    )
+    options = ["jiggle", "SimpleLeftDepot", "BackUpAndShoot"]
+    first = runner._pick_conditions(seed=42, state=_FakeChooserState(options=options))
+    second = runner._pick_conditions(seed=42, state=_FakeChooserState(options=options))
+    assert first == second
+
+
+def test_an_empty_chooser_is_left_alone(tmp_path, monkeypatch):
+    """A robot build that has not registered any autos yet -- or one old
+    enough to predate the chooser -- must not have a name written to it
+    that it would only refuse."""
+    monkeypatch.setattr(hz.time, "sleep", lambda _: None)
+    runner = MatchRunner(
+        tmp_path / "robot", tmp_path / "runs", driver=hz.STRATEGY, vary_scenario=True
+    )
+    state = _FakeChooserState(options=[])
+    station, auto = runner._pick_conditions(seed=1, state=state)
+    assert auto == ""
+    assert state.published == {}
+
+
+def test_deploy_cast_threads_the_varied_alliance(tmp_path):
+    """A roster built for the wrong alliance faces the wrong wall -- see
+    `opponents.default_roster`'s `ours` parameter, which this must reach."""
+    runner = MatchRunner(
+        tmp_path / "robot", tmp_path / "runs", driver=hz.STRATEGY,
+        opponents=1, partners=0,
+    )
+    class _FakeCast:
+        def __init__(self, link, roster, limits):
+            self.roster = roster
+
+        def deploy(self, timeout):
+            pass
+
+        def attach(self, view, controller_cls):
+            pass
+
+    seen = {}
+    import bridge.opponents
+
+    original_cast = bridge.opponents.OpponentCast
+    original_roster = bridge.opponents.default_roster
+
+    def fake_default_roster(*, ours, **kw):
+        seen["ours"] = ours
+        return original_roster(ours=ours, **kw)
+
+    bridge.opponents.OpponentCast = _FakeCast
+    bridge.opponents.default_roster = fake_default_roster
+    try:
+        runner._deploy_cast(state=None, view=None, alliance="red")
+    finally:
+        bridge.opponents.OpponentCast = original_cast
+        bridge.opponents.default_roster = original_roster
+    assert seen["ours"] == "red"
 
 
 def _one_match_campaign(tmp_path, **result_fields):

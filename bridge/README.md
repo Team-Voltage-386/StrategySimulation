@@ -597,6 +597,51 @@ contact never reaches it; what survives is the finding worth having.
 **Measured effect of the two changes together: 1/3 → 1/8 → 0/8 matches failing.**
 The remaining pins are reported as warnings and counted, which is what they are.
 
+### `--vary-scenario`, because both drivers saturate coverage in two matches
+
+Oracle 05 answered the question it exists to answer: a night of matches was not
+reaching new code, and the reason was not tuning. Every match started blue,
+station 1, and `getAutonomousCommand()` looked up whatever the chooser had
+selected -- which was **"Nothing"**, `LoggedDashboardChooser`'s own default,
+added before `initializeAutos()` ever registers a real routine. `"Nothing"`
+is not in the `autos` map, so `getAutonomousCommand()` printed an error and
+returned `Commands.none()`. All five PathPlanner autos this robot owns --
+`jiggle`, `SimpleLeftDepot`, `BackUpAndShoot`, `RightTwoCollect`,
+`LeftTwoCollect` -- were structurally unreachable by any bridge match ever run,
+regardless of driver or seed.
+
+`--vary-scenario` fixes that and the two other cheap candidates from the same
+list at once, because all three turn out to be one mechanism:
+
+* **Alliance and station** were already fully built for -- `arena.py`'s
+  mirroring tables, `WorldStateReader`, `MapleRobot` and
+  `opponents.default_roster` all take an `alliance`/`ours` argument and are
+  tested against `"red"` throughout `common_sim`. `harness.py` was simply the
+  one place still passing a literal `"blue1"`.
+* **Starting pose** is not an independent knob. `RobotContainer.setPoseFromPathStart`
+  derives it from the selected auto's initial path, flipped for red -- so
+  varying the auto and the alliance *is* varying the pose. A fourth mechanism
+  for it would have moved nothing a real driver station could not already move.
+* **The auto routine** is chosen the way a dashboard chooses it: `SendableChooser`
+  publishes `options` (readable) and `selected` (write-only, no getter) under
+  `/SmartDashboard/Auto Choices`. `MatchRunner._pick_conditions` reads `options`
+  and writes one back -- off the chooser's own list, not a hand-kept copy of
+  `initializeAutos`'s five names, which could only ever drift from it.
+
+Seeded, so a reported match reproduces (the report's `reproduce` line adds
+`--vary-scenario` automatically when a match used one). Off by default, same
+reasoning as `--opponents` and `--coverage`: an existing campaign keeps running
+exactly the matches it ran before this existed, and a night of varied starts is
+worth comparing against one without, not silently swapping in for it.
+
+**First measurement**, three 30 s matches, `--driver strategy --vary-scenario
+--coverage`: `red3/LeftTwoCollect`, `red2/SimpleLeftDepot`, `red1/LeftTwoCollect`.
+Coverage kept growing through all three matches (`new code: 3 match(es)`,
+against a flat `0, 0` the same measurement showed before this existed), and the
+never-run list no longer names any auto-routine command class. Three matches is
+not a verdict -- it is the loop oracle 05 was built to make possible, running
+for the first time.
+
 ## Reading the world — and why REBUILT is not implemented here
 
 ```
@@ -1488,15 +1533,17 @@ machinery for driving *whatever* robot code exists against *whatever* game
 arrives; REBUILT is the thing it was proved against, and REBUILT-specific polish
 is spent effort.
 
-* **A scenario generator that reaches new code**, which is the item oracle 05
-  created by existing. Both drivers saturate within two matches: the seed
-  changes what happens, not which code runs. Candidates, cheapest first — seed
-  the *starting pose* rather than only the button script; vary the alliance and
-  station; randomise the extras' aggression rather than fixing `--defenders`;
-  and drive the auto period from a random one of several routines instead of
-  the same one. Each is measurable now in a way it was not last week: run three
-  matches with `--coverage` and read `new code`. That is the whole point of
-  having built the oracle, and it should come before any more oracle breadth.
+* **A scenario generator that reaches new code** — `--vary-scenario` is done
+  for three of the four candidates (alliance, station, auto routine; starting
+  pose turned out to be a consequence of the other two, not a fourth knob —
+  see `--vary-scenario` in the harness section). First measurement: coverage
+  kept growing for all three matches instead of plateauing after the first,
+  and the five previously-unreachable PathPlanner autos are off the never-run
+  list. Left — the only remaining candidate from that list, and cheap to
+  measure the same way — is **randomising the extras' aggression** rather than
+  fixing `--defenders`, once `--opponents` is run alongside `--vary-scenario`
+  for the first time. A longer campaign is also worth running now that there
+  is something for it to find that three matches did not already saturate.
 * **Oracle 04 — differential scoring**, still last, and now the only oracle
   outstanding. The reasons have got slightly stronger rather than weaker. It sits on a shot whose range band is
   deliberately approximate, the extras deliberately do not score, and the

@@ -38,6 +38,17 @@ DEFAULT_CLIENT_NAME = "sparky-bridge"
 OUTPUTS = "/AdvantageKit/RealOutputs"
 INPUTS = "/AdvantageKit"
 
+# Not an AdvantageKit topic -- WPILib's own. `LoggedDashboardChooser("Auto
+# Choices")` in RobotContainer publishes a plain SendableChooser under
+# /SmartDashboard, and SendableChooser.initSendable wires "selected" as a
+# write-only property with no matching getter: a dashboard is expected to
+# write it and nothing reads it back over NT. "options" is the one half of
+# the chooser that *is* readable, which is what lets a caller pick a real
+# routine instead of a hand-kept, driftable copy of the five names in
+# RobotContainer.initializeAutos.
+AUTO_CHOOSER_OPTIONS = "/SmartDashboard/Auto Choices/options"
+AUTO_CHOOSER_SELECTED = "/SmartDashboard/Auto Choices/selected"
+
 # Ground truth from maple-sim's dyn4j world (SimContainer.java).
 POSE_TRUTH = f"{OUTPUTS}/FieldSimulation/RobotPosition"
 
@@ -492,6 +503,10 @@ class RobotStateLink:
     def publish_integer(self, name: str, value: int) -> None:
         self._pub("int", name, lambda: self._inst.getIntegerTopic(name).publish(
             ntcore.PubSubOptions(keepDuplicates=True))).set(int(value))
+
+    def publish_string(self, name: str, value: str) -> None:
+        self._pub("string", name, lambda: self._inst.getStringTopic(name).publish(
+            ntcore.PubSubOptions(keepDuplicates=True))).set(str(value))
 
     def flush(self) -> None:
         """Push what has been set, rather than waiting for the next network
