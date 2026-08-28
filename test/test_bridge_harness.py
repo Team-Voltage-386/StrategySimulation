@@ -512,15 +512,24 @@ def test_a_campaign_is_solo_unless_asked_otherwise(tmp_path):
     assert runner._deploy_cast(state=None, view=None) is None
 
 
-def test_a_contested_campaign_needs_the_strategy_driver():
+def test_a_contested_campaign_needs_the_strategy_driver(monkeypatch, tmp_path):
     """Refused at the command line rather than ignored at run time.
 
     The extras have no decisions without a strategy layer, so a scripted
     campaign asked for opponents would run solo matches and file them
     under a report that says "3 opponents" -- and nothing in the output
     would say otherwise.
+
+    Deliberately run with no robot project reachable. Whether two flags
+    contradict each other is a fact about the command line, so the check has
+    to come before the project is located -- and without pinning that here,
+    this test passes on any machine with a robot checkout beside it and fails
+    only in CI, which is the worst place to find out.
     """
     from apps import run_bridge_overnight as app
+    from bridge import sim_process
+
+    monkeypatch.setenv(sim_process.ROBOT_REPO_ENV, str(tmp_path / "no-such-project"))
 
     with pytest.raises(SystemExit):
         app.main(["--driver", hz.SCRIPTED, "--opponents", "3", "--matches", "1"])

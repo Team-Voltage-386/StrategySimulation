@@ -199,10 +199,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=None,
                         help="campaign directory (default: build/bridge/runs/<timestamp>)")
     args = parser.parse_args(argv)
-    # Resolved once, here, so the run prints the project it actually
-    # picked and a missing one fails before a JVM is started.
-    args.repo = find_robot_repo(args.repo)
 
+    # Argument validation first, and specifically before the robot project is
+    # located. Whether two flags contradict each other is a fact about the
+    # command line and nothing else -- making it wait on a filesystem search
+    # means a contradictory command on a machine with no robot checkout
+    # reports "no robot project found", which is true and is not the problem.
     if (args.opponents or args.partners) and args.driver != hz.STRATEGY:
         # Refused rather than ignored. The extras need a strategy layer to
         # decide anything, so a scripted campaign asked for a contested
@@ -212,6 +214,10 @@ def main(argv: list[str] | None = None) -> int:
             f"--opponents/--partners need --driver {hz.STRATEGY}: the extra robots are driven "
             f"by the strategy layer, and the {hz.SCRIPTED} driver deliberately has none"
         )
+
+    # Resolved once, here, so the run prints the project it actually
+    # picked and a missing one fails before a JVM is started.
+    args.repo = find_robot_repo(args.repo)
 
     first_seed = args.first_seed if args.first_seed is not None else random.randrange(1, 10_000)
     workdir = args.out or Path("build/bridge/runs") / time.strftime("%Y%m%d-%H%M%S")
