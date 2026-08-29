@@ -4,45 +4,30 @@ MechanismOrchestrationSandbox -- see its telemetry/MechanismPublisher.java)
 -- subscribes to the /Mechanism/* topics it publishes and hands back the
 latest values as a plain snapshot for gui_utils/mechanism_canvas.py to draw.
 
+Lives in bridge/, not common_sim/, because it needs a live NetworkTables
+connection to a robot process -- the same reason robot_state.py does. See
+bridge/__init__.py's import direction and test/test_import_contract.py,
+which enforces it. common_sim.telemetry.mechanism_snapshot holds the
+dataclass shape alone, with no ntcore dependency, for the drawing code to
+import instead of this module.
+
 The Java side publishes plain doubles rather than a struct-typed Pose2d, so
 this only needs pyntcore -- not the separate wpimath Python package -- to
 decode chassis pose.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from common_sim.telemetry.mechanism_snapshot import MechanismSnapshot
 
-import ntcore
+try:
+    import ntcore  # pyntcore
+except ImportError:  # pragma: no cover - depends on the install
+    # Matches robot_state.py's pattern: importable without pyntcore installed,
+    # so a headless caller that never constructs NT4MechanismClient doesn't
+    # need the dependency at all. The constructor below fails loudly instead.
+    ntcore = None  # type: ignore[assignment]
 
 TABLE_NAME = "Mechanism"
-
-
-@dataclass
-class MechanismSnapshot:
-    connected: bool = False
-    chassis_x_m: float = 0.0
-    chassis_y_m: float = 0.0
-    chassis_heading_rad: float = 0.0
-    elevator_height_m: float = 0.0
-    arm_angle_rad: float = 0.0
-    holding_piece: bool = False
-    piece_x_m: float = 0.0
-    piece_z_m: float = 0.0
-    # A held piece is rigid with the arm, so it tilts with it -- the canvas has
-    # to draw that, since the robot-side collision check now uses the tilted
-    # footprint (see Shelf.orientedBoxCollides on the Java side).
-    piece_angle_rad: float = 0.0
-    piece_scored: bool = False
-    gripper_colliding: bool = False
-    # True while a bound pickup/score sequence is still running on the robot -- including a
-    # score sequence's retreat back out of the wall, which finishes well after PieceScored
-    # flips true (see MechanismPublisher.java). A continuous-cycle caller waits for this to
-    # clear before asking for the next piece, so it never interrupts that retreat mid-motion.
-    sequence_busy: bool = False
-    # gear_peg demo only -- angle of the wrist joint relative to the arm link (see
-    # frc.robot.gearpeg.subsystems.Wrist on the Java side). Stays at its default 0.0 when
-    # polling a cube_shelf robot, which publishes no WristAngleRadians topic at all.
-    wrist_angle_rad: float = 0.0
 
 
 class NT4MechanismClient:
@@ -53,6 +38,11 @@ class NT4MechanismClient:
     lock-protected field access."""
 
     def __init__(self, server: str = "127.0.0.1", identity: str = "mechanism-viewer"):
+        if ntcore is None:
+            raise RuntimeError(
+                "pyntcore is not installed, so nothing can be read back from the robot. "
+                "pip install -r bridge/requirements.txt"
+            )
         self._inst = ntcore.NetworkTableInstance.getDefault()
         self._inst.startClient4(identity)
         self._inst.setServer(server)

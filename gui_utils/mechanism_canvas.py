@@ -2,7 +2,7 @@
 QPainter side-view (X-Z plane) of the mechanism-orchestration sandbox's
 elevator+arm superstructure, driven live over NT4 from the Java robot sim
 (see MechanismOrchestrationSandbox, a sibling repo, and
-common_sim/telemetry/nt4_client.py). Deliberately its own small window
+common_sim/telemetry/mechanism_snapshot.py). Deliberately its own small window
 rather than plugged into FieldCanvas/Match -- this sandbox is for
 characterizing mechanism cycle times in isolation, not for driving the
 top-down strategy sim; see apps/run_mechanism_view.py.
@@ -19,7 +19,7 @@ import math
 
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
-from common_sim.telemetry.nt4_client import MechanismSnapshot
+from common_sim.telemetry.mechanism_snapshot import MechanismSnapshot
 from gui_utils import theme
 
 Qt = QtCore.Qt

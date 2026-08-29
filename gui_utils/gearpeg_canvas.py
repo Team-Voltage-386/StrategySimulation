@@ -4,7 +4,7 @@ gear-peg demo -- a fixed-pivot arm plus wrist picking a gear off the floor
 and threading it, standing vertical, onto one of two peg posts, driven live
 over NT4 from the Java robot sim (see MechanismOrchestrationSandbox, a
 sibling repo, frc.robot.gearpeg.*, and
-common_sim/telemetry/nt4_client.py).
+common_sim/telemetry/mechanism_snapshot.py).
 
 Structurally this is MechanismCanvas's twin -- same fixed-world-frame
 _scale()/_to_px() machinery, same HUD approach -- copied rather than shared
@@ -20,7 +20,7 @@ import math
 
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 
-from common_sim.telemetry.nt4_client import MechanismSnapshot
+from common_sim.telemetry.mechanism_snapshot import MechanismSnapshot
 from gui_utils import theme
 
 Qt = QtCore.Qt

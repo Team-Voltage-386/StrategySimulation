@@ -20,7 +20,7 @@ import sys
 
 from pyqtgraph.Qt import QtCore, QtWidgets
 
-from common_sim.telemetry.nt4_client import NT4MechanismClient
+from bridge.nt4_client import NT4MechanismClient
 from gui_utils import theme
 from gui_utils.mechanism_canvas import MechanismCanvas
 
