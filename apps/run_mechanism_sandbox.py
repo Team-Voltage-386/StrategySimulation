@@ -36,6 +36,7 @@ from pyqtgraph.Qt import QtCore, QtWidgets
 from bridge import operator as op
 from common_sim.telemetry.nt4_client import NT4MechanismClient
 from gui_utils import theme
+from gui_utils.gearpeg_canvas import GearPegCanvas
 from gui_utils.mechanism_canvas import MechanismCanvas
 
 SIM_TASK = "simulateJavaRelease"
@@ -61,13 +62,48 @@ TAP_HOLD_MS = 150
 CYCLE_STEP_TIMEOUT_S = 15.0
 
 # (label, WPILib button number) -- drives RobotContainer.configureBindings()
-# in the CubeShelfScenario demo. A future scenario with different actions
-# replaces this list; nothing else here is scenario-specific.
-SCENARIO_ACTIONS = [
+# in the CubeShelfScenario demo.
+CUBE_SHELF_ACTIONS = [
     ("Pickup Cube", op.BTN_LEFT_BUMPER),
     ("Score Low", op.BTN_X),
     ("Score High", op.BTN_Y),
 ]
+
+# Drives GearPegRobotContainer.configureBindings() in the gear_peg demo --
+# same three buttons, different verbs, since that demo has no "Cube" to name.
+GEAR_PEG_ACTIONS = [
+    ("Pickup Gear", op.BTN_LEFT_BUMPER),
+    ("Score Low Peg", op.BTN_X),
+    ("Score High Peg", op.BTN_Y),
+]
+
+# One robot process runs exactly one demo (see DemoContainer.java on the
+# Java side), chosen by the "env" value below being passed through as the
+# SANDBOX_DEMO environment variable when the sim JVM launches. Keyed by the
+# same strings DemoContainer.create() switches on, so adding a demo means
+# adding a case there *and* an entry here under the identical string.
+DEMOS = {
+    "cube_shelf": {
+        "env": "cube_shelf",
+        "canvas": MechanismCanvas,
+        "actions": CUBE_SHELF_ACTIONS,
+        "cycle_tooltip": (
+            "Repeats Pickup Cube -> Score, backing safely out of the slot after each score and "
+            "then respawning just the piece (not the mechanism) so there's always a fresh one "
+            "to grab -- runs on loop until stopped."
+        ),
+    },
+    "gear_peg": {
+        "env": "gear_peg",
+        "canvas": GearPegCanvas,
+        "actions": GEAR_PEG_ACTIONS,
+        "cycle_tooltip": (
+            "Repeats Pickup Gear -> Score, waiting for the whole score sequence to finish "
+            "before respawning just the piece (not the mechanism) so there's always a fresh "
+            "one to grab -- runs on loop until stopped."
+        ),
+    },
+}
 
 
 def _pids_listening_on(port: int) -> list[int]:
@@ -112,13 +148,19 @@ def _resolve_java_home(sandbox_path: Path) -> str | None:
 
 
 class SandboxWindow(QtWidgets.QMainWindow):
-    def __init__(self, sandbox_path: Path, server: str):
+    def __init__(self, sandbox_path: Path, server: str, demo: str, gear_grip: str = "parallel"):
         super().__init__()
         self.sandbox_path = sandbox_path
-        self.setWindowTitle(f"sparky-sim -- mechanism sandbox [{sandbox_path.name}]")
+        self.demo = demo
+        self._demo_entry = DEMOS[demo]
+        self.gear_grip = gear_grip
+        title = f"sparky-sim -- mechanism sandbox [{sandbox_path.name}] -- {demo}"
+        if demo == "gear_peg":
+            title += f" ({gear_grip} grip)"
+        self.setWindowTitle(title)
 
         self.client = NT4MechanismClient(server=server)
-        self.canvas = MechanismCanvas()
+        self.canvas = self._demo_entry["canvas"]()
 
         # Created fresh per sim launch (see start_sim/stop_sim) -- it's
         # tied to that one JVM's WebSocket server instance.
@@ -148,11 +190,18 @@ class SandboxWindow(QtWidgets.QMainWindow):
         self.process.finished.connect(self._on_process_finished)
 
         java_home = _resolve_java_home(sandbox_path)
+        # Built unconditionally (rather than only inside the `if java_home:` this used to be)
+        # so SANDBOX_DEMO always gets set, even when java_home lookup fails and the launched
+        # gradlew just falls back to inheriting the parent process's own environment.
+        env = QtCore.QProcessEnvironment.systemEnvironment()
         if java_home:
-            env = QtCore.QProcessEnvironment.systemEnvironment()
             env.insert("JAVA_HOME", java_home)
             env.insert("PATH", str(Path(java_home) / "bin") + os.pathsep + env.value("PATH"))
-            self.process.setProcessEnvironment(env)
+        env.insert("SANDBOX_DEMO", self._demo_entry["env"])
+        # Only meaningful to gear_peg's RobotContainer (see GearPegRobotContainer's "Grip mode"
+        # doc), but harmless to always set -- cube_shelf's RobotContainer never reads it.
+        env.insert("SANDBOX_GEAR_GRIP", self.gear_grip)
+        self.process.setProcessEnvironment(env)
 
         self._build_ui()
 
@@ -197,7 +246,7 @@ class SandboxWindow(QtWidgets.QMainWindow):
         bridge_label = QtWidgets.QLabel("Actions:")
         actions.addWidget(bridge_label)
         self.action_buttons: list[QtWidgets.QPushButton] = []
-        for label, button in SCENARIO_ACTIONS:
+        for label, button in self._demo_entry["actions"]:
             btn = QtWidgets.QPushButton(label)
             btn.setEnabled(False)
             btn.clicked.connect(lambda checked=False, b=button: self._trigger_action(b))
@@ -218,11 +267,7 @@ class SandboxWindow(QtWidgets.QMainWindow):
         self.cycle_button = QtWidgets.QPushButton("Start Continuous Cycle")
         self.cycle_button.setCheckable(True)
         self.cycle_button.setEnabled(False)
-        self.cycle_button.setToolTip(
-            "Repeats Pickup Cube -> Score, backing safely out of the slot after each score and "
-            "then respawning just the piece (not the mechanism) so there's always a fresh one "
-            "to grab -- runs on loop until stopped."
-        )
+        self.cycle_button.setToolTip(self._demo_entry["cycle_tooltip"])
         self.cycle_button.toggled.connect(self._on_cycle_toggled)
         actions.addWidget(self.cycle_button)
 
@@ -514,6 +559,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("sandbox_path", type=Path, help="path to the MechanismOrchestrationSandbox WPILib project")
     parser.add_argument("--server", default="127.0.0.1", help="NT4 server address (default: 127.0.0.1)")
+    parser.add_argument(
+        "--demo",
+        choices=sorted(DEMOS),
+        default="cube_shelf",
+        help="which sandbox demo to launch (default: cube_shelf)",
+    )
+    parser.add_argument(
+        "--gear-grip",
+        choices=["parallel", "normal"],
+        default="parallel",
+        help=(
+            "gear_peg only: how the wrist closes on the gear -- 'parallel' grabs it in-line with "
+            "its own long axis (wrist angle == piece angle throughout); 'normal' grabs it facing "
+            "straight down onto its upward-facing edge, wrist parallel to the floor at score "
+            "(default: parallel). Ignored for cube_shelf."
+        ),
+    )
     args = parser.parse_args()
 
     sandbox_path = args.sandbox_path.resolve()
@@ -522,7 +584,7 @@ def main() -> None:
 
     app = QtWidgets.QApplication(sys.argv)
     theme.apply_app_theme(app)
-    window = SandboxWindow(sandbox_path, args.server)
+    window = SandboxWindow(sandbox_path, args.server, args.demo, args.gear_grip)
     window.show()
     app.exec_()
 

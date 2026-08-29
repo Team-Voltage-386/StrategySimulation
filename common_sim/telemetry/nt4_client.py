@@ -39,6 +39,10 @@ class MechanismSnapshot:
     # flips true (see MechanismPublisher.java). A continuous-cycle caller waits for this to
     # clear before asking for the next piece, so it never interrupts that retreat mid-motion.
     sequence_busy: bool = False
+    # gear_peg demo only -- angle of the wrist joint relative to the arm link (see
+    # frc.robot.gearpeg.subsystems.Wrist on the Java side). Stays at its default 0.0 when
+    # polling a cube_shelf robot, which publishes no WristAngleRadians topic at all.
+    wrist_angle_rad: float = 0.0
 
 
 class NT4MechanismClient:
@@ -65,6 +69,9 @@ class NT4MechanismClient:
         self._piece_scored = table.getBooleanTopic("PieceScored").subscribe(False)
         self._gripper_colliding = table.getBooleanTopic("GripperColliding").subscribe(False)
         self._sequence_busy = table.getBooleanTopic("SequenceBusy").subscribe(False)
+        # Only published by the gear_peg demo's GearPegPublisher; subscribing here regardless
+        # of which demo is running is harmless -- an absent topic just holds its 0.0 default.
+        self._wrist = table.getDoubleTopic("WristAngleRadians").subscribe(0.0)
         # A monotonically increasing counter, not a boolean pulse -- see
         # RobotContainer.checkResetRequest() on the Java side for why (a
         # pulse could land between two of the robot's polls and be missed;
@@ -110,4 +117,5 @@ class NT4MechanismClient:
             piece_scored=self._piece_scored.get(),
             gripper_colliding=self._gripper_colliding.get(),
             sequence_busy=self._sequence_busy.get(),
+            wrist_angle_rad=self._wrist.get(),
         )
