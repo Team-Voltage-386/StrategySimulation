@@ -34,6 +34,11 @@ class MechanismSnapshot:
     piece_angle_rad: float = 0.0
     piece_scored: bool = False
     gripper_colliding: bool = False
+    # True while a bound pickup/score sequence is still running on the robot -- including a
+    # score sequence's retreat back out of the wall, which finishes well after PieceScored
+    # flips true (see MechanismPublisher.java). A continuous-cycle caller waits for this to
+    # clear before asking for the next piece, so it never interrupts that retreat mid-motion.
+    sequence_busy: bool = False
 
 
 class NT4MechanismClient:
@@ -59,12 +64,17 @@ class NT4MechanismClient:
         self._piece_angle = table.getDoubleTopic("PieceAngleRad").subscribe(0.0)
         self._piece_scored = table.getBooleanTopic("PieceScored").subscribe(False)
         self._gripper_colliding = table.getBooleanTopic("GripperColliding").subscribe(False)
+        self._sequence_busy = table.getBooleanTopic("SequenceBusy").subscribe(False)
         # A monotonically increasing counter, not a boolean pulse -- see
         # RobotContainer.checkResetRequest() on the Java side for why (a
         # pulse could land between two of the robot's polls and be missed;
         # an id *change* can't be).
         self._reset_request_id_pub = table.getIntegerTopic("ResetRequestId").publish()
         self._reset_request_id = 0
+        # Same pattern, but for respawning just the Cube -- see
+        # RobotContainer.checkNewPieceRequest() on the Java side.
+        self._new_piece_request_id_pub = table.getIntegerTopic("NewPieceRequestId").publish()
+        self._new_piece_request_id = 0
 
     def request_reset(self) -> None:
         """Resets the mechanism (elevator/arm/chassis pose) in-process on
@@ -72,6 +82,15 @@ class NT4MechanismClient:
         and RobotContainer.checkResetRequest() on the Java side."""
         self._reset_request_id += 1
         self._reset_request_id_pub.set(self._reset_request_id)
+
+    def request_new_piece(self) -> None:
+        """Respawns the Cube in-process, leaving the elevator/arm/chassis wherever they
+        already are -- see RobotContainer.checkNewPieceRequest() on the Java side. This is
+        the piece-only counterpart to request_reset(), for a continuous pickup/score loop
+        that wants the next piece without snapping the mechanism out from under a sequence
+        that's still retreating from the wall."""
+        self._new_piece_request_id += 1
+        self._new_piece_request_id_pub.set(self._new_piece_request_id)
 
     def close(self) -> None:
         self._inst.stopClient()
@@ -90,4 +109,5 @@ class NT4MechanismClient:
             piece_angle_rad=self._piece_angle.get(),
             piece_scored=self._piece_scored.get(),
             gripper_colliding=self._gripper_colliding.get(),
+            sequence_busy=self._sequence_busy.get(),
         )

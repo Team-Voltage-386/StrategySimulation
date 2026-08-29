@@ -28,6 +28,7 @@ import os
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 from pyqtgraph.Qt import QtCore, QtWidgets
@@ -52,6 +53,12 @@ BRIDGE_CONNECT_TIMEOUT_S = 90.0
 # period (20 ms) so CommandScheduler's onTrue() sees a real rising edge
 # followed by a falling one; matches bridge/scenario.py's own tap duration.
 TAP_HOLD_MS = 150
+
+# How long a single continuous-cycle step (pickup / score / reset-settle) may
+# run before it's declared stalled -- generous against any real coordinated
+# move so a genuine stall (e.g. a collision interlock parking the arm) stops
+# the loop with a log line instead of spinning silently forever.
+CYCLE_STEP_TIMEOUT_S = 15.0
 
 # (label, WPILib button number) -- drives RobotContainer.configureBindings()
 # in the CubeShelfScenario demo. A future scenario with different actions
@@ -122,6 +129,17 @@ class SandboxWindow(QtWidgets.QMainWindow):
         # isn't safe, so the error crosses over as plain data instead.
         self._operator_link_error: str | None = None
 
+        # Continuous-cycle state machine -- see _tick_cycle. Drives the same
+        # action buttons a user would click, in a loop, so a coordination
+        # change can be watched running back-to-back instead of one press
+        # at a time.
+        self.cycle_active = False
+        self.cycle_level = op.BTN_X  # updated from the radio buttons in _start_cycle
+        self.cycle_state: str | None = None  # "PICKUP" | "SCORE" | "RESET"
+        self.cycle_step_started = False
+        self.cycle_step_deadline = 0.0
+        self.cycle_count = 0
+
         self.process = QtCore.QProcess(self)
         self.process.setWorkingDirectory(str(sandbox_path))
         self.process.setProcessChannelMode(QtCore.QProcess.MergedChannels)
@@ -185,6 +203,33 @@ class SandboxWindow(QtWidgets.QMainWindow):
             btn.clicked.connect(lambda checked=False, b=button: self._trigger_action(b))
             actions.addWidget(btn)
             self.action_buttons.append(btn)
+
+        actions.addSpacing(16)
+        actions.addWidget(QtWidgets.QLabel("Continuous cycle:"))
+        self.cycle_level_low = QtWidgets.QRadioButton("Low")
+        self.cycle_level_low.setChecked(True)
+        self.cycle_level_high = QtWidgets.QRadioButton("High")
+        self.cycle_level_group = QtWidgets.QButtonGroup(self)
+        self.cycle_level_group.addButton(self.cycle_level_low)
+        self.cycle_level_group.addButton(self.cycle_level_high)
+        actions.addWidget(self.cycle_level_low)
+        actions.addWidget(self.cycle_level_high)
+
+        self.cycle_button = QtWidgets.QPushButton("Start Continuous Cycle")
+        self.cycle_button.setCheckable(True)
+        self.cycle_button.setEnabled(False)
+        self.cycle_button.setToolTip(
+            "Repeats Pickup Cube -> Score, backing safely out of the slot after each score and "
+            "then respawning just the piece (not the mechanism) so there's always a fresh one "
+            "to grab -- runs on loop until stopped."
+        )
+        self.cycle_button.toggled.connect(self._on_cycle_toggled)
+        actions.addWidget(self.cycle_button)
+
+        self.cycle_count_label = QtWidgets.QLabel("Pieces scored: 0")
+        self.cycle_count_label.setFont(theme.technical_font(10))
+        actions.addWidget(self.cycle_count_label)
+
         actions.addStretch(1)
         self.bridge_status_label = QtWidgets.QLabel("bridge: --")
         self.bridge_status_label.setFont(theme.technical_font(10))
@@ -286,6 +331,112 @@ class SandboxWindow(QtWidgets.QMainWindow):
         if self.operator_link is not None:
             self.operator_link.set_button(button, False)
 
+    # -- continuous cycle --------------------------------------------------
+    #
+    # Repeats Pickup Cube -> Score (Low or High) -> new piece, forever, so a
+    # coordination change can be watched running back-to-back instead of one
+    # click at a time. Steps are sequenced off the same HoldingPiece /
+    # PieceScored / SequenceBusy telemetry the canvas already draws from,
+    # not a fixed delay -- a real coordinated move's duration depends on the
+    # config under test, and a fixed wait would either lag a fast mechanism
+    # or cut off a slow one. In particular, the SCORE step waits out
+    # SequenceBusy, not just PieceScored: release() marks the cube scored
+    # while the tip is still inside the wall, and only the rest of
+    # ScoreOnShelf's bound command -- extracting back out along the tip axis
+    # and retracting to PRE_SCORE -- actually backs the arm safely out of
+    # the slot. Only the cube gets reset between pieces (request_new_piece,
+    # not request_reset): a full mechanism reset would snap the elevator/arm
+    # back instantly and cut that retreat short if it landed mid-sequence,
+    # instead of letting the loop watch the same safe exit a single manual
+    # score press already takes.
+
+    def _on_cycle_toggled(self, checked: bool) -> None:
+        if checked:
+            self._start_cycle()
+        else:
+            self._stop_cycle()
+
+    def _start_cycle(self) -> None:
+        if self.operator_link is None or not self.operator_link.connected:
+            self.cycle_button.blockSignals(True)
+            self.cycle_button.setChecked(False)
+            self.cycle_button.blockSignals(False)
+            return
+        self.cycle_level = op.BTN_Y if self.cycle_level_high.isChecked() else op.BTN_X
+        self.cycle_count = 0
+        self._update_cycle_count_label()
+        self.cycle_active = True
+        self.cycle_button.setText("Stop Continuous Cycle")
+        self.cycle_level_low.setEnabled(False)
+        self.cycle_level_high.setEnabled(False)
+        for btn in self.action_buttons:
+            btn.setEnabled(False)
+        self.reset_mechanism_button.setEnabled(False)
+        level_name = "High" if self.cycle_level == op.BTN_Y else "Low"
+        self._append_log(f"--- starting continuous cycle (Score {level_name}) ---")
+        self._enter_cycle_step("PICKUP")
+
+    def _stop_cycle(self, reason: str | None = None) -> None:
+        if not self.cycle_active:
+            return
+        self.cycle_active = False
+        self.cycle_state = None
+        if reason:
+            self._append_log(f"--- continuous cycle stopped ({reason}); scored {self.cycle_count} piece(s) ---")
+        else:
+            self._append_log(f"--- continuous cycle stopped; scored {self.cycle_count} piece(s) ---")
+        self.cycle_button.blockSignals(True)
+        self.cycle_button.setChecked(False)
+        self.cycle_button.blockSignals(False)
+        self.cycle_button.setText("Start Continuous Cycle")
+        self.cycle_level_low.setEnabled(True)
+        self.cycle_level_high.setEnabled(True)
+        connected = self.operator_link is not None and self.operator_link.connected
+        for btn in self.action_buttons:
+            btn.setEnabled(connected)
+
+    def _enter_cycle_step(self, state: str) -> None:
+        self.cycle_state = state
+        self.cycle_step_started = False
+        self.cycle_step_deadline = time.monotonic() + CYCLE_STEP_TIMEOUT_S
+
+    def _update_cycle_count_label(self) -> None:
+        self.cycle_count_label.setText(f"Pieces scored: {self.cycle_count}")
+
+    def _tick_cycle(self) -> None:
+        if not self.cycle_active:
+            return
+        if self.operator_link is None or not self.operator_link.connected:
+            self._stop_cycle("bridge disconnected")
+            return
+        if time.monotonic() > self.cycle_step_deadline:
+            self._stop_cycle(f"step '{self.cycle_state}' stalled for {CYCLE_STEP_TIMEOUT_S:.0f}s")
+            return
+
+        snapshot = self.canvas.snapshot
+        if self.cycle_state == "PICKUP":
+            if not self.cycle_step_started:
+                self._trigger_action(op.BTN_LEFT_BUMPER)
+                self.cycle_step_started = True
+            elif snapshot.holding_piece:
+                self._enter_cycle_step("SCORE")
+        elif self.cycle_state == "SCORE":
+            if not self.cycle_step_started:
+                self._trigger_action(self.cycle_level)
+                self.cycle_step_started = True
+            elif snapshot.piece_scored and not snapshot.sequence_busy:
+                # The score sequence -- including its retreat back out of the wall -- has now
+                # fully finished, not just the release() call partway through it.
+                self.cycle_count += 1
+                self._update_cycle_count_label()
+                self._enter_cycle_step("NEW_PIECE")
+        elif self.cycle_state == "NEW_PIECE":
+            if not self.cycle_step_started:
+                self.client.request_new_piece()
+                self.cycle_step_started = True
+            elif not snapshot.piece_scored:
+                self._enter_cycle_step("PICKUP")
+
     def _on_process_state_changed(self, state) -> None:
         running = state != QtCore.QProcess.NotRunning
         self.start_stop_button.setText("Stop Sim" if running else "Run Sim")
@@ -296,8 +447,10 @@ class SandboxWindow(QtWidgets.QMainWindow):
         elif state == QtCore.QProcess.Running:
             self.status_label.setText("Running")
         if not running:
+            self._stop_cycle("sim stopped")
             for btn in self.action_buttons:
                 btn.setEnabled(False)
+            self.cycle_button.setEnabled(False)
             self.bridge_status_label.setText("bridge: --")
 
     def _on_process_finished(self, exit_code, exit_status) -> None:
@@ -317,8 +470,9 @@ class SandboxWindow(QtWidgets.QMainWindow):
     def _tick(self) -> None:
         self.canvas.snapshot = self.client.poll()
         self.canvas.update()
-        self.reset_mechanism_button.setEnabled(self.canvas.snapshot.connected)
+        self.reset_mechanism_button.setEnabled(self.canvas.snapshot.connected and not self.cycle_active)
         self._tick_operator_link()
+        self._tick_cycle()
 
     def _tick_operator_link(self) -> None:
         if self._operator_link_error is not None:
@@ -328,7 +482,10 @@ class SandboxWindow(QtWidgets.QMainWindow):
         link = self.operator_link
         connected = link is not None and link.connected
         for btn in self.action_buttons:
-            btn.setEnabled(connected)
+            btn.setEnabled(connected and not self.cycle_active)
+        self.cycle_button.setEnabled(connected)
+        if not connected:
+            self._stop_cycle("bridge disconnected")
 
         if connected and not self._operator_was_connected:
             # Rising edge: the WebSocket just came up. Auto-enable teleop so
