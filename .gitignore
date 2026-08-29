@@ -11,3 +11,7 @@ docs/strategy_guide.html
 docs/sweep_guide.html
 docs/student_labs_guide.html
 docs/guide_images/
+
+# Game manuals in saved_references/ are large third-party PDFs -- the distilled
+# FRC_GAME_TRENDS.md beside them is tracked, its sources are not.
+saved_references/*.pdf
