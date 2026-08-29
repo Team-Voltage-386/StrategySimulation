@@ -160,6 +160,19 @@ another named param in the sweep, no special-casing needed.
 pytest
 ```
 
+For a short, human-readable release check over complete real-field matches:
+
+```
+python -m apps.run_regression_scenarios
+```
+
+The fixed-seed scenarios protect normal cycling and a cyclist-versus-defender
+interaction; inspect a replay before accepting any changed golden metric.  See
+the generated [student-lab guide](docs/student_labs_guide.html) (source:
+[student_labs_template.html](docs/student_labs_template.html)) for four
+step-by-step, screenshot-based exercises using MATCH, STRATEGY, SWEEP, SEARCH,
+and replay tools.
+
 ## Distributing to teammates (no Python required)
 
 ```
