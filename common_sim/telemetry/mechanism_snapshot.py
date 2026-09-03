@@ -39,7 +39,17 @@ class MechanismSnapshot:
     # flips true (see MechanismPublisher.java). A continuous-cycle caller waits for this to
     # clear before asking for the next piece, so it never interrupts that retreat mid-motion.
     sequence_busy: bool = False
-    # gear_peg demo only -- angle of the wrist joint relative to the arm link (see
-    # frc.robot.gearpeg.subsystems.Wrist on the Java side). Stays at its default 0.0 when
-    # polling a cube_shelf robot, which publishes no WristAngleRadians topic at all.
+    # gear_peg and ring_stack demos only -- angle of the wrist joint relative to the arm link
+    # (see frc.robot.gearpeg.subsystems.Wrist / frc.robot.ringstack.subsystems.Wrist on the Java
+    # side). Stays at its default 0.0 when polling a cube_shelf robot, which publishes no
+    # WristAngleRadians topic at all.
     wrist_angle_rad: float = 0.0
+    # ring_stack demo only -- extension length of the telescoping arm (see
+    # frc.robot.ringstack.subsystems.ExtendingArm on the Java side). This demo's arm has no
+    # angle to publish (it never rotates), so it publishes ArmLengthMeters instead of relying on
+    # arm_angle_rad, which stays at its default 0.0 here.
+    arm_length_m: float = 0.0
+    # ring_stack demo only -- how many rings are already stacked on the pole (see
+    # frc.robot.ringstack.game.Pole on the Java side). Stays at its default 0 for the other two
+    # demos, which publish no RingsOnPole topic.
+    rings_on_pole: int = 0

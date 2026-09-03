@@ -38,6 +38,7 @@ from bridge.nt4_client import NT4MechanismClient
 from gui_utils import theme
 from gui_utils.gearpeg_canvas import GearPegCanvas
 from gui_utils.mechanism_canvas import MechanismCanvas
+from gui_utils.ring_stack_canvas import RingStackCanvas
 
 SIM_TASK = "simulateJavaRelease"
 GRADLE_ARGS = [SIM_TASK, "--console=plain"]
@@ -77,6 +78,17 @@ GEAR_PEG_ACTIONS = [
     ("Score High Peg", op.BTN_Y),
 ]
 
+# Drives RingStackRobotContainer.configureBindings() in the ring_stack demo. Only two actions,
+# not three -- this demo has one pole with a growing stack, not a Low/High choice. The shared
+# Continuous-cycle Low/High radios still exist in this window regardless (they aren't per-demo),
+# so on the Java side BTN_Y is *also* bound to the same "Score Ring" command as BTN_X (see
+# RingStackRobotContainer's "Only one score action" doc) -- picking "High" just presses the
+# button that isn't listed as its own action button here, with the identical effect.
+RING_STACK_ACTIONS = [
+    ("Pickup Ring", op.BTN_LEFT_BUMPER),
+    ("Score Ring", op.BTN_X),
+]
+
 # One robot process runs exactly one demo (see DemoContainer.java on the
 # Java side), chosen by the "env" value below being passed through as the
 # SANDBOX_DEMO environment variable when the sim JVM launches. Keyed by the
@@ -101,6 +113,17 @@ DEMOS = {
             "Repeats Pickup Gear -> Score, waiting for the whole score sequence to finish "
             "before respawning just the piece (not the mechanism) so there's always a fresh "
             "one to grab -- runs on loop until stopped."
+        ),
+    },
+    "ring_stack": {
+        "env": "ring_stack",
+        "canvas": RingStackCanvas,
+        "actions": RING_STACK_ACTIONS,
+        "cycle_tooltip": (
+            "Repeats Pickup Ring -> Score onto the pole's next open slot, respawning just the "
+            "ring (not the pole's own stack) between pieces, so the pole keeps climbing across "
+            "cycles -- runs until the pole fills up and the loop naturally stalls out, or until "
+            "stopped."
         ),
     },
 }
@@ -208,6 +231,12 @@ class SandboxWindow(QtWidgets.QMainWindow):
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(int(1000 / POLL_HZ))
+
+        # Launch the sim immediately rather than waiting for a manual "Run Sim" click -- every
+        # demo this window can open is meant to be watched running, so requiring that first click
+        # every time was just friction, not a real choice point (the button, and Stop/Restart,
+        # are still there for whenever a code change needs a relaunch).
+        self.start_sim()
 
     def _build_ui(self) -> None:
         central = QtWidgets.QWidget()

@@ -59,9 +59,13 @@ class NT4MechanismClient:
         self._piece_scored = table.getBooleanTopic("PieceScored").subscribe(False)
         self._gripper_colliding = table.getBooleanTopic("GripperColliding").subscribe(False)
         self._sequence_busy = table.getBooleanTopic("SequenceBusy").subscribe(False)
-        # Only published by the gear_peg demo's GearPegPublisher; subscribing here regardless
-        # of which demo is running is harmless -- an absent topic just holds its 0.0 default.
+        # Only published by the gear_peg and ring_stack demos' publishers; subscribing here
+        # regardless of which demo is running is harmless -- an absent topic just holds its
+        # default.
         self._wrist = table.getDoubleTopic("WristAngleRadians").subscribe(0.0)
+        # Only published by the ring_stack demo's RingStackPublisher.
+        self._arm_length = table.getDoubleTopic("ArmLengthMeters").subscribe(0.0)
+        self._rings_on_pole = table.getDoubleTopic("RingsOnPole").subscribe(0.0)
         # A monotonically increasing counter, not a boolean pulse -- see
         # RobotContainer.checkResetRequest() on the Java side for why (a
         # pulse could land between two of the robot's polls and be missed;
@@ -108,4 +112,6 @@ class NT4MechanismClient:
             gripper_colliding=self._gripper_colliding.get(),
             sequence_busy=self._sequence_busy.get(),
             wrist_angle_rad=self._wrist.get(),
+            arm_length_m=self._arm_length.get(),
+            rings_on_pole=int(self._rings_on_pole.get()),
         )
