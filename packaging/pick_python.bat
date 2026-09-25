@@ -17,6 +17,10 @@ rem traceback.
 set "PYTHON_EXE="
 set "PY_FIRST_RUNNABLE="
 
+rem The repo's own .venv (made by setup.bat) wins over everything: it
+rem exists only because someone set this checkout up on purpose, and it
+rem has exactly the pinned packages.
+call :try "%~dp0..\.venv\Scripts\python.exe"
 call :try "%USERPROFILE%\anaconda3_2025\python.exe"
 call :try "%USERPROFILE%\anaconda3\python.exe"
 call :try "%USERPROFILE%\miniconda3\python.exe"
@@ -63,9 +67,10 @@ if defined PY_FIRST_RUNNABLE (
 echo.
 echo No usable Python was found on this machine.
 echo.
-echo sparky-sim needs Python 3.11 or newer with the packages in
-echo requirements.txt. Install one from python.org or Anaconda, tick
-echo "Add Python to PATH" during setup, then reopen this window.
+echo sparky-sim needs Python 3.13 (3.11 or newer works) with the packages
+echo in requirements.txt. Install Python from python.org, tick
+echo "Add python.exe to PATH" during setup, then double-click setup.bat
+echo in the sparky-sim folder -- it installs everything else.
 echo.
 echo Note that the "python" that ships with Windows by default is a
 echo Microsoft Store placeholder, not a real interpreter -- if typing

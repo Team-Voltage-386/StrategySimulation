@@ -1,10 +1,14 @@
-pygame
-pymunk
-pyqtgraph
-PyQt5
-numpy
-pandas
-matplotlib
-pytest
+# Pinned to the versions the sim is developed against on Python 3.13, so
+# a student installing today and one installing next month get the same
+# packages CI tested. Bump deliberately: change a pin, run setup.bat (or
+# pip install -r) and the test suite, then commit.
+pygame==2.6.1
+pymunk==7.3.0
+pyqtgraph==0.14.0
+PyQt5==5.15.11
+numpy==2.3.5
+pandas==2.3.3
+matplotlib==3.10.6
+pytest==8.4.2
 pyntcore
 websocket-client

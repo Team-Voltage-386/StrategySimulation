@@ -7,17 +7,59 @@ exists, at faster-than-real-time, across many randomized trials. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for the package layout and design
 rationale.
 
-## Setup
+## Setup (new students start here)
+
+You only need to install Python. Anaconda isn't needed, and setup.bat
+installs everything else.
+
+1. **Install Python 3.13** from
+   [python.org/downloads](https://www.python.org/downloads/): pick the
+   "Windows installer (64-bit)" for the latest 3.13.x. On the installer's
+   first screen, tick **"Add python.exe to PATH"**, then click
+   *Install Now*.
+2. **Get the code**: clone this repo (GitHub Desktop is fine) or
+   download and unzip it.
+3. **Double-click `setup.bat`** in the sparky-sim folder. It finds your
+   Python, creates a private environment in `.venv\`, and installs the
+   pinned packages from `requirements.txt` (about 150 MB the first
+   time). It finishes with a check that prints `preflight: ready`.
+4. **Double-click `run.bat`** to start the REEFSCAPE viewer.
+
+Re-run `setup.bat` whenever `requirements.txt` changes after a pull. It's
+safe to run as often as you like, and it rebuilds `.venv` if it breaks
+(for example, after you upgrade Python). To start completely fresh, delete
+the `.venv` folder and run it again.
+
+To run the tests:
 
 ```
-pip install -r requirements.txt
+.venv\Scripts\python -m pytest -q
 ```
 
-Then double-click `run.bat`. The launchers find their own interpreter:
-they try the common Anaconda/python.org install locations, then `py`,
-then `python`, and take the first one that both starts *and* has the
-packages. Nothing needs to be on PATH and no virtualenv needs
-activating.
+**If something goes wrong:**
+- *Typing `python` opens the Microsoft Store.* That's a Windows
+  placeholder, not a real Python. Install from python.org as in step 1.
+  You can also turn the placeholder off: Settings → Apps → Advanced app
+  settings → App execution aliases → switch off both `python` entries.
+- *pip says "building wheel" or "Microsoft Visual C++ is required".*
+  Your Python is newer than the pinned packages support. Install 3.13 and
+  re-run `setup.bat`.
+- *Downloads fail.* Some school networks block pypi.org. Run setup from
+  home or on a phone hotspot.
+
+In your editor (VS Code, PyCharm), set the interpreter to
+`.venv\Scripts\python.exe` so it sees the same packages as the launchers.
+
+**How the launchers pick Python:** they use `.venv` if it's there.
+Otherwise they try the common Anaconda/python.org install locations,
+then `py`, then `python`, and take the first one that both starts *and*
+has the packages. Nothing needs to be on PATH and no virtualenv needs
+activating. An existing Anaconda setup also works: `pip install -r
+requirements.txt` into it and skip `setup.bat`.
+
+**Bumping a dependency:** change its pin in `requirements.txt`, re-run
+`setup.bat`, run the tests, and commit. CI runs on Python 3.13 too, so
+it tests the same versions the students have.
 
 To check a machine without launching anything:
 
