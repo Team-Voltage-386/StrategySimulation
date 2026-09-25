@@ -1,0 +1,3 @@
+# cmd.exe mis-seeks goto/call labels in LF-only batch files, so force
+# CRLF on checkout whatever the cloner's core.autocrlf says.
+*.bat text eol=crlf
