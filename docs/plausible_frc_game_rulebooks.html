@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Three Hypothetical FRC Game Rulebooks</title>
+  <style>
+    :root { --ink:#122033; --paper:#f4f7fb; --line:#cfdae8; --blue:#1573d2; --red:#e54b4b; --gold:#ffbf3f; --dark:#1c2d44; --muted:#5f6e82; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    header { color:white; padding:58px max(24px,calc((100vw - 1120px)/2)); background:linear-gradient(125deg,#132b48,#175891 60%,#208ab7); }
+    header p { max-width:760px; margin:12px 0 0; color:#dceeff; font-size:1.08rem; }
+    h1,h2,h3 { line-height:1.15; } h1 { font-size:clamp(2rem,5vw,3.45rem); margin:0; } h2 { font-size:clamp(1.55rem,3vw,2.35rem); margin:0 0 12px; } h3 { margin:24px 0 8px; }
+    nav { display:flex; flex-wrap:wrap; gap:10px; margin-top:25px; }
+    nav a { color:white; text-decoration:none; font-weight:700; border:1px solid #8cc5e7; border-radius:99px; padding:7px 13px; }
+    main { max-width:1120px; margin:auto; padding:28px 24px 64px; }
+    .notice { border-left:5px solid var(--gold); padding:12px 16px; background:#fff9e9; border-radius:0 8px 8px 0; }
+    .game { margin-top:38px; padding:clamp(18px,3vw,34px); background:white; border:1px solid var(--line); border-radius:18px; box-shadow:0 10px 24px #17365b0d; }
+    .tag { display:inline-block; margin:0 0 8px; padding:4px 10px; border-radius:99px; background:#e6f2ff; color:#075da9; font-weight:800; font-size:.78rem; letter-spacing:.06em; }
+    .grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(280px,1fr); gap:24px; align-items:start; }
+    .field-card { padding:14px; border:1px solid var(--line); border-radius:12px; background:#f8fbff; }
+    .field-card svg { width:100%; height:auto; display:block; border-radius:8px; background:#e7b66f; }
+    .caption { color:var(--muted); font-size:.88rem; margin:9px 2px 0; }
+    .chip-row { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+    .chip { padding:5px 9px; border-radius:7px; background:#edf2f8; font-size:.88rem; font-weight:650; }
+    .chip strong { color:#075da9; }
+    table { width:100%; border-collapse:collapse; margin:12px 0 18px; font-size:.94rem; }
+    th { background:var(--dark); color:white; text-align:left; } th,td { padding:9px 10px; border:1px solid var(--line); vertical-align:top; } tr:nth-child(even) td { background:#f8fbff; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:22px; } ul { margin:8px 0; padding-left:22px; }
+    .callout { padding:13px 15px; border-radius:10px; background:#eef8f5; border:1px solid #b9dfd4; }
+    .sim { margin-top:18px; padding:15px 17px; background:#f2f6ff; border-left:5px solid var(--blue); border-radius:0 10px 10px 0; }
+    footer { color:#526276; text-align:center; padding:25px; font-size:.9rem; }
+    .wall { fill:#23344a; } .blue { fill:var(--blue); } .red { fill:var(--red); } .neutral { fill:#f6b72a; } .obstacle { fill:#59687a; } .zone { fill-opacity:.2; stroke-width:3; } .label { font:700 13px system-ui,sans-serif; fill:#15273b; text-anchor:middle; } .small { font:600 11px system-ui,sans-serif; fill:#15273b; text-anchor:middle; } .white { fill:#fff; } .piece { fill:#f7f9fc; stroke:#34465d; stroke-width:1.4; }
+    @media (max-width:760px) { .grid,.two { grid-template-columns:1fr; } th,td { padding:7px; } table { font-size:.83rem; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Three hypothetical FRC game rulebooks</h1>
+    <p>Simulation-ready game concepts with custom field-layout illustrations, scoring, endgame, and qualification ranking rules.</p>
+    <nav><a href="#aurora">Aurora Array</a><a href="#rivet">Rivet Rush</a><a href="#vector">Vector Vault</a></nav>
+  </header>
+  <main>
+    <p class="notice"><strong>Design-study material, not an official FIRST game manual.</strong> Every name, score, and rule on this page is fictional. Each game uses one scoring element and a robot holding limit greater than one.</p>
+
+    <section id="aurora" class="game">
+      <span class="tag">GAME 01 · 4-PIECE CAPACITY</span>
+      <h2>Aurora Array</h2>
+      <p>Alliances fill their private, three-tier ARRAY with AURORA CELLS. Three early ARRAY scores unlock access to a shared center CROWN, producing a choice between fast local cycles and the more valuable contested route.</p>
+      <div class="grid">
+        <div>
+          <h3>Field layout</h3>
+          <p>Nominal field: <strong>690 x 317 in</strong>. Origin is the lower-left corner at the blue ALLIANCE WALL; red features are the 180-degree rotation of blue features. Two SOLAR RAILS create north, center, and south crossing lanes.</p>
+          <div class="chip-row"><span class="chip"><strong>Cell:</strong> 6 in hex puck</span><span class="chip"><strong>Limit:</strong> 4 CELLS</span><span class="chip"><strong>Preload:</strong> up to 2</span></div>
+          <table><thead><tr><th>Landmark</th><th>Blue location / role</th></tr></thead><tbody>
+            <tr><td>ARRAY</td><td>Center `(110, 158)`; 64 x 132 in, private low/mid/high shelves</td></tr>
+            <tr><td>LOADING PORTS</td><td>`(35, 55)` and `(35, 262)`; unlimited alliance supply</td></tr>
+            <tr><td>CROWN</td><td>`(345, 158)`; shared 72 in octagon, 12 total scoring slots</td></tr>
+            <tr><td>SOLAR RAILS</td><td>24 in-wide barriers from `x=245..445` at `y=60` and `y=257`</td></tr>
+            <tr><td>AURORA PAD</td><td>`(68, 158)`; 48 x 72 in ENDGAME platform</td></tr>
+          </tbody></table>
+        </div>
+        <figure class="field-card">
+          <svg viewBox="0 0 690 317" role="img" aria-label="Aurora Array field layout">
+            <rect width="690" height="317" class="wall"/><rect x="12" y="12" width="666" height="293" rx="5" fill="#e9bd78"/>
+            <rect x="22" y="34" width="38" height="42" class="blue zone" stroke="#1573d2"/><rect x="22" y="241" width="38" height="42" class="blue zone" stroke="#1573d2"/>
+            <rect x="630" y="241" width="38" height="42" class="red zone" stroke="#e54b4b"/><rect x="630" y="34" width="38" height="42" class="red zone" stroke="#e54b4b"/>
+            <rect x="78" y="92" width="64" height="132" class="blue zone" stroke="#1573d2"/><rect x="548" y="93" width="64" height="132" class="red zone" stroke="#e54b4b"/>
+            <rect x="245" y="48" width="200" height="24" rx="5" class="obstacle"/><rect x="245" y="245" width="200" height="24" rx="5" class="obstacle"/>
+            <polygon points="345,115 376,133 376,183 345,201 314,183 314,133" class="neutral" stroke="#775500" stroke-width="3"/>
+            <rect x="44" y="122" width="48" height="72" class="blue zone" stroke="#1573d2"/><rect x="598" y="123" width="48" height="72" class="red zone" stroke="#e54b4b"/>
+            <g class="piece"><circle cx="177" cy="87" r="5"/><circle cx="188" cy="102" r="5"/><circle cx="178" cy="118" r="5"/><circle cx="178" cy="199" r="5"/><circle cx="188" cy="216" r="5"/><circle cx="177" cy="231" r="5"/><circle cx="282" cy="92" r="5"/><circle cx="282" cy="158" r="5"/><circle cx="282" cy="225" r="5"/><circle cx="408" cy="92" r="5"/><circle cx="408" cy="158" r="5"/><circle cx="408" cy="225" r="5"/></g>
+            <text x="345" y="18" class="small white">RED ALLIANCE WALL</text><text x="345" y="312" class="small white">BLUE ALLIANCE WALL</text>
+            <text x="110" y="160" class="label">ARRAY</text><text x="580" y="160" class="label">ARRAY</text><text x="345" y="162" class="label">CROWN</text><text x="345" y="63" class="small white">SOLAR RAIL</text><text x="345" y="260" class="small white">SOLAR RAIL</text><text x="42" y="30" class="small">PORTS</text><text x="648" y="30" class="small">PORTS</text><text x="68" y="163" class="small">PAD</text><text x="622" y="163" class="small">PAD</text>
+          </svg>
+          <figcaption class="caption">Custom top-down field diagram. White circles show example loose-CELL staging; the illustrated carpet is not a scale construction drawing.</figcaption>
+        </figure>
+      </div>
+      <h3>Scoring and match rules</h3>
+      <p>Score a CELL when it is fully supported by an ARRAY shelf, or passes through a CROWN window and remains in its catch tray. The CROWN starts locked for each alliance and unlocks permanently when that alliance has scored three ARRAY CELLS. A CROWN attempt while locked scores zero.</p>
+      <table><thead><tr><th>Action</th><th>AUTO</th><th>TELEOP</th><th>Capacity / criteria</th></tr></thead><tbody>
+        <tr><td>ARRAY low / mid / high</td><td>4 / 6 / 9</td><td>2 / 4 / 6</td><td>6 slots per tier, per alliance</td></tr><tr><td>CROWN</td><td>10</td><td>8</td><td>12 shared; at most 6 credited to one alliance</td></tr><tr><td>Leave</td><td>3</td><td>-</td><td>Per ROBOT crossing its starting line in AUTO</td></tr>
+      </tbody></table>
+      <div class="two"><div><h3>Endgame</h3><p>In the final 30 seconds, a fully supported, stationary ROBOT on its own AURORA PAD earns 8 points. Two or three parked ROBOTS earn another 6 points if their bumpers are within the pad boundary.</p></div><div><h3>Bonus RP</h3><ul><li><strong>Radiance:</strong> 30 ARRAY points and one score on every tier.</li><li><strong>Crown:</strong> unlock CROWN and score 4 CROWN CELLS.</li><li><strong>Alignment:</strong> at least 2 parked ROBOTS.</li></ul></div></div>
+      <p class="sim"><strong>StrategySim brief:</strong> Use `aurora_cell`, capacity 4; ARRAY scoring regions with tier capacities; a passive, shared CROWN region; unlimited ports; and floor spawn regions. Add small game-specific checks for the three-score CROWN unlock and per-alliance CROWN cap. Compare 1-, 2-, and 4-CELL intake designs.</p>
+    </section>
+
+    <section id="rivet" class="game">
+      <span class="tag">GAME 02 · 5-PIECE CAPACITY</span>
+      <h2>Rivet Rush</h2>
+      <p>Alliances build their bridge with a single flexible RIVET ring. Low-risk DECK slots score immediately, while an ARCH must be completed in order before it unlocks the contested central SPAN. This is a placement and sequencing game, not a shooting game.</p>
+      <div class="grid">
+        <div><h3>Field layout</h3><p><strong>RIVET:</strong> 4 in foam ring. Holding limit: <strong>5 RIVETs</strong>; preload: up to 3 per ROBOT. The GIRDER blocks the direct central route, while the two neutral RACKS reward decisive trips.</p>
+          <table><thead><tr><th>Landmark</th><th>Blue location / role</th></tr></thead><tbody><tr><td>DECK</td><td>`(155, 78)`; six one-RIVET floor sockets</td></tr><tr><td>ARCH</td><td>`(230, 220)`; lower hooks must be scored before upper hooks</td></tr><tr><td>DEPOT</td><td>`(85, 250)`; unlimited alliance supply</td></tr><tr><td>RACKS</td><td>`(290, 105)` and `(400, 212)`; 12 neutral RIVETs each</td></tr><tr><td>SPAN</td><td>`(345, 158)`; four shared hooks, initially unavailable</td></tr></tbody></table>
+        </div>
+        <figure class="field-card"><svg viewBox="0 0 690 317" role="img" aria-label="Rivet Rush field layout">
+          <rect width="690" height="317" class="wall"/><rect x="12" y="12" width="666" height="293" rx="5" fill="#e9bd78"/>
+          <rect x="89" y="208" width="132" height="34" class="blue zone" stroke="#1573d2"/><rect x="469" y="75" width="132" height="34" class="red zone" stroke="#e54b4b"/>
+          <rect x="185" y="168" width="90" height="46" class="blue zone" stroke="#1573d2"/><rect x="415" y="103" width="90" height="46" class="red zone" stroke="#e54b4b"/>
+          <rect x="65" y="44" width="40" height="46" class="blue zone" stroke="#1573d2"/><rect x="585" y="227" width="40" height="46" class="red zone" stroke="#e54b4b"/>
+          <rect x="300" y="138" width="90" height="41" class="obstacle"/><rect x="242" y="83" width="44" height="44" class="neutral" stroke="#775500" stroke-width="2"/><rect x="404" y="190" width="44" height="44" class="neutral" stroke="#775500" stroke-width="2"/>
+          <rect x="297" y="143" width="96" height="32" class="neutral" stroke="#775500" stroke-width="2"/><g class="piece"><circle cx="129" cy="180" r="5"/><circle cx="145" cy="180" r="5"/><circle cx="161" cy="180" r="5"/><circle cx="177" cy="180" r="5"/><circle cx="193" cy="180" r="5"/><circle cx="209" cy="180" r="5"/></g>
+          <text x="345" y="18" class="small white">RED ALLIANCE WALL</text><text x="345" y="312" class="small white">BLUE ALLIANCE WALL</text><text x="155" y="229" class="label">DECK</text><text x="535" y="96" class="label">DECK</text><text x="230" y="196" class="label">ARCH</text><text x="460" y="130" class="label">ARCH</text><text x="345" y="161" class="label">SPAN</text><text x="345" y="134" class="small white">GIRDER</text><text x="85" y="38" class="small">DEPOT</text><text x="605" y="285" class="small">DEPOT</text><text x="264" y="105" class="small">RACK</text><text x="426" y="212" class="small">RACK</text>
+        </svg><figcaption class="caption">The center SPAN shares four hooks across both alliances; the first alliance to complete its ARCH can deny those slots.</figcaption></figure>
+      </div>
+      <h3>Scoring and match rules</h3><p>A RIVET must remain seated in a socket or captured on a hook. Each ARCH's paired lower hook must be full before its upper hook scores. Completing both lower and both upper hooks completes that alliance's ARCH and unlocks its access to SPAN.</p>
+      <table><thead><tr><th>Action</th><th>AUTO</th><th>TELEOP</th><th>Capacity / criteria</th></tr></thead><tbody><tr><td>DECK</td><td>3</td><td>2</td><td>6 private one-RIVET sockets</td></tr><tr><td>ARCH lower / upper</td><td>6 / 10</td><td>4 / 7</td><td>2 lower and 2 upper private hooks; each upper needs its paired lower</td></tr><tr><td>SPAN</td><td>12</td><td>9</td><td>4 shared hooks, at most 2 per alliance; own ARCH must be complete</td></tr><tr><td>Mobility</td><td>3</td><td>-</td><td>Per ROBOT crossing its starting line in AUTO</td></tr></tbody></table>
+      <div class="two"><div><h3>Endgame</h3><p>A ROBOT raised above its 60 x 42 in alliance-wall LIFT DECK scores 6 points, or 10 if its alliance completed the ARCH. The deck supports two robots; a third sheltered beneath it earns 4 points.</p></div><div><h3>Bonus RP</h3><ul><li><strong>Structure:</strong> complete ARCH and score 3 DECK RIVETs.</li><li><strong>Span:</strong> score 2 SPAN RIVETs.</li><li><strong>Lift:</strong> score 20 ENDGAME points.</li></ul></div></div>
+      <p class="sim"><strong>StrategySim brief:</strong> Use a single `rivet` with capacity 5. Make every socket/hook a capacity-one scoring region. Add a game-specific “blocked until scored” prerequisite for ARCH upper hooks and SPAN. Use unlimited DEPOTs, 36 finite loose RIVETs, and the GIRDER obstacle. Compare batch delivery against early SPAN denial.</p>
+    </section>
+
+    <section id="vector" class="game">
+      <span class="tag">GAME 03 · 2-PIECE CAPACITY</span>
+      <h2>Vector Vault</h2>
+      <p>Alliances choose reliable NEST placement, long-range VAULT shots, or a limited central CORE. It supports an effective low-goal partner while rewarding accuracy, then asks robots to choose between late cycles and a shared endgame traversal bar.</p>
+      <div class="grid">
+        <div><h3>Field layout</h3><p><strong>VECTOR:</strong> 8 in foam disc. Holding limit: <strong>2 VECTORs</strong>; preload: 1 per ROBOT. The VAULT and CORE are passive targets: a released shot scores without the ROBOT entering the target region.</p>
+          <table><thead><tr><th>Landmark</th><th>Blue location / role</th></tr></thead><tbody><tr><td>NEST</td><td>`(92, 158)`; 72 x 58 in low placement target</td></tr><tr><td>VAULT</td><td>`(210, 158)`; 36 x 96 in passive high target</td></tr><tr><td>TRANSFER STATIONS</td><td>`(38, 58)` and `(38, 259)`; unlimited supply</td></tr><tr><td>CORE</td><td>`(345, 158)`; six shared high-value ports</td></tr><tr><td>TRAVERSAL BAR</td><td>`(115, 158)`; 84 x 18 in climbing structure</td></tr></tbody></table>
+        </div>
+        <figure class="field-card"><svg viewBox="0 0 690 317" role="img" aria-label="Vector Vault field layout">
+          <rect width="690" height="317" class="wall"/><rect x="12" y="12" width="666" height="293" rx="5" fill="#e9bd78"/>
+          <rect x="56" y="129" width="72" height="58" class="blue zone" stroke="#1573d2"/><rect x="562" y="130" width="72" height="58" class="red zone" stroke="#e54b4b"/><rect x="192" y="110" width="36" height="96" class="blue zone" stroke="#1573d2"/><rect x="462" y="111" width="36" height="96" class="red zone" stroke="#e54b4b"/>
+          <rect x="17" y="37" width="42" height="42" class="blue zone" stroke="#1573d2"/><rect x="17" y="238" width="42" height="42" class="blue zone" stroke="#1573d2"/><rect x="631" y="238" width="42" height="42" class="red zone" stroke="#e54b4b"/><rect x="631" y="37" width="42" height="42" class="red zone" stroke="#e54b4b"/>
+          <circle cx="300" cy="78" r="14" class="obstacle"/><circle cx="390" cy="239" r="14" class="obstacle"/><polygon points="345,126 373,142 373,174 345,190 317,174 317,142" class="neutral" stroke="#775500" stroke-width="3"/>
+          <rect x="73" y="149" width="84" height="18" class="blue"/><rect x="533" y="150" width="84" height="18" class="red"/><g class="piece"><circle cx="170" cy="75" r="6"/><circle cx="185" cy="85" r="6"/><circle cx="198" cy="97" r="6"/><circle cx="170" cy="242" r="6"/><circle cx="185" cy="232" r="6"/><circle cx="198" cy="220" r="6"/><circle cx="286" cy="130" r="6"/><circle cx="286" cy="158" r="6"/><circle cx="286" cy="186" r="6"/><circle cx="404" cy="130" r="6"/><circle cx="404" cy="158" r="6"/><circle cx="404" cy="186" r="6"/></g>
+          <text x="345" y="18" class="small white">RED ALLIANCE WALL</text><text x="345" y="312" class="small white">BLUE ALLIANCE WALL</text><text x="92" y="162" class="label">NEST</text><text x="598" y="162" class="label">NEST</text><text x="210" y="162" class="label">VAULT</text><text x="480" y="162" class="label">VAULT</text><text x="345" y="162" class="label">CORE</text><text x="115" y="144" class="small">BAR</text><text x="575" y="144" class="small">BAR</text><text x="300" y="55" class="small">POST</text><text x="390" y="270" class="small">POST</text>
+        </svg><figcaption class="caption">The two posts and the CORE base make shot selection and driving lanes materially different from a clear, open field.</figcaption></figure>
+      </div>
+      <h3>Scoring and match rules</h3><p>A VECTOR scores once. NEST discs are deposited in a floor bin; VAULT and CORE discs are launched and caught. CORE ports are covered during AUTO, then open at the beginning of TELEOP. Once an alliance scores its third TELEOP VAULT VECTOR, it receives one 20-second VECTOR BURST: its own VAULT shots score 7 rather than 5 during that window.</p>
+      <table><thead><tr><th>Action</th><th>AUTO</th><th>TELEOP</th><th>Capacity / criteria</th></tr></thead><tbody><tr><td>NEST</td><td>3</td><td>2</td><td>Unlimited private floor-bin deposits</td></tr><tr><td>VAULT</td><td>7</td><td>5 (7 during burst)</td><td>Unlimited private passive target</td></tr><tr><td>CORE</td><td>0 (covered)</td><td>9</td><td>6 shared ports; at most 3 per alliance</td></tr><tr><td>Leave</td><td>3</td><td>-</td><td>Per ROBOT exiting its starting zone in AUTO</td></tr></tbody></table>
+      <div class="two"><div><h3>Endgame</h3><p>A latched ROBOT, fully supported by its TRAVERSAL BAR with wheels off carpet, earns 10 points. Two latched robots earn an extra 6-point synchronized traversal bonus. A robot fully under its bar earns 3 park points.</p></div><div><h3>Bonus RP</h3><ul><li><strong>Velocity:</strong> score 18 AUTO points.</li><li><strong>Precision:</strong> score 5 VAULTs and 1 CORE.</li><li><strong>Traversal:</strong> 2 latched, or 1 latched plus 2 parked.</li></ul></div></div>
+      <p class="sim"><strong>StrategySim brief:</strong> Register `vector` with capacity 2. Use active NEST scoring plus passive VAULT/CORE regions, six capacity-one CORE ports, and an alliance-specific 20-second scoring timer for the burst. Model posts and CORE base as obstacles. Sweep shot reliability, shot time, and climbing time to find whether a specialist shooter or balanced climber wins.</p>
+    </section>
+    <section class="game"><h2>Qualification and source notes</h2><p>Across all three games, a qualification win earns 3 RP, a tie 1 RP, and a loss 0 RP; listed task RPs are qualification-only. The ideas use recurring shapes documented in <a href="../saved_references/FRC_GAME_TRENDS.md">FRC_GAME_TRENDS.md</a>: a 15-second AUTO, 135-second TELEOP, a final-30-second endgame, higher AUTO values, protected areas, finite capacity where it creates strategy, and achievement-based RP. The sectioning follows the practical game-description pattern of the supplied 2024 manual.</p></section>
+  </main>
+  <footer>Hypothetical game-design reference for StrategySim students.</footer>
+</body>
+</html>

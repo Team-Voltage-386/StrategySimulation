@@ -1,0 +1,205 @@
+<title>sparky-sim Student Labs</title>
+
+<!--
+  Step-by-step exercises for students learning the simulator and its code.
+  Built with: python -m apps.build_guide --guide labs
+
+  The screenshots come from live widgets; prose lives here. Each image marks
+  only its next interaction; the tab handbooks document every control.
+  Placeholders: {{SHOT:match}}, {{SHOT:strategy}}, {{SHOT:sweep}}, {{SHOT:regression}},
+  {{NAV}}, {{STYLE}}, {{GENERATED}}.
+-->
+
+{{STYLE}}
+
+<div class="page">
+
+{{NAV}}
+
+<header class="masthead">
+  <p class="eyebrow">sparky-sim &middot; student lab book</p>
+  <h1>Four labs: observe, explain, measure, verify</h1>
+  <p class="standfirst">
+    These are not click-through tutorials. Each lab asks you to make a prediction, gather
+    reproducible evidence, and explain what the simulator did. Work in pairs when possible:
+    one student operates the app while the other keeps the lab record.
+  </p>
+  <p class="standfirst">
+    Do the labs in order the first time. The screenshots are generated from the live UI, so
+    each cyan callout marks only the next control to use. The tab handbooks cover the rest of
+    the UI in full.
+  </p>
+</header>
+
+<main>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><span class="n">0</span><a href="#setup">Before you begin</a></li>
+    <li><span class="n">1</span><a href="#trace">Trace one CORAL cycle</a></li>
+    <li><span class="n">2</span><a href="#sweep">Make and test a cycle-time claim</a></li>
+    <li><span class="n">3</span><a href="#strategy">Make a strategy change and hold it out</a></li>
+    <li><span class="n">4</span><a href="#regression">Read a release regression</a></li>
+  </ol>
+</nav>
+
+<section id="setup">
+  <h2><span class="marker">00</span>Before you begin</h2>
+  <div class="trap">
+    <span class="label">The lab rule</span>
+    <p><strong>Predict before you run.</strong> A good lab record has four headings: prediction,
+      setup, result, and what I would test next. Record strategy names, seeds, repetitions, and
+      every setting you changed. “It looked better” is an observation; it is not yet a result.</p>
+  </div>
+  <ol>
+    <li>Launch the app with <code>run.bat</code>. On the MATCH tab, confirm that the field,
+      roster, and transport bar are visible.</li>
+    <li>Keep the generated tab handbooks nearby. They explain every numbered control in depth;
+      these labs tell you what to do with those controls and what evidence to collect.</li>
+    <li>Use a fresh text file or notebook page per lab. Do not overwrite an example strategy;
+      copy it under a new, descriptive filename first.</li>
+  </ol>
+</section>
+
+<section id="trace">
+  <h2><span class="marker">01</span>Trace one CORAL cycle</h2>
+  <p><strong>Question:</strong> How does one line in a strategy file become a score on the field?</p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:match}}</div>
+    <figcaption>Start here. The MATCH tab is the evidence source for the physical part of a
+      cycle: robot motion, held pieces, events, score, and replay timeline.</figcaption>
+  </figure>
+
+  <h3>Steps</h3>
+  <ol>
+    <li>In the roster/settings panel, set PRIMARY to AI-driven and choose
+      <code>cycle_coral</code>. Click <strong>RESET</strong> after changing either value; staged
+      roster and strategy changes do not alter the match already on the field.</li>
+    <li>Click play. Watch until PRIMARY collects a CORAL, travels toward the REEF, and deposits.
+      Pause immediately after the score/event appears. Write down the match time, score, and
+      whether the deposit succeeded or missed.</li>
+    <li>Drag the transport slider back to just before pickup, then advance through pickup and
+      deposit. Describe three visible state changes: loose piece, held piece, and scored or
+      released piece.</li>
+    <li>Open <code>game_specific/reefscape/strategies/cycle_coral.json</code>. Find the rule that
+      should be active while the robot holds CORAL. Follow its trigger and tactic names into
+      <code>common_sim/control/</code>.</li>
+    <li>Continue the trace into manipulator timing and <code>common_sim/match/match.py</code>.
+      Locate the code that emits the score event. Compare the code path with your timestamped
+      observation.</li>
+  </ol>
+  <p><strong>Expected evidence:</strong> you should be able to draw an arrow chain from strategy
+    JSON &rarr; selected rule/tactic &rarr; navigation/manipulator &rarr; deposit event &rarr;
+    score. If a piece releases but does not score, record the field location and intended action;
+    a release and a score are deliberately separate decisions.</p>
+  <p><strong>Turn in:</strong> one annotated flow diagram naming the files/functions visited and
+    one explanation of why a robot can release a piece without scoring it.</p>
+</section>
+
+<section id="sweep">
+  <h2><span class="marker">02</span>Make and test a cycle-time claim</h2>
+  <p><strong>Question:</strong> Does a faster drivetrain improve the result enough to matter?</p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:sweep}}</div>
+    <figcaption>A completed two-variable sweep. The results table has one row per match; use it
+      to find variation and select an exact replay, not merely the highest score.</figcaption>
+  </figure>
+
+  <h3>Steps</h3>
+  <ol>
+    <li>Before configuring anything, predict the order of results for three PRIMARY speeds:
+      130, 150, and 170. Write one reason the fastest setting might <em>not</em> win.</li>
+    <li>Open SWEEP. Add a variable for PRIMARY <code>max_speed</code> with those three values.
+      Use five or more repetitions and enable variability. Without variability, repeated runs
+      are identical copies, not independent evidence.</li>
+    <li>Keep the strategy and all other robot settings fixed. Check TOTAL RUNS before pressing
+      EXECUTE; write the number in your setup record.</li>
+    <li>When results complete, compare score, pieces scored, and mean cycle time for each speed.
+      Look for spread within a speed before claiming one speed is better.</li>
+    <li>Double-click a representative row (not automatically the best row) or use its context
+      menu to replay it in MATCH. Record its seed and one field event that helps explain its
+      result.</li>
+  </ol>
+  <p><strong>Expected evidence:</strong> a table/plot that separates an effect of speed from
+    match-to-match noise. “170 had the highest single score” is not enough; state what the
+    repeated rows say.</p>
+  <p><strong>Turn in:</strong> your original prediction, the sweep settings, a chart or small
+    summary table, one replay seed, and a conclusion that includes uncertainty.</p>
+</section>
+
+<section id="strategy">
+  <h2><span class="marker">03</span>Make a strategy change and hold it out</h2>
+  <p><strong>Question:</strong> Can one explainable edit improve a strategy without merely fitting luck?</p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:strategy}}</div>
+    <figcaption>The STRATEGY graph shows both the selected rule and a real transition. Use it to
+      verify what the robot actually chose before trusting an aggregate score.</figcaption>
+  </figure>
+
+  <h3>Steps</h3>
+  <ol>
+    <li>Copy an existing strategy JSON to a new filename, such as
+      <code>cycle_coral_lab_name.json</code>. Change exactly one thing: a rule priority,
+      dwell/cooldown, a target action, or the fallback tactic. Write why you expect that change
+      to help.</li>
+    <li>Load the copy in STRATEGY. Select the rule you changed and use the graph to check its
+      trigger and outgoing behavior. Apply the strategy to PRIMARY, return to MATCH, and RESET.</li>
+    <li>Run one match only as a <em>debug observation</em>. Pause/scrub near the intended
+      transition. If it did not happen, fix your explanation before running a comparison.</li>
+    <li>In SWEEP, compare the original and your copy on a first group of seeds. Keep robot,
+      opponent, duration, and variability settings the same for both strategies.</li>
+    <li>Run a second comparison with different seeds. Call this the held-out check: you may
+      choose your edit using the first set, but the second set judges it honestly.</li>
+  </ol>
+  <p><strong>Expected evidence:</strong> the graph/replay confirms the intended transition, and
+    two independent seed sets show whether the result persists. If the first result vanishes on
+    held-out seeds, reject the claim rather than tuning around it.</p>
+  <p><strong>Turn in:</strong> a before/after strategy excerpt, rationale, screenshots or times
+    proving the transition occurred, both seed sets, and one of: keep, reject, or investigate.</p>
+</section>
+
+<section id="regression">
+  <h2><span class="marker">04</span>Read a release regression</h2>
+  <p><strong>Question:</strong> What must stay stable when we refactor the simulator?</p>
+
+  <figure>
+    <div class="shotframe">{{SHOT:regression}}</div>
+    <figcaption>This is the expected terminal output. A PASS means the fixed-seed scenario still
+      matches its protected metrics; it does not mean that a strategy is universally best.</figcaption>
+  </figure>
+
+  <h3>Steps</h3>
+  <ol>
+    <li>From the repository root, run <code>python -m apps.run_regression_scenarios</code>. It
+      should report PASS for <code>single_coral_cycle</code> and <code>cycler_vs_defense</code>.</li>
+    <li>Open <code>game_specific/reefscape/regression_scenarios.py</code>. For each scenario,
+      list its seed, robots, strategies, and protected metrics.</li>
+    <li>Open <code>test/game_specific/test_reefscape_regression_scenarios.py</code>. Explain why
+      the test uses a real field and strategy JSON in addition to the narrower unit tests.</li>
+    <li>Imagine a code change changes the first scenario from 40 to 38 blue points. Do not edit
+      the golden value. First reproduce the scenario, replay the match, identify the changed
+      behavior, and decide whether it is an intended model change, a bug, or still unknown.</li>
+    <li>For a score difference caused only by a broad design comparison, propose a multi-seed
+      SWEEP instead. Fixed-seed regressions protect behavior; they do not prove a strategy is
+      universally best.</li>
+  </ol>
+  <p><strong>Turn in:</strong> a mock regression-review comment that cites one protected metric,
+    names the replay evidence you would seek, and states what would justify updating a golden
+    number.</p>
+</section>
+
+</main>
+
+<footer>
+  <p>{{GENERATED}}</p>
+  <p>Rebuild after any UI change with <code>python -m apps.build_guide --guide labs</code>.
+    The screenshots are generated from live widgets; edit the lab prose in
+    <code>docs/student_labs_template.html</code>.</p>
+  {{NAV}}
+</footer>
+
+</div>

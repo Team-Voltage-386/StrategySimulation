@@ -74,7 +74,7 @@ from common_sim.analysis.param_search import Confirmation, Generation, SearchRes
 from common_sim.analysis.sweep_spec import TrialOutcome                              # noqa: E402
 from common_sim.control import strategy_io, strategy_params                          # noqa: E402
 from gui_utils import theme                                                          # noqa: E402
-from gui_utils.doc_tags import collect_callouts                                      # noqa: E402
+from gui_utils.doc_tags import Callout, collect_callouts                             # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
@@ -269,7 +269,7 @@ def build_shots_search(app):
 
 # -- guide staging: MATCH ------------------------------------------------
 
-def build_shots_match(app):
+def build_shots_match(app, highlight_keys=None):
     """MATCH before and after a second robot joins the roster -- the two
     states that between them touch every panel on the tab."""
     from apps.run_reefscape import MatchView
@@ -279,7 +279,7 @@ def build_shots_match(app):
     _stage(view)
     app.processEvents()
 
-    shots = {"layout": _grab(view)}
+    shots = {"layout": _grab(view, highlight_keys=highlight_keys)}
 
     # `_add_row` is what the (untagged, closure-only) "+ ADD ROBOT" button
     # itself calls -- there is no other handle to it, so this is the same
@@ -293,14 +293,14 @@ def build_shots_match(app):
             row.strategy_combo.setCurrentIndex(index)
     view._reset_match()  # roster edits only take effect on RESET
     app.processEvents()
-    shots["roster"] = _grab(view)
+    shots["roster"] = _grab(view, highlight_keys=highlight_keys)
 
     return shots
 
 
 # -- guide staging: STRATEGY ---------------------------------------------
 
-def build_shots_strategy(app):
+def build_shots_strategy(app, highlight_keys=None):
     """The rule editor and its live graph, side by side as they sit in
     the real STRATEGY tab, with a real strategy loaded so both panels
     have something to show."""
@@ -329,7 +329,7 @@ def build_shots_strategy(app):
     _stage(splitter)
     app.processEvents()
 
-    shots = {"editor": _grab(splitter)}
+    shots = {"editor": _grab(splitter, highlight_keys=highlight_keys)}
 
     # A live-mode moment: the graph glowing on its active rule with one
     # transition already flashed and logged, so "graph" shows what a
@@ -339,7 +339,7 @@ def build_shots_strategy(app):
         graph.set_active_rule(first)
         graph.record_transition(3.4, None, first, "PiecesHeld")
     app.processEvents()
-    shots["graph"] = _grab(splitter)
+    shots["graph"] = _grab(splitter, highlight_keys=highlight_keys)
 
     # `record_transition` leaves a 700ms QTimer running (the flash fading
     # back to a normal pen) that outlives this function's local `graph` --
@@ -371,7 +371,7 @@ def _fake_outcome(index: int, seed: int, params: dict, score: float) -> TrialOut
     return TrialOutcome(index=index, seed=seed, params=params, metrics=metrics, duration_s=3.9)
 
 
-def build_shots_sweep(app):
+def build_shots_sweep(app, highlight_keys=None):
     """SETUP configured with a two-axis grid (a numeric characteristic
     crossed with strategy), then RESULTS and PLOTS populated with
     synthetic-but-representative rows -- no real match is run, so this
@@ -407,7 +407,7 @@ def build_shots_sweep(app):
     strategy_row._on_changed()
     app.processEvents()
 
-    shots = {"setup": _grab(tab)}
+    shots = {"setup": _grab(tab, highlight_keys=highlight_keys)}
 
     columns = [v.column for v in tab.variable_table.variables()]
     tab.results_model.set_columns(columns)
@@ -425,7 +425,7 @@ def build_shots_sweep(app):
     tab.control_panel.set_total_runs(len(outcomes))
     tab.control_panel.set_status(f"Completed {len(outcomes)}/{len(outcomes)} runs.")
     app.processEvents()
-    shots["results"] = _grab(tab)
+    shots["results"] = _grab(tab, highlight_keys=highlight_keys)
 
     # `addTab` reparents its widget into the QTabWidget's internal
     # QStackedWidget, so `.parent()` is one level too shallow -- has to
@@ -443,9 +443,56 @@ def build_shots_sweep(app):
     # called.
     tab.plot_panel._do_redraw()
     app.processEvents()
-    shots["plots"] = _grab(tab)
+    shots["plots"] = _grab(tab, highlight_keys=highlight_keys)
 
     return shots
+
+
+# -- guide staging: STUDENT LABS -----------------------------------------
+
+def build_shots_labs(app):
+    """Four annotated, live UI states used by the step-by-step lab guide.
+
+    Keep this as a composition of the tab-guide staging functions rather
+    than drawing pretend controls.  A lab instruction should show precisely
+    the controls a student will find in the running application, and a UI
+    refactor then updates both the reference guide and the lab guide.
+    """
+    # One callout per image. The tab handbooks deliberately document every
+    # control; lab images are procedural and should point only to the next
+    # interaction in the written step beside them.
+    match = build_shots_match(app, highlight_keys={"ai_primary"})
+    strategy = build_shots_strategy(app, highlight_keys={"apply"})
+    sweep = build_shots_sweep(app, highlight_keys={"execute"})
+    # Lab 4 is command-line on purpose.  Capture a terminal-like panel with
+    # the exact successful output rather than showing an unrelated SEARCH
+    # tab, which would suggest that clicking SEARCH runs release regressions.
+    terminal = QtWidgets.QFrame()
+    terminal.setObjectName("guideTerminal")
+    terminal.setStyleSheet(
+        "QFrame#guideTerminal { background: #05080d; border: 1px solid #173142; }"
+        "QLabel { color: #d6faff; font-family: Consolas; font-size: 15px; padding: 22px; }"
+    )
+    terminal_layout = QtWidgets.QVBoxLayout(terminal)
+    terminal_layout.setContentsMargins(0, 0, 0, 0)
+    terminal_text = QtWidgets.QLabel(
+        "Windows PowerShell\n"
+        "PS C:\\StrategySimulation> python -m apps.run_regression_scenarios\n\n"
+        "PASS single_coral_cycle: A single AI completes repeated CORAL cycles on the real field.\n"
+        "PASS cycler_vs_defense: A cycling robot and an opposing defender share the real field safely.\n\n"
+        "PS C:\\StrategySimulation>"
+    )
+    terminal_text.setWordWrap(True)
+    terminal_layout.addWidget(terminal_text)
+    terminal.resize(1380, 280)
+    _stage(terminal)
+    app.processEvents()
+    return {
+        "match": match["layout"],
+        "strategy": strategy["graph"],
+        "sweep": sweep["results"],
+        "regression": _grab(terminal),
+    }
 
 
 def _select_target(row, label: str) -> None:
@@ -468,8 +515,17 @@ def _stage(widget) -> None:
     widget.show()
 
 
-def _grab(widget):
+def _grab(widget, *, highlight_keys=None):
     callouts = collect_callouts(widget)
+    if highlight_keys is not None:
+        callouts = [callout for callout in callouts if callout.key in highlight_keys]
+        # A lab screenshot can show only one or two selected controls. Renumber
+        # them from 1 so it never has a mysterious badge such as "17" with no
+        # preceding sixteen annotations.
+        callouts = [
+            Callout(number=index, tag=callout.tag, rect=callout.rect)
+            for index, callout in enumerate(callouts, start=1)
+        ]
     return annotate(widget.grab(), callouts), callouts
 
 
@@ -572,6 +628,8 @@ GUIDES = (
               build_shots_sweep),
     GuideSpec("search", "SEARCH", "SEARCH", "guide_template.html", "param_search_guide.html",
               build_shots_search),
+    GuideSpec("labs", "LABS", "STUDENT LABS", "student_labs_template.html", "student_labs_guide.html",
+              build_shots_labs),
 )
 
 

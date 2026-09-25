@@ -26,12 +26,16 @@ import sys
 IMPORT_NAMES = {
     "PyQt5": "PyQt5",
     "pytest": "pytest",
+    "pyntcore": "ntcore",
+    "websocket-client": "websocket",
 }
 
 # Needed to run a match and draw a field. pytest is in requirements.txt
 # for the test suite, not for the app, so a missing one shouldn't stop
-# anybody playing REEFSCAPE.
-NOT_NEEDED_TO_RUN = {"pytest"}
+# anybody playing REEFSCAPE. pyntcore and websocket-client are only needed
+# by the mechanism sandbox (apps/run_mechanism_view.py,
+# apps/run_mechanism_sandbox.py), not the REEFSCAPE viewer.
+NOT_NEEDED_TO_RUN = {"pytest", "pyntcore", "websocket-client"}
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
