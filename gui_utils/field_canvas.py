@@ -201,41 +201,54 @@ class FieldCanvas(QtWidgets.QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        # Explicit fill rather than relying on the QSS background-color
-        # applying -- a bare QWidget subclass with its own paintEvent does
-        # not auto-paint its stylesheet background unless WA_StyledBackground
-        # is set, so this keeps rendering correct even if a host app never
-        # calls theme.apply_app_theme().
-        painter.fillRect(self.rect(), QtGui.QColor(theme.BG_DEEP))
-        self._camera = self._build_camera()
-        scale = self._field_scale()
+        try:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing)
+            # Explicit fill rather than relying on the QSS background-color
+            # applying -- a bare QWidget subclass with its own paintEvent does
+            # not auto-paint its stylesheet background unless WA_StyledBackground
+            # is set, so this keeps rendering correct even if a host app never
+            # calls theme.apply_app_theme().
+            painter.fillRect(self.rect(), QtGui.QColor(theme.BG_DEEP))
+            if self.match is None:
+                # Constructed before the host app's first _reset_match() has run
+                # (see apps/run_reefscape.py's FieldCanvas(None)) -- nothing else
+                # below has a match to read yet, so stop at the background fill
+                # rather than raising out of paintEvent and leaking this painter.
+                return
+            self._camera = self._build_camera()
+            scale = self._field_scale()
 
-        boundary = (
-            (0, 0), (self.match.field.width, 0),
-            (self.match.field.width, self.match.field.height), (0, self.match.field.height),
-        )
-        painter.setPen(QtGui.QPen(QtGui.QColor(theme.BORDER), 2))
-        painter.setBrush(QtGui.QColor(19, 42, 39) if self._camera is not None else Qt.NoBrush)
-        painter.drawPolygon(self._polygon(boundary, scale))
-        if self._camera is not None:
-            self._draw_driver_carpet_markings(painter, scale)
-            self._draw_driver_side_walls(painter)
+            boundary = (
+                (0, 0), (self.match.field.width, 0),
+                (self.match.field.width, self.match.field.height), (0, self.match.field.height),
+            )
+            painter.setPen(QtGui.QPen(QtGui.QColor(theme.BORDER), 2))
+            painter.setBrush(QtGui.QColor(19, 42, 39) if self._camera is not None else Qt.NoBrush)
+            painter.drawPolygon(self._polygon(boundary, scale))
+            if self._camera is not None:
+                self._draw_driver_carpet_markings(painter, scale)
+                self._draw_driver_side_walls(painter)
 
-        self._draw_scoring_regions(painter, scale)
-        self._draw_intake_locations(painter, scale)
-        self._draw_emitter_regions(painter, scale)
-        self._draw_protected_zones(painter, scale)
-        self._draw_field_visuals(painter, scale)
-        self._draw_obstacles(painter, scale)
-        self._draw_region_piece_counts(painter, scale)
-        self._draw_pieces(painter, scale)
-        self._draw_robots(painter, scale)
-        self._draw_intent_overlay(painter, scale)
-        self._draw_hud(painter)
-        if self._camera is not None:
-            self._draw_driver_scoreboard(painter)
-        painter.end()
+            self._draw_scoring_regions(painter, scale)
+            self._draw_intake_locations(painter, scale)
+            self._draw_emitter_regions(painter, scale)
+            self._draw_protected_zones(painter, scale)
+            self._draw_field_visuals(painter, scale)
+            self._draw_obstacles(painter, scale)
+            self._draw_region_piece_counts(painter, scale)
+            self._draw_pieces(painter, scale)
+            self._draw_robots(painter, scale)
+            self._draw_intent_overlay(painter, scale)
+            self._draw_hud(painter)
+            if self._camera is not None:
+                self._draw_driver_scoreboard(painter)
+        finally:
+            # Always closed, even if a _draw_* call above raises -- an open
+            # QPainter left dangling past a failed paintEvent is what produces
+            # Qt's "QBackingStore::endPaint() called with active painter" /
+            # "QPaintDevice: Cannot destroy paint device that is being painted"
+            # warnings on the next repaint or resize.
+            painter.end()
 
     def _polygon(self, vertices, scale: float) -> QtGui.QPolygonF:
         poly = QtGui.QPolygonF()
